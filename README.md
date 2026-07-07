@@ -70,13 +70,16 @@ then. It is safe to store anywhere because it is encrypted, but if you lose it
   set it up. It talks to the app only on `127.0.0.1`, protected by a pairing
   token, and only while the app is open and unlocked.
 
+- **Android app** *(Bonus #4)* — a Flutter app in [`android_app/`](android_app/)
+  that opens the **exact same encrypted vault file** (verified byte‑for‑byte in
+  both directions). Download the APK from the repo's **Releases** page.
+
 ## What's coming next (planned)
 
-1. **Android app** — built to open this exact same encrypted vault file.
-2. **LAN auto‑sync** — when your PC and phone are on the same home WiFi, their
+1. **LAN auto‑sync** — when your PC and phone are on the same home WiFi, their
    vaults merge automatically and privately. *(Bonus #5.)*
-3. **Linux**, and **iOS** if a family member needs it.
-4. Convenience: system‑tray background mode and a one‑click installer.
+2. **Linux**, and **iOS** if a family member needs it.
+3. Convenience: system‑tray background mode and a one‑click installer.
 
 The vault file format is documented in [`VAULT_FORMAT.md`](VAULT_FORMAT.md) so
 every future app can read and write the same file.

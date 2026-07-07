@@ -1,0 +1,49 @@
+{
+  "content_version": 1,
+  "device_id": "fixture-device",
+  "updated_at": 1700000000.0,
+  "entries": [
+    {
+      "id": "id-1",
+      "title": "Netflix",
+      "website": "netflix.com",
+      "username": "ahmed",
+      "email": "",
+      "password": "N3tfl!x-pw",
+      "region": "",
+      "age": "",
+      "gender": "",
+      "phone": "",
+      "notes": "unicode: café ☕",
+      "custom": {
+        "pin": "1234"
+      },
+      "password_policy": {
+        "length": 16
+      },
+      "created_at": 1700000000.0,
+      "updated_at": 1700000000.0,
+      "deleted": false
+    },
+    {
+      "id": "id-2",
+      "title": "GitHub",
+      "website": "github.com",
+      "username": "amk",
+      "email": "a@b.com",
+      "password": "Zzz9!zzz",
+      "region": "",
+      "age": "",
+      "gender": "",
+      "phone": "",
+      "notes": "",
+      "custom": {},
+      "password_policy": {
+        "length": 20
+      },
+      "created_at": 1700000000.0,
+      "updated_at": 1700000000.0,
+      "deleted": false
+    }
+  ]
+}

@@ -7,6 +7,10 @@ vault.dat
 vault.dat.tmp
 *.tmp
 
+# ...but DO keep the cross-language test vector (a throwaway vault whose
+# password is published in test_fixtures/README — safe to commit).
+!android_app/test_fixtures/fixture_vault.dat
+
 # Python
 .venv/
 venv/

@@ -1,0 +1,17 @@
+{
+  "magic": "MYVAULT",
+  "version": 1,
+  "kdf": {
+    "algo": "scrypt",
+    "n": 32768,
+    "r": 8,
+    "p": 1,
+    "dklen": 32,
+    "salt": "A1G63zcUHhsmEkW0aeQwdw=="
+  },
+  "cipher": {
+    "algo": "AES-256-GCM",
+    "nonce": "3VssFHy0ZSm1H8x0",
+    "data": "wUH4sdXbkMQovOD2DnGlytIeFFZF4UoWZHRuDafvaZxOFjxlfcCfWo0lxmx42WkHdjaN1G3TLfd/YWAUsIQz/qdqJWhNIjGztNX8Y6Mb2cGRqGhy9BH+VXUHAYf5mssM1/GhfVxlLm4g0X2CzoVUXl1ymYngmcq/WzrK7Qfiyek1+Z23pLhmGq8wvvJevPunrP8MXEacVtBxyaPBBR8RGXoT6gONwSp7NKjui1EvFdMZvLdgK/CHXvCJ/2Vzw4BgVe4djEWgn9Nlmrn4ijW0lJVz+K2m2H4bYFz2MepOvadKF77KSiYHKy+LTpPH1CGELg+zxgMHbOvKTu2z4Bj7ML+1sMFYKAvPXFnwj+o+syHnwvIso47RY5NshOxda5sGs7FD6sXG7H4MaaorucRL4c9XJhTafP2VyNzz+rZohymvoLtplPXN67t22HrdfxzC1kQrEcsOb4GFFtWpM06jRk3Y80K/lnO8GSAjdEX3q6pJ4yUcrPYhhOAuB7NDnnpacRxD1KG8ocSeknr17VtZHps6TaPwTYy+GIV8ma0yecEUVZUQtJx6KH739HezMp9SO5Ka+NhEDva7gP9pEf18Nl1P7kAX3JTM3V6i6Fgsi3AoWIiXCBLEdJ5yumxbEG1a7Lh0uY+UmjCnbrUAPHrW3FzD54NscER4dOm0OXv5dXvnZOwgbhUzUSEXPJhE9zdrb6O/agRX9WJu3nZ1fDbqhavoiLeTytLzUENos3R/pXDo9mLLuGqMmwWvV+rVsSs9IojVB5yvTQODzosY0LQSnYNZSsjlCcZIQIxA7M+o4cIJP28inim36JmNlu5Z05Wsbth6531vZuNoRQxL02ot2Ks4sE0vxW2jhFVxUE9NJSgjubehJwNMjM2j8GZsA+HntyKvs7dZRfVSSAl0Fiuf0oyWKs2lEXsDKGcw3k8HE8p211xzBHfX28gldsAnDHGF010wA8SBZ4ssW7TtHOrE9tFoauX8UHU2x+QESYGWApjfgEXuGsn3Zl8izi6XVA3DFA=="
+  }
+}
