@@ -64,15 +64,19 @@ then. It is safe to store anywhere because it is encrypted, but if you lose it
 - **Copy** username / email / password to the clipboard; the clipboard
   auto‑clears after 30 seconds.
 - **Auto‑locks** itself after 5 minutes of inactivity.
+- **Browser auto‑fill & capture** *(Bonus #1 & #2)* — a companion extension for
+  Comet/Chrome/Edge fills website logins from MyVault and offers to save new ones
+  you type. See [`browser-extension/README.md`](browser-extension/README.md) to
+  set it up. It talks to the app only on `127.0.0.1`, protected by a pairing
+  token, and only while the app is open and unlocked.
 
 ## What's coming next (planned)
 
-1. **Auto‑fill & capture** — a companion browser add‑on that fills website
-   fields from MyVault and offers to save new logins you type. *(Bonus #1 & #2.)*
-2. **Android app** — built to open this exact same encrypted vault file.
-3. **LAN auto‑sync** — when your PC and phone are on the same home WiFi, their
+1. **Android app** — built to open this exact same encrypted vault file.
+2. **LAN auto‑sync** — when your PC and phone are on the same home WiFi, their
    vaults merge automatically and privately. *(Bonus #5.)*
-4. **Linux**, and **iOS** if a family member needs it.
+3. **Linux**, and **iOS** if a family member needs it.
+4. Convenience: system‑tray background mode and a one‑click installer.
 
 The vault file format is documented in [`VAULT_FORMAT.md`](VAULT_FORMAT.md) so
 every future app can read and write the same file.

@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    :root { --fg:#111; --muted:#666; --line:#ccc; }
+    * { box-sizing: border-box; font-family: Segoe UI, Arial, sans-serif; }
+    body { width: 300px; margin: 0; padding: 12px; color: var(--fg); background: #fff; }
+    h1 { font-size: 15px; margin: 0 0 2px; }
+    .status { font-size: 12px; margin-bottom: 10px; }
+    .dot { font-size: 12px; }
+    .ok { color: #0a7d00; } .bad { color: #a00000; }
+    .item { border: 1px solid var(--line); padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+    .item .t { font-size: 13px; } .item .s { font-size: 11px; color: var(--muted); }
+    button { border: 1px solid var(--fg); background: #fff; color: var(--fg); padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    button.primary { background: var(--fg); color: #fff; }
+    button:hover { background: #333; color: #fff; }
+    .empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
+    hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
+    .gen { display: flex; gap: 6px; align-items: center; }
+    input { border: 1px solid var(--line); padding: 4px 6px; font-family: Consolas, monospace; font-size: 12px; }
+    #genout { flex: 1; }
+    .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+    a { color: var(--fg); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>MyVault</h1>
+  <div class="status" id="status"><span class="dot">…</span> checking…</div>
+
+  <div id="matches"></div>
+
+  <hr>
+  <div class="gen">
+    <label style="font-size:12px;">Length</label>
+    <input id="genlen" type="number" min="6" max="64" value="16" style="width:56px;">
+    <button id="gengo">Generate</button>
+  </div>
+  <div class="row">
+    <input id="genout" readonly placeholder="generated password">
+    <button id="gencopy">Copy</button>
+  </div>
+
+  <hr>
+  <a href="#" id="opts">Settings / pairing token</a>
+  <script src="popup.js"></script>
+</body>
+</html>

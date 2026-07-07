@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from myvault import crypto
+from myvault import crypto, webmatch
 from myvault.generator import PasswordPolicy, generate
 from myvault.vault import Vault, Entry
 
@@ -107,6 +107,22 @@ def test_change_password():
         else:
             raise AssertionError("old password should be invalid")
         assert Vault.open(path, "new-longer-pass").active_entries()[0].title == "X"
+
+
+def test_webmatch_normalize():
+    assert webmatch.normalize_host("https://www.Netflix.com/login") == "netflix.com"
+    assert webmatch.normalize_host("netflix.com") == "netflix.com"
+    assert webmatch.normalize_host("accounts.google.com") == "accounts.google.com"
+    assert webmatch.normalize_host("") == ""
+
+
+def test_webmatch_hosts_match():
+    assert webmatch.hosts_match("www.netflix.com", "netflix.com")
+    assert webmatch.hosts_match("accounts.google.com", "google.com")
+    assert webmatch.hosts_match("google.com", "accounts.google.com")
+    assert not webmatch.hosts_match("netflix.com", "netflixx.com")
+    assert not webmatch.hosts_match("evil-netflix.com", "netflix.com")
+    assert not webmatch.hosts_match("gmail.com", "netflix.com")
 
 
 def _run_all():

@@ -2,16 +2,19 @@
 The MyVault desktop window (Tkinter).
 
 Design goals: black-and-white, plain, low memory, keyboard-friendly.
-Nothing here talks to the network. The only file touched is your encrypted vault.
+The vault itself never touches the network. The optional browser connector
+(see server.py) listens only on 127.0.0.1 and only while the app is unlocked.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
 
-from . import crypto, paths
+from . import crypto, paths, config, server, webmatch
 from .vault import Vault, Entry
 from .generator import PasswordPolicy, generate, strength_label
 
@@ -278,6 +281,96 @@ class LockScreen(ttk.Frame):
 
 
 # =========================================================================
+#  Browser connector setup dialog
+# =========================================================================
+class BrowserConnectDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("Browser auto-fill")
+        self.configure(bg=BG)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        cfg = config.load()
+        running = bool(parent.connector and parent.connector.running)
+        ext_path = Path(__file__).resolve().parent.parent / "browser-extension"
+
+        frm = ttk.Frame(self, padding=16)
+        frm.grid(sticky="nsew")
+
+        ttk.Label(frm, text="Browser auto-fill", style="Title.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        status = "● Connector running" if running else "● Connector NOT running"
+        color = "#0a7d00" if running else "#a00000"
+        ttk.Label(frm, text=f"{status}  (127.0.0.1 : {cfg['port']})",
+                  foreground=color, background=BG).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(2, 12))
+
+        steps = (
+            "One-time setup:\n"
+            "1. Open your browser and go to the Extensions page\n"
+            "     (Comet/Chrome: menu → Extensions → Manage Extensions).\n"
+            "2. Turn ON “Developer mode” (top-right).\n"
+            "3. Click “Load unpacked” and choose the folder shown below.\n"
+            "4. Open the MyVault extension's Options and paste the pairing\n"
+            "     token below, then click “Save & test”.\n\n"
+            "After that: on any login page, the extension offers to fill from\n"
+            "MyVault, and offers to save new logins you type. Auto-fill only\n"
+            "works while this app is open and unlocked."
+        )
+        ttk.Label(frm, text=steps, style="Muted.TLabel", justify="left").grid(
+            row=2, column=0, columnspan=2, sticky="w")
+
+        ttk.Label(frm, text="Extension folder", style="Muted.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(12, 0))
+        path_var = tk.StringVar(value=str(ext_path))
+        ttk.Entry(frm, textvariable=path_var, font=FONT_MONO, state="readonly",
+                  width=54).grid(row=4, column=0, sticky="ew")
+        ttk.Button(frm, text="Copy", width=6,
+                   command=lambda: self._copy(str(ext_path))).grid(row=4, column=1, padx=(6, 0))
+
+        ttk.Label(frm, text="Pairing token", style="Muted.TLabel").grid(
+            row=5, column=0, sticky="w", pady=(10, 0))
+        self.tok_var = tk.StringVar(value=cfg["token"])
+        ttk.Entry(frm, textvariable=self.tok_var, font=FONT_MONO, state="readonly",
+                  width=54).grid(row=6, column=0, sticky="ew")
+        ttk.Button(frm, text="Copy", width=6,
+                   command=lambda: self._copy(cfg["token"])).grid(row=6, column=1, padx=(6, 0))
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=7, column=0, columnspan=2, sticky="e", pady=(16, 0))
+        ttk.Button(btns, text="Regenerate token", command=self._regen).pack(side="left")
+        ttk.Button(btns, text="Close", style="Accent.TButton",
+                   command=self.destroy).pack(side="left", padx=(6, 0))
+
+        self.status = ttk.Label(frm, text="", style="Muted.TLabel")
+        self.status.grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        frm.columnconfigure(0, weight=1)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _copy(self, value: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(value)
+        self.status.config(text="Copied to clipboard.")
+
+    def _regen(self) -> None:
+        if not messagebox.askyesno(
+                "Regenerate token",
+                "Make a new pairing token? You'll need to paste the new token into\n"
+                "the browser extension again. Do this if you think the token leaked.",
+                parent=self):
+            return
+        cfg = config.regenerate_token()
+        self.tok_var.set(cfg["token"])
+        # Restart connector with the new token.
+        self.parent._stop_connector()
+        self.parent._start_connector()
+        self.status.config(text="New token generated. Re-paste it into the extension.")
+
+
+# =========================================================================
 #  Main application
 # =========================================================================
 class MyVaultApp(tk.Tk):
@@ -294,6 +387,12 @@ class MyVaultApp(tk.Tk):
         self._clip_value: str | None = None
         self._dirty = False
         self._last_activity = 0.0
+
+        # Browser connector (started on unlock). Guards vault writes so the
+        # connector thread and the UI never save at the same time.
+        self.connector: server.Connector | None = None
+        self._vault_lock = threading.Lock()
+        self._pending_refresh = threading.Event()
 
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
@@ -382,11 +481,14 @@ class MyVaultApp(tk.Tk):
             self.bind_all(seq, self._mark_activity)
         self._mark_activity()
         self._schedule_autolock()
+        self._start_connector()
+        self._poll_connector()
 
     def _build_menu(self) -> None:
         menubar = tk.Menu(self)
         m = tk.Menu(menubar, tearoff=0)
         m.add_command(label="Change master password", command=self._change_master)
+        m.add_command(label="Browser auto-fill…", command=self._browser_dialog)
         m.add_command(label="Lock", command=self._lock_now)
         m.add_separator()
         m.add_command(label="Where is my vault file?", command=self._show_location)
@@ -549,10 +651,11 @@ class MyVaultApp(tk.Tk):
                                    "Give the entry at least a title, website, or username.")
             return
         try:
-            if is_new:
-                self.vault.add(self.current)
-            else:
-                self.vault.update(self.current)
+            with self._vault_lock:
+                if is_new:
+                    self.vault.add(self.current)
+                else:
+                    self.vault.update(self.current)
         except OSError as exc:
             messagebox.showerror("Could not save", f"Failed to write the vault file:\n{exc}")
             return
@@ -565,7 +668,8 @@ class MyVaultApp(tk.Tk):
         if not messagebox.askyesno("Delete entry",
                                    f"Delete “{self.current.display_name()}”?\nThis cannot be undone."):
             return
-        self.vault.delete(self.current.id)
+        with self._vault_lock:
+            self.vault.delete(self.current.id)
         self._refresh_list()
         self._show_empty_form()
 
@@ -627,6 +731,7 @@ class MyVaultApp(tk.Tk):
         self._schedule_autolock()
 
     def _lock_now(self) -> None:
+        self._stop_connector()
         self.config(menu=tk.Menu(self))
         self._show_lock()
 
@@ -644,7 +749,8 @@ class MyVaultApp(tk.Tk):
         if confirm != new:
             messagebox.showwarning("Mismatch", "The passwords did not match.")
             return
-        self.vault.change_password(new)
+        with self._vault_lock:
+            self.vault.change_password(new)
         messagebox.showinfo("Done", "Master password changed.")
 
     def _show_location(self) -> None:
@@ -662,7 +768,107 @@ class MyVaultApp(tk.Tk):
             "Keep a backup of your vault file and never forget your master password.")
 
     def _on_close(self) -> None:
+        self._stop_connector()
         self.destroy()
+
+    # ---- browser connector ----------------------------------------------
+    def _start_connector(self) -> None:
+        cfg = config.load()
+        if not cfg.get("enabled", True):
+            return
+        try:
+            self.connector = server.Connector(self, cfg["token"], int(cfg["port"]))
+            self.connector.start()
+        except OSError:
+            # Port busy or blocked — auto-fill just won't be available; the app
+            # keeps working normally. Surfaced in the Browser auto-fill dialog.
+            self.connector = None
+
+    def _stop_connector(self) -> None:
+        if self.connector is not None:
+            self.connector.stop()
+            self.connector = None
+
+    def _poll_connector(self) -> None:
+        # The connector runs in another thread; it flags when it changed the
+        # vault so the main thread can safely refresh the list.
+        if self.vault is None:
+            return
+        if self._pending_refresh.is_set():
+            self._pending_refresh.clear()
+            self._refresh_list()
+        self.after(700, self._poll_connector)
+
+    # -- provider API called by server.py (from the connector thread) --
+    def is_unlocked(self) -> bool:
+        return self.vault is not None
+
+    def match(self, domain: str) -> list[dict]:
+        if self.vault is None:
+            return []
+        out = []
+        for e in self.vault.active_entries():
+            if any(webmatch.hosts_match(domain, h) for h in webmatch.entry_hosts(e)):
+                out.append({
+                    "id": e.id,
+                    "title": e.display_name(),
+                    "username": e.username,
+                    "email": e.email,
+                    "password": e.password,
+                })
+        return out
+
+    def save(self, cred: dict) -> dict:
+        if self.vault is None:
+            return {"ok": False, "error": "locked"}
+        domain = webmatch.normalize_host(cred.get("domain") or cred.get("url") or "")
+        login = (cred.get("username") or cred.get("email") or "").strip()
+        password = cred.get("password") or ""
+        if not password:
+            return {"ok": False, "error": "no password"}
+
+        with self._vault_lock:
+            # Find an existing entry for this site + same login to update.
+            target = None
+            for e in self.vault.active_entries():
+                same_site = any(webmatch.hosts_match(domain, h) for h in webmatch.entry_hosts(e))
+                same_login = login and login in (e.username, e.email)
+                if same_site and (same_login or not login):
+                    target = e
+                    break
+
+            if target is None:
+                entry = Entry(
+                    title=domain or cred.get("title") or login,
+                    website=domain,
+                    username=cred.get("username", "") or "",
+                    email=cred.get("email", "") or "",
+                    password=password,
+                )
+                self.vault.add(entry)
+                action, entry_id = "created", entry.id
+            elif target.password != password:
+                target.password = password
+                if cred.get("username") and not target.username:
+                    target.username = cred["username"]
+                if cred.get("email") and not target.email:
+                    target.email = cred["email"]
+                self.vault.update(target)
+                action, entry_id = "updated", target.id
+            else:
+                action, entry_id = "unchanged", target.id
+
+        self._pending_refresh.set()
+        return {"ok": True, "action": action, "id": entry_id}
+
+    def generate(self, policy: dict | None) -> str:
+        try:
+            return generate(PasswordPolicy.from_dict(policy))
+        except ValueError:
+            return generate(PasswordPolicy())
+
+    def _browser_dialog(self) -> None:
+        BrowserConnectDialog(self)
 
 
 def run() -> None:

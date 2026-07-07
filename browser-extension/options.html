@@ -1,0 +1,42 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MyVault settings</title>
+  <style>
+    * { box-sizing: border-box; font-family: Segoe UI, Arial, sans-serif; }
+    body { max-width: 520px; margin: 30px auto; padding: 0 16px; color: #111; }
+    h1 { font-size: 18px; }
+    p { font-size: 13px; color: #444; line-height: 1.5; }
+    label { display: block; font-size: 12px; color: #666; margin: 14px 0 4px; }
+    input, textarea { width: 100%; border: 1px solid #ccc; padding: 8px; font-family: Consolas, monospace; font-size: 13px; }
+    textarea { height: 60px; resize: vertical; }
+    .port { width: 120px; }
+    button { border: 1px solid #111; background: #111; color: #fff; padding: 8px 16px; font-size: 13px; cursor: pointer; margin-top: 14px; }
+    button.sec { background: #fff; color: #111; margin-left: 6px; }
+    #msg { margin-top: 12px; font-size: 13px; }
+    .ok { color: #0a7d00; } .bad { color: #a00000; }
+    code { background: #f2f2f2; padding: 1px 4px; }
+  </style>
+</head>
+<body>
+  <h1>MyVault — pair with the app</h1>
+  <p>Open the MyVault desktop app, choose <b>Menu → Browser auto-fill…</b>, copy the
+     <b>pairing token</b>, and paste it here. The token lets this extension talk to the
+     app on your own computer only (<code>127.0.0.1</code>). Keep it secret.</p>
+
+  <label>Pairing token</label>
+  <textarea id="token" placeholder="paste the token from the app"></textarea>
+
+  <label>Port (leave as 8787 unless you changed it)</label>
+  <input id="port" class="port" type="number" value="8787">
+
+  <div>
+    <button id="save">Save &amp; test</button>
+    <button id="test" class="sec">Test connection</button>
+  </div>
+  <div id="msg"></div>
+
+  <script src="options.js"></script>
+</body>
+</html>
