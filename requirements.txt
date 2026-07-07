@@ -1,0 +1,3 @@
+# MyVault dependencies.
+# Tkinter and sqlite come bundled with Python — no need to list them.
+cryptography>=42

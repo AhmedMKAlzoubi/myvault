@@ -1,0 +1,24 @@
+# --- Never commit secrets or the vault itself ---
+# (The vault lives in your user profile, not here, but just in case.)
+# Note: patterns are kept specific so docs like VAULT_FORMAT.md are NOT ignored.
+*.dat
+*.vault
+vault.dat
+vault.dat.tmp
+*.tmp
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+build/
+dist/
+*.egg-info/
+
+# OS / editor junk
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
