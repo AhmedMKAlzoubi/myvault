@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
 
-from . import crypto, paths, config, server, webmatch
+from . import crypto, paths, config, server, webmatch, sync
 from .vault import Vault, Entry
 from .generator import PasswordPolicy, generate, strength_label
 
@@ -371,6 +371,90 @@ class BrowserConnectDialog(tk.Toplevel):
 
 
 # =========================================================================
+#  LAN sync dialog
+# =========================================================================
+class LanSyncDialog(tk.Toplevel):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.title("LAN sync")
+        self.configure(bg=BG)
+        self.resizable(False, False)
+        self.transient(parent)
+        self.grab_set()
+
+        running = parent.sync_service is not None
+        ip = sync.local_ip()
+
+        frm = ttk.Frame(self, padding=16)
+        frm.grid(sticky="nsew")
+        ttk.Label(frm, text="Sync over your WiFi", style="Title.TLabel").grid(
+            row=0, column=0, columnspan=2, sticky="w")
+        status = "● Sync running" if running else "● Sync NOT running"
+        ttk.Label(frm, text=f"{status}   —   this PC is {ip} : {sync.SYNC_PORT}",
+                  foreground=("#0a7d00" if running else "#a00000"), background=BG).grid(
+            row=1, column=0, columnspan=2, sticky="w", pady=(2, 12))
+
+        info = (
+            "How it works:\n"
+            "• Open MyVault on BOTH devices, on the SAME home WiFi, each unlocked\n"
+            "   with the SAME master password.\n"
+            "• They find each other automatically and merge — newest change to\n"
+            "   each entry wins, and deletions carry across. Nothing leaves your\n"
+            "   network; the exchange is encrypted with your master password.\n\n"
+            "If they don't find each other automatically (some routers block that),\n"
+            "type the other device's address below and sync manually."
+        )
+        ttk.Label(frm, text=info, style="Muted.TLabel", justify="left").grid(
+            row=2, column=0, columnspan=2, sticky="w")
+
+        ttk.Label(frm, text="Other device address (optional)", style="Muted.TLabel").grid(
+            row=3, column=0, sticky="w", pady=(12, 0))
+        self.host_var = tk.StringVar()
+        ttk.Entry(frm, textvariable=self.host_var, font=FONT_MONO, width=28).grid(
+            row=4, column=0, sticky="ew")
+        ttk.Button(frm, text="Sync with address",
+                   command=lambda: self._sync_now(self.host_var.get().strip())).grid(
+            row=4, column=1, padx=(6, 0))
+
+        btns = ttk.Frame(frm)
+        btns.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(16, 0))
+        ttk.Button(btns, text="Sync now (auto-find)", style="Accent.TButton",
+                   command=lambda: self._sync_now(None)).pack(side="left")
+        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
+
+        self.status = ttk.Label(frm, text=self._last_text(), style="Muted.TLabel",
+                                wraplength=360, justify="left")
+        self.status.grid(row=6, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        frm.columnconfigure(0, weight=1)
+        self.bind("<Escape>", lambda _e: self.destroy())
+
+    def _last_text(self) -> str:
+        r = self.parent._last_sync
+        if not r:
+            return "No sync yet this session."
+        if r.ok:
+            return f"Last sync ✓ with {r.peer}: {r.added_or_updated} entries updated."
+        return f"Last attempt: {r.error}"
+
+    def _sync_now(self, host: str | None) -> None:
+        if self.parent.sync_service is None:
+            self.status.config(text="Sync is turned off or the port is busy.")
+            return
+        self.status.config(text="Syncing…")
+
+        def work():
+            res = self.parent.sync_service.sync_now(host or None)
+            self.parent.after(0, self._after_sync)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _after_sync(self) -> None:
+        if self.winfo_exists():
+            self.status.config(text=self._last_text())
+
+
+# =========================================================================
 #  Main application
 # =========================================================================
 class MyVaultApp(tk.Tk):
@@ -393,6 +477,10 @@ class MyVaultApp(tk.Tk):
         self.connector: server.Connector | None = None
         self._vault_lock = threading.Lock()
         self._pending_refresh = threading.Event()
+
+        # LAN sync (started on unlock).
+        self.sync_service: sync.SyncService | None = None
+        self._last_sync: sync.SyncResult | None = None
 
         self.container = ttk.Frame(self)
         self.container.pack(fill="both", expand=True)
@@ -482,6 +570,7 @@ class MyVaultApp(tk.Tk):
         self._mark_activity()
         self._schedule_autolock()
         self._start_connector()
+        self._start_sync()
         self._poll_connector()
 
     def _build_menu(self) -> None:
@@ -489,6 +578,7 @@ class MyVaultApp(tk.Tk):
         m = tk.Menu(menubar, tearoff=0)
         m.add_command(label="Change master password", command=self._change_master)
         m.add_command(label="Browser auto-fill…", command=self._browser_dialog)
+        m.add_command(label="LAN sync…", command=self._sync_dialog)
         m.add_command(label="Lock", command=self._lock_now)
         m.add_separator()
         m.add_command(label="Where is my vault file?", command=self._show_location)
@@ -732,6 +822,7 @@ class MyVaultApp(tk.Tk):
 
     def _lock_now(self) -> None:
         self._stop_connector()
+        self._stop_sync()
         self.config(menu=tk.Menu(self))
         self._show_lock()
 
@@ -769,7 +860,56 @@ class MyVaultApp(tk.Tk):
 
     def _on_close(self) -> None:
         self._stop_connector()
+        self._stop_sync()
         self.destroy()
+
+    # ---- LAN sync --------------------------------------------------------
+    def _start_sync(self) -> None:
+        cfg = config.load()
+        if not cfg.get("sync_enabled", True):
+            return
+        try:
+            self.sync_service = sync.SyncService(self, on_result=self._on_sync_result)
+            self.sync_service.start()
+        except OSError:
+            self.sync_service = None   # port busy; sync just unavailable
+
+    def _stop_sync(self) -> None:
+        if self.sync_service is not None:
+            self.sync_service.stop()
+            self.sync_service = None
+
+    def _on_sync_result(self, result: sync.SyncResult) -> None:
+        # Called from a sync thread. Record it and ask the UI to refresh the list.
+        self._last_sync = result
+        if result.ok and result.added_or_updated:
+            self._pending_refresh.set()
+
+    # -- SyncProvider API (called from sync threads) --
+    def get_password(self) -> str:
+        return self.vault._password if self.vault else ""
+
+    def get_entries(self) -> list[dict]:
+        if self.vault is None:
+            return []
+        with self._vault_lock:
+            return [e.to_dict() for e in self.vault.entries]
+
+    def apply_merged(self, merged: list[dict]) -> int:
+        if self.vault is None:
+            return 0
+        with self._vault_lock:
+            before = {e.id: e.updated_at for e in self.vault.entries}
+            self.vault.entries = [Entry.from_dict(d) for d in merged]
+            self.vault.save()
+            return sum(1 for e in self.vault.entries
+                       if before.get(e.id) is None or e.updated_at > before[e.id])
+
+    def device_id(self) -> str:
+        return self.vault.device_id if self.vault else ""
+
+    def _sync_dialog(self) -> None:
+        LanSyncDialog(self)
 
     # ---- browser connector ----------------------------------------------
     def _start_connector(self) -> None:

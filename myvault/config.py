@@ -41,6 +41,9 @@ def load() -> dict:
     if "enabled" not in data:
         data["enabled"] = True
         changed = True
+    if "sync_enabled" not in data:
+        data["sync_enabled"] = True
+        changed = True
     if changed:
         save(data)
     return data

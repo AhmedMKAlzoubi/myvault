@@ -1,6 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- LAN sync needs local network sockets. No other network access is used. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="myvault"
+        android:label="MyVault"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

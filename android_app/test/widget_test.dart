@@ -9,6 +9,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:myvault/crypto.dart';
 import 'package:myvault/generator.dart';
+import 'package:myvault/sync.dart';
 import 'package:myvault/vault.dart';
 
 void main() {
@@ -39,6 +40,30 @@ void main() {
       final pw = generatePassword(p);
       expect(RegExp(r'[Il1O0o]').hasMatch(pw), isFalse, reason: pw);
     }
+  });
+
+  test('sync merge keeps newest and propagates tombstones', () {
+    final local = [
+      {'id': 'x', 'updated_at': 100, 'password': 'old'},
+      {'id': 'y', 'updated_at': 100},
+    ];
+    final remote = [
+      {'id': 'x', 'updated_at': 200, 'password': 'new'},
+      {'id': 'y', 'updated_at': 50, 'deleted': true},
+      {'id': 'z', 'updated_at': 100},
+    ];
+    final merged = {for (final e in mergeEntries(local, remote)) e['id']: e};
+    expect(merged['x']!['password'], 'new');
+    expect(merged['y']!['deleted'], isNot(true));
+    expect(merged.containsKey('z'), isTrue);
+  });
+
+  test('sync key derivation is deterministic', () {
+    final a = deriveSyncKey('same-pass');
+    final b = deriveSyncKey('same-pass');
+    final c = deriveSyncKey('different');
+    expect(a, equals(b));
+    expect(a, isNot(equals(c)));
   });
 
   test('vault save/open round-trip on disk', () {

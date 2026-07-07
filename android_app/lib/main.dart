@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'crypto.dart';
 import 'generator.dart';
+import 'sync.dart' as lansync;
 import 'vault.dart';
 
 void main() => runApp(const MyVaultApp());
@@ -175,6 +176,15 @@ class _HomePageState extends State<HomePage> {
         MaterialPageRoute(builder: (_) => const UnlockPage()));
   }
 
+  void _openSync() async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SyncSheet(vault: widget.vault),
+    );
+    if (changed == true && mounted) setState(() {});
+  }
+
   @override
   Widget build(BuildContext context) {
     final items = _items;
@@ -184,6 +194,7 @@ class _HomePageState extends State<HomePage> {
         foregroundColor: Colors.white,
         title: const Text('MyVault'),
         actions: [
+          IconButton(onPressed: _openSync, icon: const Icon(Icons.sync), tooltip: 'LAN sync'),
           IconButton(onPressed: _lock, icon: const Icon(Icons.lock_outline), tooltip: 'Lock'),
         ],
       ),
@@ -561,4 +572,95 @@ class _GeneratorSheetState extends State<GeneratorSheet> {
         activeThumbColor: const Color(0xFF111111),
         onChanged: (v) => setState(() { onChanged(v); _regen(); }),
       );
+}
+
+// =====================================================================
+//  LAN sync sheet
+// =====================================================================
+class SyncSheet extends StatefulWidget {
+  final Vault vault;
+  const SyncSheet({super.key, required this.vault});
+  @override
+  State<SyncSheet> createState() => _SyncSheetState();
+}
+
+class _SyncSheetState extends State<SyncSheet> {
+  final _host = TextEditingController();
+  bool _busy = false;
+  String _status = '';
+  bool _changed = false;
+
+  Future<void> _sync({String? host}) async {
+    setState(() { _busy = true; _status = 'Looking for your other device…'; });
+    final result = await lansync.syncNow(widget.vault, host: host);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (result.ok) {
+        _changed = _changed || result.changed > 0;
+        _status = 'Synced ✓ with ${result.peer}: ${result.changed} entries updated.';
+      } else {
+        _status = result.error;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          left: 16, right: 16, top: 16,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 16),
+      child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('Sync over WiFi', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        const SizedBox(height: 8),
+        const Text(
+          'Open MyVault on your PC (unlocked, same master password) on the same '
+          'WiFi, then tap “Sync now”. Newest change to each entry wins.',
+          style: TextStyle(color: Color(0xFF666666), fontSize: 13),
+        ),
+        const SizedBox(height: 16),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _busy ? null : () => _sync(),
+            icon: const Icon(Icons.sync),
+            label: const Text('Sync now (auto-find)'),
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text("If auto-find fails, type the PC's address (shown in the PC app's "
+            'LAN sync window):', style: TextStyle(color: Color(0xFF666666), fontSize: 12)),
+        const SizedBox(height: 6),
+        Row(children: [
+          Expanded(
+            child: TextField(
+              controller: _host,
+              decoration: const InputDecoration(labelText: 'e.g. 192.168.1.20'),
+            ),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: _busy ? null : () => _sync(host: _host.text),
+            child: const Text('Sync'),
+          ),
+        ]),
+        const SizedBox(height: 14),
+        if (_busy) const LinearProgressIndicator(minHeight: 2),
+        if (_status.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(_status, style: const TextStyle(fontSize: 13)),
+          ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton(
+            onPressed: () => Navigator.pop(context, _changed),
+            child: const Text('Close'),
+          ),
+        ),
+      ]),
+    );
+  }
 }

@@ -73,13 +73,17 @@ then. It is safe to store anywhere because it is encrypted, but if you lose it
 - **Android app** *(Bonus #4)* — a Flutter app in [`android_app/`](android_app/)
   that opens the **exact same encrypted vault file** (verified byte‑for‑byte in
   both directions). Download the APK from the repo's **Releases** page.
+- **LAN auto‑sync** *(Bonus #5)* — with the app open on two devices on the same
+  WiFi, each unlocked with the same master password, their vaults find each other
+  and merge (newest edit per entry wins; deletions carry across). The exchange is
+  encrypted with a key derived from your master password, so only your own
+  devices can take part. Menu → **LAN sync…** on the PC; the **sync** button on
+  the phone. First time, Windows will ask you to **Allow** MyVault through the
+  firewall (that's what lets your phone reach it) — say yes.
 
-## What's coming next (planned)
-
-1. **LAN auto‑sync** — when your PC and phone are on the same home WiFi, their
-   vaults merge automatically and privately. *(Bonus #5.)*
-2. **Linux**, and **iOS** if a family member needs it.
-3. Convenience: system‑tray background mode and a one‑click installer.
+All five requested features are now built. **What's next (optional):** Linux and
+iOS builds (same Flutter codebase), a system‑tray background mode, and a
+one‑click installer.
 
 The vault file format is documented in [`VAULT_FORMAT.md`](VAULT_FORMAT.md) so
 every future app can read and write the same file.
