@@ -984,15 +984,19 @@ class MyVaultApp(tk.Tk):
                     username=cred.get("username", "") or "",
                     email=cred.get("email", "") or "",
                     password=password,
+                    phone=cred.get("phone", "") or "",
                 )
+                self._apply_extra(entry, cred)
                 self.vault.add(entry)
                 action, entry_id = "created", entry.id
-            elif target.password != password:
+            elif (target.password != password
+                  or self._has_new_details(target, cred)):
                 target.password = password
-                if cred.get("username") and not target.username:
-                    target.username = cred["username"]
-                if cred.get("email") and not target.email:
-                    target.email = cred["email"]
+                # Fill in any fields the entry didn't already have.
+                for field in ("username", "email", "phone"):
+                    if cred.get(field) and not getattr(target, field):
+                        setattr(target, field, cred[field])
+                self._apply_extra(target, cred)
                 self.vault.update(target)
                 action, entry_id = "updated", target.id
             else:
@@ -1000,6 +1004,23 @@ class MyVaultApp(tk.Tk):
 
         self._pending_refresh.set()
         return {"ok": True, "action": action, "id": entry_id}
+
+    @staticmethod
+    def _apply_extra(entry: Entry, cred: dict) -> None:
+        """Merge any extra captured key/values (e.g. from a signup form) into the
+        entry's custom fields, without clobbering ones the user already set."""
+        extra = cred.get("extra") or {}
+        for key, value in extra.items():
+            if value and key and key not in entry.custom:
+                entry.custom[str(key)] = str(value)
+
+    @staticmethod
+    def _has_new_details(target: Entry, cred: dict) -> bool:
+        for field in ("username", "email", "phone"):
+            if cred.get(field) and not getattr(target, field):
+                return True
+        extra = cred.get("extra") or {}
+        return any(v and k not in target.custom for k, v in extra.items())
 
     def generate(self, policy: dict | None) -> str:
         try:

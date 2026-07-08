@@ -72,6 +72,17 @@ $("gencopy").onclick = async () => {
   $("gencopy").textContent = "Copied";
   setTimeout(() => ($("gencopy").textContent = "Copy"), 1200);
 };
+$("savepage").onclick = async () => {
+  const tab = await activeTab();
+  try {
+    await chrome.tabs.sendMessage(tab.id, { type: "saveCurrent" });
+    window.close();   // let the user see the save bar on the page
+  } catch {
+    // content script not loaded on this page (e.g. it was open before install)
+    $("savepage").textContent = "Reload the page first, then try";
+  }
+};
+
 $("opts").onclick = (e) => { e.preventDefault(); chrome.runtime.openOptionsPage(); };
 
 refresh();
