@@ -1,17 +1,15 @@
-/// LAN sync (phone side). Mirrors myvault/sync.py exactly so the phone and PC
-/// converge over WiFi. The phone is the INITIATOR: it broadcasts to find the
-/// desktop, then connects over TCP and exchanges entries on a channel encrypted
-/// with a key derived (scrypt) from the shared master password.
+/// QR sync (phone side). Mirrors myvault/sync.py exactly.
 ///
-/// Wire format (must match Python):
-///   - discovery: UDP broadcast "MYVAULT_DISCOVER_v1" -> unicast reply
-///     `MYVAULT_HERE_v1|{tcpPort}|{deviceId}`
-///   - messages: 4-byte big-endian length + (nonce[12] || AES-256-GCM(ct||tag)),
-///     keyed by scrypt(password, "myvault-sync-key-v1", N=16384,r=8,p=1).
+/// The PC shows a QR code: `myvault://sync?v=2&h=IPS&p=PORT&k=KEY`.
+/// The key is 32 random bytes that only ever travel through the camera. The
+/// phone connects over the local WiFi and both sides exchange entries on a
+/// channel sealed with that key:
+///   4-byte big-endian length + nonce[12] + AES-256-GCM(json, ct||tag)
+///   AAD = `MYVAULT_SYNC_v2|c2s-or-s2c|seq`  (no replay, reorder or reflection)
+/// The PC accepts one successful sync per code, then stops listening.
 library;
 
 import 'dart:async';
-import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -19,30 +17,48 @@ import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
 
+import 'update.dart' as upd;
 import 'vault.dart';
+import 'version.dart';
 
-const int discoveryPort = 8788;
-const int syncPort = 8789;
-const String protocol = 'MYVAULT_SYNC_v1';
-final Uint8List _discoverRequest = Uint8List.fromList(utf8.encode('MYVAULT_DISCOVER_v1'));
-const String _replyPrefix = 'MYVAULT_HERE_v1';
-
-final Uint8List _syncSalt = Uint8List.fromList(utf8.encode('myvault-sync-key-v1'));
+const String protocol = 'MYVAULT_SYNC_v2';
 
 class SyncResult {
   final bool ok;
-  final String peer;
   final String error;
   final int changed;
-  SyncResult.success(this.peer, this.changed) : ok = true, error = '';
-  SyncResult.failure(this.error, {this.peer = ''}) : ok = false, changed = 0;
+
+  /// The PC's MyVault version; empty for PCs older than 0.5 (they don't say).
+  String peerVersion = '';
+  upd.Package? received; // a newer phone update the PC handed over
+  String sent = ''; // version of a PC update this phone handed over
+  String updateError = '';
+  SyncResult.success(this.changed) : ok = true, error = '';
+  SyncResult.failure(this.error) : ok = false, changed = 0;
 }
 
-class Peer {
-  final String ip;
+class SyncCode {
+  final List<String> hosts;
   final int port;
-  final String deviceId;
-  Peer(this.ip, this.port, this.deviceId);
+  final Uint8List key;
+  SyncCode(this.hosts, this.port, this.key);
+
+  /// Throws FormatException for anything that isn't a MyVault sync code.
+  factory SyncCode.parse(String raw) {
+    final u = Uri.parse(raw.trim());
+    final q = u.queryParameters;
+    if (u.scheme != 'myvault' || u.host != 'sync' || q['v'] != '2') {
+      throw const FormatException("That isn't a MyVault sync code.");
+    }
+    final k = q['k']!;
+    final key = base64Url.decode(k + '=' * ((4 - k.length % 4) % 4));
+    if (key.length != 32) throw const FormatException('Bad key in sync code.');
+    return SyncCode(
+      q['h']!.split(','),
+      int.parse(q['p']!),
+      Uint8List.fromList(key),
+    );
+  }
 }
 
 Uint8List _randomBytes(int n) {
@@ -50,187 +66,247 @@ Uint8List _randomBytes(int n) {
   return Uint8List.fromList(List<int>.generate(n, (_) => r.nextInt(256)));
 }
 
-Uint8List deriveSyncKey(String password) {
-  final d = Scrypt()..init(ScryptParameters(16384, 8, 1, 32, _syncSalt));
-  return d.process(Uint8List.fromList(utf8.encode(password)));
-}
+Uint8List _aad(String dir, int seq) =>
+    Uint8List.fromList(utf8.encode('$protocol|$dir|$seq'));
 
-Uint8List _encryptMsg(Uint8List key, Map<String, dynamic> obj) {
-  final nonce = _randomBytes(12);
-  final cipher = GCMBlockCipher(AESEngine())
-    ..init(true, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
-  final ct = cipher.process(Uint8List.fromList(utf8.encode(jsonEncode(obj))));
-  return Uint8List.fromList([...nonce, ...ct]);
-}
+GCMBlockCipher _gcm(bool enc, Uint8List key, Uint8List nonce, Uint8List aad) =>
+    GCMBlockCipher(AESEngine())
+      ..init(enc, AEADParameters(KeyParameter(key), 128, nonce, aad));
 
-Map<String, dynamic> _decryptMsg(Uint8List key, Uint8List blob) {
-  final nonce = blob.sublist(0, 12);
-  final ct = blob.sublist(12);
-  final cipher = GCMBlockCipher(AESEngine())
-    ..init(false, AEADParameters(KeyParameter(key), 128, nonce, Uint8List(0)));
-  final pt = cipher.process(ct); // throws InvalidCipherTextException on wrong key
-  return jsonDecode(utf8.decode(pt)) as Map<String, dynamic>;
-}
-
-/// Merge rule: union by id, newest updated_at wins (tombstones included).
-List<Map<String, dynamic>> mergeEntries(
-    List<Map<String, dynamic>> local, List<Map<String, dynamic>> remote) {
-  final byId = <String, Map<String, dynamic>>{};
-  for (final e in local) {
-    byId[e['id'] as String] = e;
-  }
-  for (final e in remote) {
-    final id = e['id'] as String;
-    final cur = byId[id];
-    final eu = (e['updated_at'] as num?)?.toDouble() ?? 0;
-    final cu = (cur?['updated_at'] as num?)?.toDouble() ?? 0;
-    if (cur == null || eu > cu) byId[id] = e;
-  }
-  return byId.values.toList();
-}
-
-/// Reads exact byte counts off a Socket stream.
+/// Reads exact byte counts off a Socket stream. Keeps whole chunks, so a
+/// multi-megabyte update doesn't become one list element per byte.
 class _Reader {
-  final Queue<int> _bytes = Queue<int>();
-  final List<_Req> _reqs = [];
+  final _chunks = <Uint8List>[];
+  int _head = 0, _avail = 0;
+  final List<(int, Completer<Uint8List>)> _reqs = [];
   bool _closed = false;
 
   _Reader(Stream<Uint8List> stream) {
     stream.listen(
-      (d) { _bytes.addAll(d); _drain(); },
-      onDone: () { _closed = true; _drain(); },
-      onError: (_) { _closed = true; _drain(); },
+      (d) {
+        _chunks.add(d);
+        _avail += d.length;
+        _drain();
+      },
+      onDone: () {
+        _closed = true;
+        _drain();
+      },
+      onError: (_) {
+        _closed = true;
+        _drain();
+      },
     );
   }
 
   Future<Uint8List> read(int n) {
     final c = Completer<Uint8List>();
-    _reqs.add(_Req(n, c));
+    _reqs.add((n, c));
     _drain();
     return c.future;
   }
 
   void _drain() {
-    while (_reqs.isNotEmpty && _bytes.length >= _reqs.first.n) {
-      final r = _reqs.removeAt(0);
-      final out = Uint8List(r.n);
-      for (var i = 0; i < r.n; i++) {
-        out[i] = _bytes.removeFirst();
+    while (_reqs.isNotEmpty && _avail >= _reqs.first.$1) {
+      final (n, c) = _reqs.removeAt(0);
+      final out = Uint8List(n);
+      var filled = 0;
+      while (filled < n) {
+        final first = _chunks.first;
+        final take = min(n - filled, first.length - _head);
+        out.setRange(filled, filled + take, first, _head);
+        filled += take;
+        _head += take;
+        if (_head == first.length) {
+          _chunks.removeAt(0);
+          _head = 0;
+        }
       }
-      r.completer.complete(out);
+      _avail -= n;
+      c.complete(out);
     }
     if (_closed) {
-      for (final r in _reqs) {
-        if (!r.completer.isCompleted) {
-          r.completer.completeError(const SocketException('closed'));
-        }
+      for (final (_, c) in _reqs) {
+        if (!c.isCompleted) c.completeError(const SocketException('closed'));
       }
       _reqs.clear();
     }
   }
 }
 
-class _Req {
-  final int n;
-  final Completer<Uint8List> completer;
-  _Req(this.n, this.completer);
+/// The phone's side of the channel: every message carries its direction and
+/// position in the AAD, exactly like _Chan in myvault/sync.py.
+class _Chan {
+  final Socket sock;
+  final Uint8List key;
+  final _Reader reader;
+  int _out = 0, _in = 0;
+  static const _t = Duration(seconds: 10);
+  _Chan(this.sock, this.key) : reader = _Reader(sock);
+
+  void sendBytes(Uint8List data) {
+    final nonce = _randomBytes(12);
+    final ct = _gcm(true, key, nonce, _aad('c2s', _out++)).process(data);
+    final header = Uint8List(4);
+    ByteData.sublistView(header).setUint32(0, 12 + ct.length, Endian.big);
+    sock.add(header);
+    sock.add(nonce);
+    sock.add(ct);
+  }
+
+  void send(Map<String, dynamic> obj) =>
+      sendBytes(Uint8List.fromList(utf8.encode(jsonEncode(obj))));
+
+  Future<Uint8List> recvBytes() async {
+    final len = ByteData.sublistView(
+      await reader.read(4).timeout(_t),
+    ).getUint32(0, Endian.big);
+    if (len < 28 || len > 16 * 1024 * 1024) {
+      throw const FormatException('bad sync message size');
+    }
+    final blob = await reader.read(len).timeout(_t);
+    return _gcm(
+      false,
+      key,
+      blob.sublist(0, 12),
+      _aad('s2c', _in++),
+    ).process(blob.sublist(12));
+  }
+
+  Future<Map<String, dynamic>> recv() async =>
+      jsonDecode(utf8.decode(await recvBytes())) as Map<String, dynamic>;
 }
 
-void _send(Socket sock, Uint8List key, Map<String, dynamic> obj) {
-  final payload = _encryptMsg(key, obj);
-  final header = Uint8List(4);
-  ByteData.sublistView(header).setUint32(0, payload.length, Endian.big);
-  sock.add(header);
-  sock.add(payload);
+Future<upd.Package?> _recvPackage(_Chan ch) async {
+  final head = await ch.recv();
+  final plat = '${head['platform'] ?? ''}';
+  if (plat.isEmpty) return null;
+  final size = head['size'] as int;
+  if (size <= 0 || size > 200 * 1024 * 1024) {
+    throw const FormatException('update package too large');
+  }
+  final tmp = File(
+    '${Directory.systemTemp.path}/myvault-update-${DateTime.now().microsecondsSinceEpoch}',
+  );
+  final sink = tmp.openWrite();
+  try {
+    var got = 0;
+    while (got < size) {
+      final chunk = await ch.recvBytes();
+      got += chunk.length;
+      sink.add(chunk);
+    }
+    await sink.close();
+    if (got != size) {
+      throw const FormatException('update package size mismatch');
+    }
+    return await upd.store(
+      base64.decode(head['manifest'] as String),
+      '${head['sig']}',
+      plat,
+      tmp,
+    );
+  } finally {
+    if (tmp.existsSync()) tmp.deleteSync();
+  }
 }
 
-Future<Map<String, dynamic>> _recv(_Reader reader, Uint8List key) async {
-  final header = await reader.read(4);
-  final len = ByteData.sublistView(header).getUint32(0, Endian.big);
-  if (len > 8 * 1024 * 1024) throw const FormatException('message too large');
-  final payload = await reader.read(len);
-  return _decryptMsg(key, payload);
+Future<String> _sendPackage(_Chan ch, String platform) async {
+  final p = (await upd.packages())[platform];
+  if (p == null) {
+    ch.send({'type': 'package', 'platform': ''});
+    return '';
+  }
+  ch.send({
+    'type': 'package',
+    'platform': platform,
+    'version': p.version,
+    'size': p.file.lengthSync(),
+    'manifest': base64.encode(p.manifest),
+    'sig': p.sig,
+  });
+  await for (final chunk in p.file.openRead()) {
+    // openRead yields up to 64 KB at a time; the PC accepts chunks up to 1 MB.
+    ch.sendBytes(Uint8List.fromList(chunk));
+    await ch.sock.flush();
+  }
+  return p.version;
 }
 
-/// Broadcast a discovery request and collect replying peers.
-Future<List<Peer>> discover({Duration timeout = const Duration(seconds: 2)}) async {
-  final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
-  socket.broadcastEnabled = true;
-  final found = <String, Peer>{};
-  socket.listen((event) {
-    if (event == RawSocketEvent.read) {
-      final dg = socket.receive();
-      if (dg == null) return;
-      final text = utf8.decode(dg.data, allowMalformed: true);
-      if (text.startsWith(_replyPrefix)) {
-        final parts = text.split('|');
-        if (parts.length >= 3) {
-          found[dg.address.address] =
-              Peer(dg.address.address, int.tryParse(parts[1]) ?? syncPort, parts[2]);
+/// Connect with a scanned code and sync [vault]. The phone is always the client.
+Future<SyncResult> syncWithCode(String raw, Vault vault) async {
+  final SyncCode code;
+  try {
+    code = SyncCode.parse(raw);
+  } on FormatException catch (e) {
+    return SyncResult.failure(e.message);
+  } catch (_) {
+    return SyncResult.failure("That isn't a MyVault sync code.");
+  }
+  var last = "Couldn't reach your PC. Are both devices on the same WiFi?";
+  for (final host in code.hosts) {
+    Socket? socket;
+    try {
+      socket = await Socket.connect(
+        host,
+        code.port,
+        timeout: const Duration(seconds: 6),
+      );
+      final ch = _Chan(socket, code.key);
+      ch.send({
+        'type': 'hello',
+        'protocol': protocol,
+        'device_id': vault.deviceId,
+        'app_version': appVersion,
+        'platform': upd.platformName,
+        'offers': await upd.offers(),
+      });
+      final hello = await ch.recv();
+      if (hello['protocol'] != protocol) {
+        return SyncResult.failure('Update MyVault on the PC, then try again.');
+      }
+      ch.send({
+        'type': 'entries',
+        'entries': vault.entries.map((e) => e.toJson()).toList(),
+      });
+      final msg = await ch.recv();
+      final remote = ((msg['entries'] ?? []) as List)
+          .map((e) => Entry.fromJson((e as Map).cast<String, dynamic>()))
+          .toList();
+      final r = SyncResult.success(vault.mergeIn(remote));
+      r.peerVersion = '${hello['app_version'] ?? ''}';
+
+      // Update hand-over (both sides 0.5+). A failure here never undoes the sync.
+      if (r.peerVersion.isNotEmpty) {
+        try {
+          final offered =
+              '${((hello['offers'] ?? {}) as Map)[upd.platformName] ?? ''}';
+          final want = upd.isNewer(offered, appVersion) ? upd.platformName : '';
+          ch.send({'type': 'want', 'platform': want});
+          final peerWant = '${(await ch.recv())['platform'] ?? ''}';
+          if (want.isNotEmpty) {
+            r.received = await _recvPackage(ch); // PC sends first
+          }
+          if (peerWant.isNotEmpty) r.sent = await _sendPackage(ch, peerWant);
+        } catch (e) {
+          r.updateError = '$e';
         }
       }
-    }
-  });
-  socket.send(_discoverRequest, InternetAddress('255.255.255.255'), discoveryPort);
-  await Future.delayed(timeout);
-  socket.close();
-  return found.values.toList();
-}
-
-/// Connect to a peer and sync a vault. The phone always plays the client role.
-Future<SyncResult> connectAndSync(String host, int port, Vault vault) async {
-  final key = deriveSyncKey(vault.password);
-  Socket? socket;
-  try {
-    socket = await Socket.connect(host, port, timeout: const Duration(seconds: 8));
-    final reader = _Reader(socket);
-
-    _send(socket, key, {'type': 'hello', 'protocol': protocol, 'device_id': vault.deviceId});
-    final peerHello = await _recv(reader, key).timeout(const Duration(seconds: 8));
-    if (peerHello['protocol'] != protocol) {
-      return SyncResult.failure('incompatible sync version', peer: host);
-    }
-
-    final local = vault.entries.map((e) => e.toJson()).toList();
-    _send(socket, key, {'type': 'entries', 'entries': local});
-    final peerMsg = await _recv(reader, key).timeout(const Duration(seconds: 8));
-    final remote = ((peerMsg['entries'] ?? []) as List)
-        .map((e) => (e as Map).cast<String, dynamic>())
-        .toList();
-
-    final before = {for (final e in vault.entries) e.id: e.updatedAt};
-    final merged = mergeEntries(local, remote);
-    vault.entries = merged.map((d) => Entry.fromJson(d)).toList();
-    vault.save();
-    final changed = vault.entries
-        .where((e) => !before.containsKey(e.id) || e.updatedAt > before[e.id]!)
-        .length;
-
-    await socket.flush();
-    return SyncResult.success((peerHello['device_id'] ?? '?') as String, changed);
-  } on InvalidCipherTextException {
-    return SyncResult.failure('master passwords do not match', peer: host);
-  } on SocketException catch (e) {
-    return SyncResult.failure('Could not reach that device (${e.message}).', peer: host);
-  } on TimeoutException {
-    return SyncResult.failure('The other device did not respond in time.', peer: host);
-  } catch (e) {
-    return SyncResult.failure('$e', peer: host);
-  } finally {
-    socket?.destroy();
-  }
-}
-
-/// Auto-find a peer (or use [host]) and sync.
-Future<SyncResult> syncNow(Vault vault, {String? host}) async {
-  if (host != null && host.trim().isNotEmpty) {
-    return connectAndSync(host.trim(), syncPort, vault);
-  }
-  final peers = await discover();
-  for (final p in peers) {
-    if (p.deviceId != vault.deviceId) {
-      return connectAndSync(p.ip, p.port, vault);
+      await socket.flush();
+      return r;
+    } on InvalidCipherTextException {
+      return SyncResult.failure(
+        'That code has expired. Show a new one on the PC.',
+      );
+    } on TimeoutException {
+      last = 'Your PC stopped answering. Show a new code and try again.';
+    } on SocketException {
+      // try the next address in the code
+    } catch (e) {
+      last = '$e';
+    } finally {
+      socket?.destroy();
     }
   }
-  return SyncResult.failure('No other MyVault device found on this WiFi.');
+  return SyncResult.failure(last);
 }

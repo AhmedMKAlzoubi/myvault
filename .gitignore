@@ -26,3 +26,11 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local tooling (machine-specific paths, throwaway captures)
+.claude/
+.impeccable/questions/
+.impeccable/review/
+
+# Built app packages go on GitHub Releases, not in git
+*.apk

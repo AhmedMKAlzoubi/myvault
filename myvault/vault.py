@@ -5,6 +5,11 @@ An Entry holds everything a site might ask at registration/sign-in. Beyond the
 common fields there is a free-form `custom` dictionary so you can store anything
 (security questions, membership numbers, PINs, recovery codes...).
 
+`kind` says what the entry is: a website/app "login", an "api" credential
+(client id, client secret, API key, token), an "ssh" key, or a secure "note".
+Kind-specific values live in `fields` (key -> text); which keys exist and which
+are secret is defined by the UI templates (ui/app.js, android lib/kinds.dart).
+
 Each entry carries `updated_at` and a `deleted` tombstone. Those are unused by
 the desktop app's day-to-day features but are the foundation for the future
 LAN auto-sync: two devices can merge by keeping, per entry id, whichever copy
@@ -23,7 +28,12 @@ from pathlib import Path
 from . import crypto
 from .generator import PasswordPolicy
 
-VAULT_CONTENT_VERSION = 1
+VAULT_CONTENT_VERSION = 2
+
+KINDS = ("login", "api", "ssh", "note")
+
+# Values in `fields` that are safe to search on (never a secret).
+SEARCHABLE_FIELDS = ("service", "client_id", "endpoint", "host", "ssh_user", "fingerprint")
 
 
 def _now() -> float:
@@ -33,6 +43,7 @@ def _now() -> float:
 @dataclass
 class Entry:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    kind: str = "login"        # login | api | ssh | note
     title: str = ""            # what you call it, e.g. "Netflix"
     website: str = ""          # e.g. netflix.com
     app: str = ""              # app name, if it's an app rather than a website
@@ -45,6 +56,7 @@ class Entry:
     phone: str = ""
     notes: str = ""
     custom: dict = field(default_factory=dict)     # anything else, key -> value
+    fields: dict = field(default_factory=dict)     # kind-specific values, key -> value
     password_policy: dict = field(default_factory=lambda: PasswordPolicy().to_dict())
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
@@ -64,10 +76,12 @@ class Entry:
             )
         ).lower()
         haystack += " " + " ".join(str(k) + " " + str(v) for k, v in self.custom.items()).lower()
+        haystack += " " + " ".join(str(self.fields.get(k, "")) for k in SEARCHABLE_FIELDS).lower()
         return q in haystack
 
     def display_name(self) -> str:
-        return self.title or self.website or self.app or self.username or self.email or "(untitled)"
+        return (self.title or self.website or self.app or self.fields.get("service", "")
+                or self.fields.get("host", "") or self.username or self.email or "(untitled)")
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -75,7 +89,10 @@ class Entry:
     @classmethod
     def from_dict(cls, data: dict) -> "Entry":
         known = {f for f in cls.__dataclass_fields__}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        e = cls(**{k: v for k, v in data.items() if k in known})
+        if e.kind not in KINDS:
+            e.kind = "login"
+        return e
 
 
 class Vault:
@@ -154,5 +171,6 @@ class Vault:
             # Soft-delete (tombstone) so a future sync can propagate the deletion.
             entry.deleted = True
             entry.password = ""
+            entry.fields = {}
             entry.touch()
             self.save()

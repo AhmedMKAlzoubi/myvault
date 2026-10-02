@@ -25,14 +25,14 @@ async function test() {
   const res = await send({ type: "status" });
   if (res && res.ok) {
     msg("ok", res.unlocked
-      ? `Connected ✓  MyVault ${res.version || ""} is unlocked and ready.`
-      : "Connected ✓ but the vault is locked — unlock the app to auto-fill.");
+      ? `Connected. MyVault ${res.version || ""} is unlocked and ready.`
+      : "Connected, but the vault is locked. Unlock the app to fill logins.");
   } else if (res && res.error === "unauthorized") {
     msg("bad", "Reached the app, but the token is wrong. Copy it again from the app.");
   } else if (res && res.error === "no-token") {
     msg("bad", "Enter the pairing token first.");
   } else {
-    msg("bad", "Couldn't reach MyVault. Make sure the app is open. Check the port.");
+    msg("bad", "Couldn't reach MyVault. Make sure the app is open, then check the port.");
   }
 }
 

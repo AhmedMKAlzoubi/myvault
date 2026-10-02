@@ -1,0 +1,373 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-02T18:38:39.124880+00:00",
+  "title": "Design System: MyVault",
+  "extensions": {
+    "colorMeta": {
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "tonalRamp": [
+          "#20242C",
+          "#363C4A",
+          "#4D576A",
+          "#65728B",
+          "#838EA5",
+          "#A6AEBF",
+          "#CDD1DA",
+          "#F0F2F4"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel",
+        "tonalRamp": [
+          "#1F242D",
+          "#343C4C",
+          "#4B566D",
+          "#61708E",
+          "#808DA8",
+          "#A4AEC1",
+          "#CCD1DC",
+          "#F0F1F5"
+        ]
+      },
+      "sheet": {
+        "role": "neutral",
+        "displayName": "Sheet",
+        "tonalRamp": [
+          "#21212C",
+          "#373749",
+          "#4F4F69",
+          "#676789",
+          "#8585A3",
+          "#A8A8BD",
+          "#CDCDDA",
+          "#F0F0F4"
+        ]
+      },
+      "ink": {
+        "role": "primary",
+        "displayName": "Ink",
+        "tonalRamp": [
+          "#1A2332",
+          "#2C3B53",
+          "#405578",
+          "#536F9D",
+          "#738CB5",
+          "#9BADCA",
+          "#C6D0E1",
+          "#EEF1F6"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Ink 2",
+        "tonalRamp": [
+          "#1F232E",
+          "#333B4C",
+          "#4A556E",
+          "#606F90",
+          "#7F8CA9",
+          "#A3ADC2",
+          "#CBD0DC",
+          "#F0F1F5"
+        ]
+      },
+      "ink-3": {
+        "role": "neutral",
+        "displayName": "Ink 3",
+        "tonalRamp": [
+          "#21252B",
+          "#383D48",
+          "#505867",
+          "#697387",
+          "#878FA1",
+          "#A9AFBC",
+          "#CED2D9",
+          "#F1F2F4"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "tonalRamp": [
+          "#1F242E",
+          "#333C4C",
+          "#49576E",
+          "#607190",
+          "#7E8EA9",
+          "#A3AEC2",
+          "#CBD1DC",
+          "#F0F2F5"
+        ]
+      },
+      "rule-2": {
+        "role": "neutral",
+        "displayName": "Rule 2",
+        "tonalRamp": [
+          "#1F242E",
+          "#333C4C",
+          "#4A566E",
+          "#60718F",
+          "#7F8EA9",
+          "#A3AEC2",
+          "#CBD1DC",
+          "#F0F2F5"
+        ]
+      },
+      "envelope-blue": {
+        "role": "secondary",
+        "displayName": "Envelope Blue",
+        "tonalRamp": [
+          "#152137",
+          "#23385C",
+          "#335085",
+          "#4369AD",
+          "#6487C3",
+          "#91A9D4",
+          "#C0CEE7",
+          "#EDF1F8"
+        ]
+      },
+      "tint-wash": {
+        "role": "neutral",
+        "displayName": "Tint Wash",
+        "tonalRamp": [
+          "#192234",
+          "#293956",
+          "#3C537C",
+          "#4E6CA2",
+          "#6E89B9",
+          "#98ABCD",
+          "#C4CFE3",
+          "#EEF1F7"
+        ]
+      },
+      "franking-red": {
+        "role": "tertiary",
+        "displayName": "Franking Red",
+        "tonalRamp": [
+          "#3D1710",
+          "#66261A",
+          "#923625",
+          "#BF4731",
+          "#D36854",
+          "#E09385",
+          "#EDC2BA",
+          "#FAEDEB"
+        ]
+      },
+      "ok-green": {
+        "role": "tertiary",
+        "displayName": "Ok Green",
+        "tonalRamp": [
+          "#173625",
+          "#265A3E",
+          "#37815A",
+          "#47A875",
+          "#69BF92",
+          "#94D1B1",
+          "#C2E5D3",
+          "#EDF7F2"
+        ]
+      },
+      "night-paper": {
+        "role": "neutral",
+        "displayName": "Night Paper",
+        "tonalRamp": [
+          "#1D2330",
+          "#303A50",
+          "#455473",
+          "#5A6E96",
+          "#798BAF",
+          "#9FACC6",
+          "#C9D0DE",
+          "#EFF1F5"
+        ]
+      },
+      "night-sheet": {
+        "role": "neutral",
+        "displayName": "Night Sheet",
+        "tonalRamp": [
+          "#1D242F",
+          "#313C4F",
+          "#465671",
+          "#5C7194",
+          "#7B8EAD",
+          "#A0AEC4",
+          "#C9D1DE",
+          "#EFF2F5"
+        ]
+      },
+      "night-ink": {
+        "role": "neutral",
+        "displayName": "Night Ink",
+        "tonalRamp": [
+          "#1A2232",
+          "#2C3954",
+          "#3F5279",
+          "#526B9E",
+          "#7289B6",
+          "#9AAACB",
+          "#C6CFE1",
+          "#EEF1F6"
+        ]
+      },
+      "night-blue": {
+        "role": "secondary",
+        "displayName": "Night Blue",
+        "tonalRamp": [
+          "#162137",
+          "#24375B",
+          "#344F84",
+          "#4467AC",
+          "#6584C2",
+          "#91A7D4",
+          "#C1CDE6",
+          "#EDF0F8"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "The MyVault name on the lock screen."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "The one headline per sheet: entry or tool name."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Values and prose."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Field labels, hints, chips."
+      },
+      "secret": {
+        "displayName": "Secret",
+        "purpose": "Revealed secrets, keys, tokens, ciphertext only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "float",
+        "value": "0 1px 2px rgba(27,36,51,.06), 0 8px 24px rgba(27,36,51,.08)",
+        "purpose": "Lock window, toasts, extension cards: the only floating things."
+      }
+    ],
+    "motion": [
+      {
+        "name": "reveal-wipe",
+        "value": "clip-path 220ms cubic-bezier(.16,1,.3,1)",
+        "purpose": "Tint wipes off a secret left to right."
+      },
+      {
+        "name": "state",
+        "value": "150-180ms ease",
+        "purpose": "Hover, border and switch changes."
+      },
+      {
+        "name": "toast",
+        "value": "transform 220ms cubic-bezier(.16,1,.3,1)",
+        "purpose": "Toast rises in from 16px below."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact",
+        "value": "960px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one main action on a sheet.",
+      "html": "<button class=\"ds-btn-primary\">Save</button>",
+      "css": ".ds-btn-primary{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;height:32px;padding:0 13px;border-radius:6px;border:1px solid #1B2433;background:#1B2433;color:#F4F5F7;font-weight:500;font-size:14px;cursor:pointer;transition:background-color .15s}.ds-btn-primary:hover{background:#2F4A7A;border-color:#2F4A7A}.ds-btn-primary:focus-visible{outline:2px solid #2F4A7A;outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Everything that isn't the main action.",
+      "html": "<button class=\"ds-btn\">Cancel</button>",
+      "css": ".ds-btn{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;height:32px;padding:0 13px;border-radius:6px;border:1px solid #C2C9D6;background:#FBFBFC;color:#1B2433;font-weight:500;font-size:14px;cursor:pointer}.ds-btn:hover{border-color:#5F687A;background:#ECEEF2}.ds-btn:focus-visible{outline:2px solid #2F4A7A;outline-offset:2px}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Every field; envelope-blue focus.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search\">",
+      "css": ".ds-input{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;height:36px;padding:0 11px;border-radius:6px;border:1px solid #C2C9D6;background:#FBFBFC;color:#1B2433;font-size:14px;outline:none;caret-color:#2F4A7A}.ds-input:hover{border-color:#5F687A}.ds-input:focus{border-color:#2F4A7A;box-shadow:0 0 0 3px rgba(47,74,122,.18)}"
+    },
+    {
+      "name": "Kind Filter Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Filter by entry kind, with a count.",
+      "html": "<button class=\"ds-chip\" aria-selected=\"true\">All <span>8</span></button> <button class=\"ds-chip\">Logins <span>4</span></button>",
+      "css": ".ds-chip{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;height:26px;padding:0 9px;border-radius:13px;border:1px solid #C2C9D6;background:transparent;color:#47526A;font-size:12.5px;cursor:pointer}.ds-chip span{opacity:.7}.ds-chip:hover{border-color:#5F687A;color:#1B2433}.ds-chip[aria-selected=true]{background:#1B2433;border-color:#1B2433;color:#F4F5F7}"
+    },
+    {
+      "name": "Secret Swatch",
+      "kind": "custom",
+      "refersTo": "secret",
+      "description": "Concealed value: dashed outline plus tint. Hover shows the revealed state.",
+      "html": "<span class=\"ds-secret\"><span class=\"ds-secret-t\">Rk7#vQ2!mPz9Lw</span><span class=\"ds-veil\"></span></span>",
+      "css": ".ds-secret{position:relative;display:inline-block;width:18ch;min-height:24px;border:1px dashed #C2C9D6;border-radius:4px;padding:1px 8px;font:13.5px/1.6 'Cascadia Mono',Consolas,monospace;color:#1B2433}.ds-secret-t{visibility:hidden}.ds-veil{position:absolute;inset:2px;background:#2F4A7A;opacity:.7;-webkit-mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='7'%3E%3Cpath d='M0 3.5C2.3.7 4.7.7 7 3.5s4.7 2.8 7 0M0 7c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0M0 0c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0' fill='none' stroke='%23000' stroke-width='.85'/%3E%3C/svg%3E\") 0 0/14px 7px repeat;mask:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='7'%3E%3Cpath d='M0 3.5C2.3.7 4.7.7 7 3.5s4.7 2.8 7 0M0 7c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0M0 0c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0' fill='none' stroke='%23000' stroke-width='.85'/%3E%3C/svg%3E\") 0 0/14px 7px repeat;clip-path:inset(0 0 0 0);transition:clip-path .22s cubic-bezier(.16,1,.3,1)}.ds-secret:hover{border-style:solid;border-color:#5F687A}.ds-secret:hover .ds-secret-t{visibility:visible}.ds-secret:hover .ds-veil{clip-path:inset(0 0 0 100%)}"
+    },
+    {
+      "name": "Selected List Row",
+      "kind": "nav",
+      "refersTo": "list-item-selected",
+      "description": "Entry list row; selected = solid ink.",
+      "html": "<div class=\"ds-row\"><b>GitHub</b><small>ahmed-dev</small></div><div class=\"ds-row ds-on\"><b>Netflix</b><small>ahmed@example.com</small></div>",
+      "css": ".ds-row{font-family:'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;display:grid;padding:7px 10px;border-radius:6px;color:#1B2433;width:260px}.ds-row b{font-weight:500;font-size:14px}.ds-row small{font-size:12.5px;color:#5F687A}.ds-row:hover{background:rgba(27,36,51,.06)}.ds-on,.ds-on:hover{background:#1B2433;color:#F4F5F7}.ds-on small{color:rgba(244,245,247,.72)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Security Envelope",
+    "overview": "MyVault looks like the inside of a bank envelope: fine blue linework printed so nobody can read the contents against the light. Everything secret sits under that tint, and the tint lifts only from the one value you ask to see. The rest of the interface is quiet paper and ink, so the tint always means *hidden*.  The world runs across the Windows window (HTML/CSS), the Android app (Flutter), the browser extension's on-page cards and popup, and the printed backup PDF (which carries the same tint band and adds registration crosshairs at the corners).",
+    "keyCharacteristics": [
+      "Cool paper ground, one ink, envelope blue as the only accent.",
+      "The tint (fine sine-wave linework, optionally crossed by a slower vertical wave) marks concealment and nothing else.",
+      "One workhorse sans for everything, plus a monospace for secret values, keys and ciphertext only.",
+      "State is carried by structure: a dashed outline means concealed, a solid outline means revealed, solid ink fill means selected or on."
+    ],
+    "rules": [
+      {
+        "name": "The Tint Means Hidden Rule",
+        "body": "The tint appears only on concealed values, the lock screen, empty states, and the PDF header band. It is never decoration on ordinary content.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Accent Rule",
+        "body": "Envelope blue is the only hue besides the danger red and the OK green. Categories are told apart by icons, not colours.",
+        "section": "colors"
+      },
+      {
+        "name": "The Nothing Twice Rule",
+        "body": "Each value has one label. The title is the only headline. No eyebrow or kicker above a heading.",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do put every secret behind the swatch, and copy it through the private clipboard.",
+      "Do use plain words in copy (\"Encrypted, and stored only on this computer\"), and keep cryptographic detail on Settings and in the docs.",
+      "Do keep the tint fine and quiet: about a 3.5px line pitch at 30–42% opacity on the lock field."
+    ],
+    "donts": [
+      "Don't use the tint as a background texture for ordinary panels.",
+      "Don't use colour to tell entry kinds apart. Use the kind icons.",
+      "Don't use Unicode glyphs as icons. Icons are drawn with one 1.5px stroke family.",
+      "Don't add an eyebrow or kicker above a title."
+    ]
+  }
+}

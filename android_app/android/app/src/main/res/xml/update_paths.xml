@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the folder holding verified update packages is shareable with the installer. -->
+<paths>
+    <files-path name="packages" path="packages/"/>
+</paths>

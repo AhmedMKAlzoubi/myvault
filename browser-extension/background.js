@@ -47,6 +47,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       case "generate":
         sendResponse(await api("/generate", { method: "POST", body: { policy: msg.policy || null } }));
         break;
+      // Last password suggested per site, kept in memory only (storage.session is
+      // never written to disk and is cleared when the browser closes).
+      case "remember":
+        await chrome.storage.session.set({ ["recent:" + msg.domain]: { password: msg.password, at: Date.now() } });
+        sendResponse({ ok: true });
+        break;
+      case "forget":
+        await chrome.storage.session.remove("recent:" + msg.domain);
+        sendResponse({ ok: true });
+        break;
+      case "recent": {
+        const key = "recent:" + msg.domain;
+        const got = (await chrome.storage.session.get(key))[key];
+        sendResponse({ ok: true, recent: got && Date.now() - got.at < 30 * 60 * 1000 ? got : null });
+        break;
+      }
       default:
         sendResponse({ ok: false, error: "unknown-message" });
     }

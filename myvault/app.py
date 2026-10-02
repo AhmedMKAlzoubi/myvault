@@ -1,1037 +1,647 @@
 """
-The MyVault desktop window (Tkinter).
+The MyVault desktop window.
 
-Design goals: black-and-white, plain, low memory, keyboard-friendly.
-The vault itself never touches the network. The optional browser connector
-(see server.py) listens only on 127.0.0.1 and only while the app is unlocked.
+The UI is plain HTML/CSS/JS (myvault/ui/) shown in a native window by pywebview
+(Edge WebView2 on Windows). It is loaded as an inline string, never from a web
+server, and its Content-Security-Policy forbids any network access. The page
+talks to Python only through the `Api` object below.
+
+The vault itself never touches the network. The browser connector (server.py)
+listens only on 127.0.0.1 while unlocked; QR sync (sync.py) listens on the LAN
+only while the "Sync with phone" sheet is open.
 """
 
 from __future__ import annotations
 
+import ctypes
+import ipaddress
+import os
+import subprocess
+import sys
 import threading
 import time
-import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
 from pathlib import Path
 
-from . import crypto, paths, config, server, webmatch, sync
-from .vault import Vault, Entry
+import segno
+import webview
+
+from . import __version__, autostart, clipboard, config, crypto, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
+from .vault import KINDS, Entry, Vault
 
-# ---- black & white palette ----------------------------------------------
-BG = "#ffffff"
-FG = "#111111"
-MUTED = "#666666"
-LINE = "#cccccc"
-SEL_BG = "#111111"
-SEL_FG = "#ffffff"
-FONT = ("Segoe UI", 10)
-FONT_BOLD = ("Segoe UI", 10, "bold")
-FONT_TITLE = ("Segoe UI", 15, "bold")
-FONT_MONO = ("Consolas", 10)
-
-CLIPBOARD_CLEAR_SECONDS = 30
 AUTO_LOCK_MINUTES = 5
-
-# The ordered, labelled standard fields shown in the form.
-STANDARD_FIELDS = [
-    ("title", "Title / name"),
-    ("website", "Website"),
-    ("app", "App name"),
-    ("username", "Username"),
-    ("email", "Email"),
-    ("region", "Region / country"),
-    ("age", "Age"),
-    ("gender", "Gender"),
-    ("phone", "Phone"),
-]
+CLIPBOARD_CLEAR_SECONDS = 30
+# The repo root when run from source; the bundle's _internal folder when installed
+# (PyInstaller lays out myvault/ and assets/ the same way).
+ROOT = Path(__file__).resolve().parent.parent
+UI_DIR = ROOT / "myvault" / "ui"
+ICON = ROOT / "assets" / "myvault.ico"
+APP_ID = "MyVault.Desktop"   # also set on the installer's shortcuts, so taskbar pins match
 
 
-def _style(root: tk.Tk) -> None:
-    style = ttk.Style(root)
-    try:
-        style.theme_use("clam")
-    except tk.TclError:
-        pass
-    style.configure(".", background=BG, foreground=FG, font=FONT)
-    style.configure("TFrame", background=BG)
-    style.configure("TLabel", background=BG, foreground=FG)
-    style.configure("Muted.TLabel", background=BG, foreground=MUTED)
-    style.configure("Title.TLabel", background=BG, foreground=FG, font=FONT_TITLE)
-    style.configure("TEntry", fieldbackground=BG, foreground=FG, bordercolor=LINE)
-    style.configure("TButton", background=BG, foreground=FG, bordercolor=FG,
-                    focuscolor=BG, padding=(10, 4))
-    style.map("TButton",
-              background=[("active", "#eeeeee"), ("pressed", "#dddddd")],
-              foreground=[("disabled", MUTED)])
-    style.configure("Accent.TButton", background=FG, foreground=BG)
-    style.map("Accent.TButton",
-              background=[("active", "#333333"), ("pressed", "#000000")],
-              foreground=[("active", BG)])
+def app_dir() -> Path:
+    """Where the program lives: the install folder for MyVault.exe, else the repo."""
+    return Path(sys.executable).parent if getattr(sys, "frozen", False) else ROOT
 
 
-# =========================================================================
-#  Password generator dialog
-# =========================================================================
-class GeneratorDialog(tk.Toplevel):
-    def __init__(self, parent, policy: PasswordPolicy):
-        super().__init__(parent)
-        self.title("Generate password")
-        self.configure(bg=BG)
-        self.resizable(False, False)
-        self.transient(parent)
-        self.grab_set()
-        self.result: str | None = None
-        self.result_policy: PasswordPolicy | None = None
-
-        self.length = tk.IntVar(value=policy.length)
-        self.use_lower = tk.BooleanVar(value=policy.use_lower)
-        self.use_upper = tk.BooleanVar(value=policy.use_upper)
-        self.use_digits = tk.BooleanVar(value=policy.use_digits)
-        self.use_symbols = tk.BooleanVar(value=policy.use_symbols)
-        self.avoid_ambiguous = tk.BooleanVar(value=policy.avoid_ambiguous)
-        self.allowed_symbols = tk.StringVar(value=policy.allowed_symbols)
-        self.preview = tk.StringVar(value="")
-
-        pad = {"padx": 12, "pady": 4}
-        frm = ttk.Frame(self, padding=14)
-        frm.grid(sticky="nsew")
-
-        ttk.Label(frm, text="Length").grid(row=0, column=0, sticky="w")
-        length_row = ttk.Frame(frm)
-        length_row.grid(row=0, column=1, sticky="ew")
-        self.length_label = ttk.Label(length_row, text=str(policy.length), width=3)
-        self.length_label.pack(side="right")
-        scale = ttk.Scale(length_row, from_=6, to=64, variable=self.length,
-                          command=lambda _=None: self._on_change())
-        scale.pack(side="left", fill="x", expand=True)
-
-        checks = [
-            ("Lowercase (a-z)", self.use_lower),
-            ("Uppercase (A-Z)", self.use_upper),
-            ("Digits (0-9)", self.use_digits),
-            ("Symbols", self.use_symbols),
-            ("Avoid look-alike characters (l, 1, O, 0...)", self.avoid_ambiguous),
-        ]
-        for i, (label, var) in enumerate(checks, start=1):
-            ttk.Checkbutton(frm, text=label, variable=var,
-                            command=self._on_change).grid(row=i, column=0, columnspan=2, sticky="w")
-
-        ttk.Label(frm, text="Allowed symbols").grid(row=6, column=0, sticky="w", pady=(6, 0))
-        ttk.Entry(frm, textvariable=self.allowed_symbols, font=FONT_MONO).grid(
-            row=6, column=1, sticky="ew", pady=(6, 0))
-        self.allowed_symbols.trace_add("write", lambda *_: self._on_change())
-
-        prev = ttk.Frame(frm)
-        prev.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 4))
-        self.preview_entry = ttk.Entry(prev, textvariable=self.preview, font=FONT_MONO,
-                                       state="readonly")
-        self.preview_entry.pack(side="left", fill="x", expand=True)
-        ttk.Button(prev, text="↻", width=3, command=self._on_change).pack(side="left", padx=(6, 0))
-
-        self.strength = ttk.Label(frm, text="", style="Muted.TLabel")
-        self.strength.grid(row=8, column=0, columnspan=2, sticky="w")
-
-        btns = ttk.Frame(frm)
-        btns.grid(row=9, column=0, columnspan=2, sticky="e", pady=(12, 0))
-        ttk.Button(btns, text="Cancel", command=self._cancel).pack(side="right", padx=(6, 0))
-        ttk.Button(btns, text="Use this", style="Accent.TButton",
-                   command=self._accept).pack(side="right")
-
-        frm.columnconfigure(1, weight=1)
-        self._on_change()
-        self.bind("<Return>", lambda _e: self._accept())
-        self.bind("<Escape>", lambda _e: self._cancel())
-
-    def _current_policy(self) -> PasswordPolicy:
-        return PasswordPolicy(
-            length=int(round(self.length.get())),
-            use_lower=self.use_lower.get(),
-            use_upper=self.use_upper.get(),
-            use_digits=self.use_digits.get(),
-            use_symbols=self.use_symbols.get(),
-            avoid_ambiguous=self.avoid_ambiguous.get(),
-            allowed_symbols=self.allowed_symbols.get(),
-        )
-
-    def _on_change(self) -> None:
-        self.length_label.config(text=str(int(round(self.length.get()))))
-        try:
-            pw = generate(self._current_policy())
-            self.preview.set(pw)
-            self.strength.config(text=f"Strength: {strength_label(pw)}")
-        except ValueError as exc:
-            self.preview.set("")
-            self.strength.config(text=str(exc))
-
-    def _accept(self) -> None:
-        if not self.preview.get():
-            return
-        self.result = self.preview.get()
-        self.result_policy = self._current_policy()
-        self.destroy()
-
-    def _cancel(self) -> None:
-        self.result = None
-        self.destroy()
+# Next to MyVault.exe once installed (easy to pick in "Load unpacked"); the repo's
+# own folder when run from source.
+EXTENSION_DIR = app_dir() / "browser-extension"
+TEXT_FIELDS = ("title", "website", "app", "username", "email", "password",
+               "region", "age", "gender", "phone", "notes")
 
 
-# =========================================================================
-#  Custom (extra) fields editor
-# =========================================================================
-class CustomFields(ttk.Frame):
-    """A little editor for arbitrary key/value pairs."""
-
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.rows: list[tuple[ttk.Entry, ttk.Entry, ttk.Frame]] = []
-        self.body = ttk.Frame(self)
-        self.body.pack(fill="x")
-        ttk.Button(self, text="+ Add extra field", command=self.add_row).pack(anchor="w", pady=(4, 0))
-
-    def add_row(self, key: str = "", value: str = "") -> None:
-        row = ttk.Frame(self.body)
-        row.pack(fill="x", pady=2)
-        k = ttk.Entry(row, width=18)
-        k.insert(0, key)
-        k.pack(side="left")
-        v = ttk.Entry(row)
-        v.insert(0, value)
-        v.pack(side="left", fill="x", expand=True, padx=(6, 6))
-        ttk.Button(row, text="✕", width=3,
-                   command=lambda: self._remove(row)).pack(side="left")
-        self.rows.append((k, v, row))
-
-    def _remove(self, row: ttk.Frame) -> None:
-        self.rows = [r for r in self.rows if r[2] is not row]
-        row.destroy()
-
-    def load(self, data: dict) -> None:
-        for _, _, row in self.rows:
-            row.destroy()
-        self.rows.clear()
-        for key, value in (data or {}).items():
-            self.add_row(str(key), str(value))
-
-    def dump(self) -> dict:
-        out = {}
-        for k, v, _ in self.rows:
-            key = k.get().strip()
-            if key:
-                out[key] = v.get()
-        return out
+def _str_map(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    return {str(k)[:200]: str(v) for k, v in value.items() if str(k).strip()}
 
 
-# =========================================================================
-#  Login / create-master-password screen
-# =========================================================================
-class LockScreen(ttk.Frame):
-    def __init__(self, parent, vault_exists: bool, on_unlock):
-        super().__init__(parent, padding=40)
-        self.on_unlock = on_unlock
-        self.vault_exists = vault_exists
-
-        ttk.Label(self, text="MyVault", style="Title.TLabel").pack(pady=(0, 4))
-        sub = "Enter your master password" if vault_exists else "Create your master password"
-        ttk.Label(self, text=sub, style="Muted.TLabel").pack(pady=(0, 16))
-
-        self.pw1 = tk.StringVar()
-        self.pw2 = tk.StringVar()
-
-        self.e1 = ttk.Entry(self, textvariable=self.pw1, show="•", width=32, font=FONT)
-        self.e1.pack(pady=4)
-        self.e1.focus_set()
-
-        if not vault_exists:
-            self.e2 = ttk.Entry(self, textvariable=self.pw2, show="•", width=32, font=FONT)
-            self.e2.pack(pady=4)
-            ttk.Label(self, text="Confirm master password", style="Muted.TLabel").pack()
-            warn = ("Write this password down somewhere safe. There is NO way to "
-                    "recover your vault if you forget it — that is what keeps it secure.")
-            ttk.Label(self, text=warn, style="Muted.TLabel", wraplength=340,
-                      justify="center").pack(pady=(10, 0))
-
-        self.msg = ttk.Label(self, text="", foreground="#a00000", background=BG)
-        self.msg.pack(pady=(8, 0))
-
-        btn_text = "Unlock" if vault_exists else "Create vault"
-        ttk.Button(self, text=btn_text, style="Accent.TButton",
-                   command=self._submit).pack(pady=(14, 0))
-
-        self.bind_all("<Return>", lambda _e: self._submit())
-
-    def _submit(self) -> None:
-        pw = self.pw1.get()
-        if not pw:
-            self.msg.config(text="Please enter a password.")
-            return
-        if not self.vault_exists:
-            if len(pw) < 8:
-                self.msg.config(text="Use at least 8 characters.")
-                return
-            if pw != self.pw2.get():
-                self.msg.config(text="The two passwords do not match.")
-                return
-        self.unbind_all("<Return>")
-        self.on_unlock(pw)
-
-    def show_error(self, text: str) -> None:
-        self.msg.config(text=text)
-        self.bind_all("<Return>", lambda _e: self._submit())
+def _summary(e: Entry) -> dict:
+    if e.kind == "login":
+        sub = e.username or e.email or e.website
+    elif e.kind == "api":
+        sub = e.fields.get("service") or e.fields.get("client_id", "")
+    elif e.kind == "ssh":
+        user, host = e.fields.get("ssh_user", ""), e.fields.get("host", "")
+        sub = f"{user}@{host}" if user and host else (host or user)
+    else:
+        sub = (e.notes or "").split("\n", 1)[0][:60]
+    return {"id": e.id, "kind": e.kind, "title": e.display_name(), "subtitle": sub,
+            "website": e.website, "updated_at": e.updated_at}
 
 
-# =========================================================================
-#  Browser connector setup dialog
-# =========================================================================
-class BrowserConnectDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.title("Browser auto-fill")
-        self.configure(bg=BG)
-        self.resizable(False, False)
-        self.transient(parent)
-        self.grab_set()
+class Api:
+    """Every public method is callable from the page as window.pywebview.api.<name>.
+    Keep all state in underscore attributes: pywebview exposes public ones."""
 
-        cfg = config.load()
-        running = bool(parent.connector and parent.connector.running)
-        ext_path = Path(__file__).resolve().parent.parent / "browser-extension"
-
-        frm = ttk.Frame(self, padding=16)
-        frm.grid(sticky="nsew")
-
-        ttk.Label(frm, text="Browser auto-fill", style="Title.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w")
-        status = "● Connector running" if running else "● Connector NOT running"
-        color = "#0a7d00" if running else "#a00000"
-        ttk.Label(frm, text=f"{status}  (127.0.0.1 : {cfg['port']})",
-                  foreground=color, background=BG).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(2, 12))
-
-        steps = (
-            "One-time setup:\n"
-            "1. Open your browser and go to the Extensions page\n"
-            "     (Comet/Chrome: menu → Extensions → Manage Extensions).\n"
-            "2. Turn ON “Developer mode” (top-right).\n"
-            "3. Click “Load unpacked” and choose the folder shown below.\n"
-            "4. Open the MyVault extension's Options and paste the pairing\n"
-            "     token below, then click “Save & test”.\n\n"
-            "After that: on any login page, the extension offers to fill from\n"
-            "MyVault, and offers to save new logins you type. Auto-fill only\n"
-            "works while this app is open and unlocked."
-        )
-        ttk.Label(frm, text=steps, style="Muted.TLabel", justify="left").grid(
-            row=2, column=0, columnspan=2, sticky="w")
-
-        ttk.Label(frm, text="Extension folder", style="Muted.TLabel").grid(
-            row=3, column=0, sticky="w", pady=(12, 0))
-        path_var = tk.StringVar(value=str(ext_path))
-        ttk.Entry(frm, textvariable=path_var, font=FONT_MONO, state="readonly",
-                  width=54).grid(row=4, column=0, sticky="ew")
-        ttk.Button(frm, text="Copy", width=6,
-                   command=lambda: self._copy(str(ext_path))).grid(row=4, column=1, padx=(6, 0))
-
-        ttk.Label(frm, text="Pairing token", style="Muted.TLabel").grid(
-            row=5, column=0, sticky="w", pady=(10, 0))
-        self.tok_var = tk.StringVar(value=cfg["token"])
-        ttk.Entry(frm, textvariable=self.tok_var, font=FONT_MONO, state="readonly",
-                  width=54).grid(row=6, column=0, sticky="ew")
-        ttk.Button(frm, text="Copy", width=6,
-                   command=lambda: self._copy(cfg["token"])).grid(row=6, column=1, padx=(6, 0))
-
-        btns = ttk.Frame(frm)
-        btns.grid(row=7, column=0, columnspan=2, sticky="e", pady=(16, 0))
-        ttk.Button(btns, text="Regenerate token", command=self._regen).pack(side="left")
-        ttk.Button(btns, text="Close", style="Accent.TButton",
-                   command=self.destroy).pack(side="left", padx=(6, 0))
-
-        self.status = ttk.Label(frm, text="", style="Muted.TLabel")
-        self.status.grid(row=8, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        frm.columnconfigure(0, weight=1)
-        self.bind("<Escape>", lambda _e: self.destroy())
-
-    def _copy(self, value: str) -> None:
-        self.clipboard_clear()
-        self.clipboard_append(value)
-        self.status.config(text="Copied to clipboard.")
-
-    def _regen(self) -> None:
-        if not messagebox.askyesno(
-                "Regenerate token",
-                "Make a new pairing token? You'll need to paste the new token into\n"
-                "the browser extension again. Do this if you think the token leaked.",
-                parent=self):
-            return
-        cfg = config.regenerate_token()
-        self.tok_var.set(cfg["token"])
-        # Restart connector with the new token.
-        self.parent._stop_connector()
-        self.parent._start_connector()
-        self.status.config(text="New token generated. Re-paste it into the extension.")
-
-
-# =========================================================================
-#  LAN sync dialog
-# =========================================================================
-class LanSyncDialog(tk.Toplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.parent = parent
-        self.title("LAN sync")
-        self.configure(bg=BG)
-        self.resizable(False, False)
-        self.transient(parent)
-        self.grab_set()
-
-        running = parent.sync_service is not None
-        ip = sync.local_ip()
-
-        frm = ttk.Frame(self, padding=16)
-        frm.grid(sticky="nsew")
-        ttk.Label(frm, text="Sync over your WiFi", style="Title.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w")
-        status = "● Sync running" if running else "● Sync NOT running"
-        ttk.Label(frm, text=f"{status}   —   this PC is {ip} : {sync.SYNC_PORT}",
-                  foreground=("#0a7d00" if running else "#a00000"), background=BG).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(2, 12))
-
-        info = (
-            "How it works:\n"
-            "• Open MyVault on BOTH devices, on the SAME home WiFi, each unlocked\n"
-            "   with the SAME master password.\n"
-            "• They find each other automatically and merge — newest change to\n"
-            "   each entry wins, and deletions carry across. Nothing leaves your\n"
-            "   network; the exchange is encrypted with your master password.\n\n"
-            "If they don't find each other automatically (some routers block that),\n"
-            "type the other device's address below and sync manually."
-        )
-        ttk.Label(frm, text=info, style="Muted.TLabel", justify="left").grid(
-            row=2, column=0, columnspan=2, sticky="w")
-
-        ttk.Label(frm, text="Other device address (optional)", style="Muted.TLabel").grid(
-            row=3, column=0, sticky="w", pady=(12, 0))
-        self.host_var = tk.StringVar()
-        ttk.Entry(frm, textvariable=self.host_var, font=FONT_MONO, width=28).grid(
-            row=4, column=0, sticky="ew")
-        ttk.Button(frm, text="Sync with address",
-                   command=lambda: self._sync_now(self.host_var.get().strip())).grid(
-            row=4, column=1, padx=(6, 0))
-
-        btns = ttk.Frame(frm)
-        btns.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(16, 0))
-        ttk.Button(btns, text="Sync now (auto-find)", style="Accent.TButton",
-                   command=lambda: self._sync_now(None)).pack(side="left")
-        ttk.Button(btns, text="Close", command=self.destroy).pack(side="right")
-
-        self.status = ttk.Label(frm, text=self._last_text(), style="Muted.TLabel",
-                                wraplength=360, justify="left")
-        self.status.grid(row=6, column=0, columnspan=2, sticky="w", pady=(12, 0))
-        frm.columnconfigure(0, weight=1)
-        self.bind("<Escape>", lambda _e: self.destroy())
-
-    def _last_text(self) -> str:
-        r = self.parent._last_sync
-        if not r:
-            return "No sync yet this session."
-        if r.ok:
-            return f"Last sync ✓ with {r.peer}: {r.added_or_updated} entries updated."
-        return f"Last attempt: {r.error}"
-
-    def _sync_now(self, host: str | None) -> None:
-        if self.parent.sync_service is None:
-            self.status.config(text="Sync is turned off or the port is busy.")
-            return
-        self.status.config(text="Syncing…")
-
-        def work():
-            res = self.parent.sync_service.sync_now(host or None)
-            self.parent.after(0, self._after_sync)
-
-        threading.Thread(target=work, daemon=True).start()
-
-    def _after_sync(self) -> None:
-        if self.winfo_exists():
-            self.status.config(text=self._last_text())
-
-
-# =========================================================================
-#  Main application
-# =========================================================================
-class MyVaultApp(tk.Tk):
     def __init__(self):
-        super().__init__()
-        self.title("MyVault")
-        self.geometry("900x600")
-        self.minsize(760, 500)
-        self.configure(bg=BG)
-        _style(self)
+        self._vault: Vault | None = None
+        self._lock = threading.RLock()
+        self._window = None
+        self._last_activity = time.time()
+        self._connector: server.Connector | None = None
+        self._pairing: sync.PairingSession | None = None
+        self._upd = {"checking": False, "available": "", "notes": "", "progress": 0, "busy": False, "error": ""}
+        self._upd_release = None     # (manifest, raw, sig) of a newer release found online
+        threading.Thread(target=self._autolock_loop, daemon=True).start()
 
-        self.vault: Vault | None = None
-        self.current: Entry | None = None
-        self._clip_value: str | None = None
-        self._dirty = False
-        self._last_activity = 0.0
+    # ---- plumbing ----------------------------------------------------------
+    def _js(self, code: str) -> None:
+        if self._window is not None:
+            try:
+                self._window.evaluate_js(code)
+            except Exception:
+                pass
 
-        # Browser connector (started on unlock). Guards vault writes so the
-        # connector thread and the UI never save at the same time.
-        self.connector: server.Connector | None = None
-        self._vault_lock = threading.Lock()
-        self._pending_refresh = threading.Event()
+    def _need(self) -> Vault:
+        if self._vault is None:
+            raise PermissionError("locked")
+        self._last_activity = time.time()
+        return self._vault
 
-        # LAN sync (started on unlock).
-        self.sync_service: sync.SyncService | None = None
-        self._last_sync: sync.SyncResult | None = None
+    def _autolock_loop(self) -> None:
+        while True:
+            time.sleep(10)
+            if self._vault is not None and time.time() - self._last_activity > AUTO_LOCK_MINUTES * 60:
+                self.lock()
+                self._js("MV.onLocked('Locked after 5 minutes of inactivity.')")
 
-        self.container = ttk.Frame(self)
-        self.container.pack(fill="both", expand=True)
-        self._show_lock()
+    # ---- unlock / lock -----------------------------------------------------
+    def boot(self) -> dict:
+        return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
+                "version": __version__, "autolock": AUTO_LOCK_MINUTES}
 
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
-
-    # ---- screen switching ------------------------------------------------
-    def _clear_container(self) -> None:
-        for child in self.container.winfo_children():
-            child.destroy()
-
-    def _show_lock(self) -> None:
-        self.vault = None
-        self.current = None
-        self._clear_container()
-        exists = paths.vault_path().exists()
-        self.lock = LockScreen(self.container, exists, self._try_unlock)
-        self.lock.pack(fill="both", expand=True)
-
-    def _try_unlock(self, password: str) -> None:
+    def unlock(self, password: str) -> dict:
         path = paths.vault_path()
         try:
-            if path.exists():
-                self.vault = Vault.open(path, password)
-            else:
-                self.vault = Vault.create(path, password)
-        except crypto.WrongPasswordError:
-            self.lock.show_error("Wrong master password. Try again.")
-            return
-        except crypto.VaultFormatError as exc:
-            self.lock.show_error(str(exc))
-            return
-        self._show_main()
-
-    # ---- main layout -----------------------------------------------------
-    def _show_main(self) -> None:
-        self._clear_container()
-        self._build_menu()
-
-        outer = ttk.Frame(self.container)
-        outer.pack(fill="both", expand=True)
-
-        # top bar
-        top = ttk.Frame(outer, padding=(10, 8))
-        top.pack(fill="x")
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", lambda *_: self._refresh_list())
-        search = ttk.Entry(top, textvariable=self.search_var, font=FONT)
-        search.pack(side="left", fill="x", expand=True)
-        search.insert(0, "")
-        ttk.Button(top, text="+ New", style="Accent.TButton",
-                   command=self._new_entry).pack(side="left", padx=(8, 0))
-        ttk.Button(top, text="Lock", command=self._lock_now).pack(side="left", padx=(6, 0))
-
-        sep = tk.Frame(outer, height=1, bg=LINE)
-        sep.pack(fill="x")
-
-        body = ttk.Frame(outer)
-        body.pack(fill="both", expand=True)
-
-        # left: entry list
-        left = ttk.Frame(body, padding=(8, 8))
-        left.pack(side="left", fill="y")
-        self.listbox = tk.Listbox(left, width=28, font=FONT, activestyle="none",
-                                  bg=BG, fg=FG, highlightthickness=1,
-                                  highlightbackground=LINE, selectbackground=SEL_BG,
-                                  selectforeground=SEL_FG, borderwidth=0)
-        self.listbox.pack(fill="y", expand=True)
-        self.listbox.bind("<<ListboxSelect>>", self._on_select)
-
-        vsep = tk.Frame(body, width=1, bg=LINE)
-        vsep.pack(side="left", fill="y")
-
-        # right: detail form (scrollable)
-        right = ttk.Frame(body)
-        right.pack(side="left", fill="both", expand=True)
-        self._build_form(right)
-
-        self._entry_index: list[Entry] = []
-        self._refresh_list()
-        self._show_empty_form()
-
-        # activity tracking for auto-lock
-        for seq in ("<Key>", "<Button>", "<Motion>"):
-            self.bind_all(seq, self._mark_activity)
-        self._mark_activity()
-        self._schedule_autolock()
-        self._start_connector()
-        self._start_sync()
-        self._poll_connector()
-
-    def _build_menu(self) -> None:
-        menubar = tk.Menu(self)
-        m = tk.Menu(menubar, tearoff=0)
-        m.add_command(label="Change master password", command=self._change_master)
-        m.add_command(label="Browser auto-fill…", command=self._browser_dialog)
-        m.add_command(label="LAN sync…", command=self._sync_dialog)
-        m.add_command(label="Lock", command=self._lock_now)
-        m.add_separator()
-        m.add_command(label="Where is my vault file?", command=self._show_location)
-        m.add_command(label="About MyVault", command=self._about)
-        m.add_separator()
-        m.add_command(label="Quit", command=self._on_close)
-        menubar.add_cascade(label="Menu", menu=m)
-        self.config(menu=menubar)
-
-    def _build_form(self, parent) -> None:
-        canvas = tk.Canvas(parent, bg=BG, highlightthickness=0)
-        scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        self.form = ttk.Frame(canvas, padding=(16, 12))
-        self.form.bind("<Configure>",
-                       lambda _e: canvas.configure(scrollregion=canvas.bbox("all")))
-        window = canvas.create_window((0, 0), window=self.form, anchor="nw")
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(window, width=e.width))
-        canvas.configure(yscrollcommand=scroll.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        scroll.pack(side="right", fill="y")
-        canvas.bind_all("<MouseWheel>",
-                        lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
-
-        self.vars: dict[str, tk.StringVar] = {}
-        row = 0
-        for key, label in STANDARD_FIELDS:
-            ttk.Label(self.form, text=label, style="Muted.TLabel").grid(
-                row=row, column=0, sticky="w", pady=(6, 0))
-            var = tk.StringVar()
-            self.vars[key] = var
-            entry = ttk.Entry(self.form, textvariable=var, font=FONT)
-            entry.grid(row=row + 1, column=0, columnspan=3, sticky="ew")
-            row += 2
-
-        # password row (special: show/hide, copy, generate)
-        ttk.Label(self.form, text="Password", style="Muted.TLabel").grid(
-            row=row, column=0, sticky="w", pady=(6, 0))
-        self.pw_strength = ttk.Label(self.form, text="", style="Muted.TLabel")
-        self.pw_strength.grid(row=row, column=2, sticky="e")
-        row += 1
-        self.pw_var = tk.StringVar()
-        self.pw_var.trace_add("write", lambda *_: self._update_pw_strength())
-        self.pw_entry = ttk.Entry(self.form, textvariable=self.pw_var, show="•", font=FONT_MONO)
-        self.pw_entry.grid(row=row, column=0, sticky="ew")
-        self._pw_shown = False
-        ttk.Button(self.form, text="Show", width=6,
-                   command=self._toggle_pw).grid(row=row, column=1, padx=(6, 0))
-        ttk.Button(self.form, text="Generate", width=9,
-                   command=self._generate_pw).grid(row=row, column=2, padx=(6, 0))
-        row += 1
-
-        # notes
-        ttk.Label(self.form, text="Notes", style="Muted.TLabel").grid(
-            row=row, column=0, sticky="w", pady=(6, 0))
-        row += 1
-        self.notes = tk.Text(self.form, height=4, font=FONT, bg=BG, fg=FG,
-                             highlightthickness=1, highlightbackground=LINE,
-                             borderwidth=0, wrap="word")
-        self.notes.grid(row=row, column=0, columnspan=3, sticky="ew")
-        row += 1
-
-        # custom fields
-        ttk.Label(self.form, text="Extra fields", style="Muted.TLabel").grid(
-            row=row, column=0, sticky="w", pady=(10, 0))
-        row += 1
-        self.custom = CustomFields(self.form)
-        self.custom.grid(row=row, column=0, columnspan=3, sticky="ew")
-        row += 1
-
-        # copy buttons
-        copy_row = ttk.Frame(self.form)
-        copy_row.grid(row=row, column=0, columnspan=3, sticky="w", pady=(12, 0))
-        ttk.Button(copy_row, text="Copy username",
-                   command=lambda: self._copy(self.vars["username"].get(), "Username")).pack(side="left")
-        ttk.Button(copy_row, text="Copy email",
-                   command=lambda: self._copy(self.vars["email"].get(), "Email")).pack(side="left", padx=(6, 0))
-        ttk.Button(copy_row, text="Copy password",
-                   command=lambda: self._copy(self.pw_var.get(), "Password")).pack(side="left", padx=(6, 0))
-        row += 1
-
-        # save / delete
-        action_row = ttk.Frame(self.form)
-        action_row.grid(row=row, column=0, columnspan=3, sticky="ew", pady=(16, 0))
-        self.save_btn = ttk.Button(action_row, text="Save", style="Accent.TButton",
-                                   command=self._save_entry)
-        self.save_btn.pack(side="left")
-        self.delete_btn = ttk.Button(action_row, text="Delete", command=self._delete_entry)
-        self.delete_btn.pack(side="left", padx=(6, 0))
-        self.status = ttk.Label(action_row, text="", style="Muted.TLabel")
-        self.status.pack(side="left", padx=(12, 0))
-
-        self.form.columnconfigure(0, weight=1)
-
-    # ---- list ------------------------------------------------------------
-    def _refresh_list(self) -> None:
-        if not self.vault:
-            return
-        query = self.search_var.get() if hasattr(self, "search_var") else ""
-        self._entry_index = self.vault.search(query)
-        self.listbox.delete(0, tk.END)
-        for e in self._entry_index:
-            self.listbox.insert(tk.END, "  " + e.display_name())
-        if not self._entry_index:
-            self.listbox.insert(tk.END, "  (no entries)")
-
-    def _on_select(self, _event=None) -> None:
-        sel = self.listbox.curselection()
-        if not sel or not self._entry_index:
-            return
-        idx = sel[0]
-        if idx >= len(self._entry_index):
-            return
-        self._load_entry(self._entry_index[idx])
-
-    # ---- form <-> entry --------------------------------------------------
-    def _show_empty_form(self) -> None:
-        self.current = None
-        for var in self.vars.values():
-            var.set("")
-        self.pw_var.set("")
-        self.notes.delete("1.0", tk.END)
-        self.custom.load({})
-        self.status.config(text="Select an entry, or click “+ New”.")
-        self.delete_btn.state(["disabled"])
-
-    def _load_entry(self, entry: Entry) -> None:
-        self.current = entry
-        for key in self.vars:
-            self.vars[key].set(getattr(entry, key, "") or "")
-        self.pw_var.set(entry.password or "")
-        self.notes.delete("1.0", tk.END)
-        self.notes.insert("1.0", entry.notes or "")
-        self.custom.load(entry.custom)
-        self.status.config(text="")
-        self.delete_btn.state(["!disabled"])
-        if self._pw_shown:
-            self._toggle_pw()
-
-    def _collect(self, entry: Entry) -> None:
-        for key, var in self.vars.items():
-            setattr(entry, key, var.get().strip())
-        entry.password = self.pw_var.get()
-        entry.notes = self.notes.get("1.0", tk.END).strip()
-        entry.custom = self.custom.dump()
-
-    def _new_entry(self) -> None:
-        self._show_empty_form()
-        self.current = Entry()
-        self.delete_btn.state(["disabled"])
-        self.status.config(text="New entry — fill it in and click Save.")
-        self.vars["title"].set("")
-
-    def _save_entry(self) -> None:
-        if self.current is None:
-            self.current = Entry()
-        is_new = self.vault.get(self.current.id) is None
-        self._collect(self.current)
-        if not self.current.display_name() or self.current.display_name() == "(untitled)":
-            messagebox.showwarning("Nothing to save",
-                                   "Give the entry at least a title, website, or username.")
-            return
-        try:
-            with self._vault_lock:
-                if is_new:
-                    self.vault.add(self.current)
+            with self._lock:
+                if path.exists():
+                    self._vault = Vault.open(path, password)
                 else:
-                    self.vault.update(self.current)
-        except OSError as exc:
-            messagebox.showerror("Could not save", f"Failed to write the vault file:\n{exc}")
-            return
-        self._refresh_list()
-        self.status.config(text="Saved ✓")
-
-    def _delete_entry(self) -> None:
-        if not self.current or self.vault.get(self.current.id) is None:
-            return
-        if not messagebox.askyesno("Delete entry",
-                                   f"Delete “{self.current.display_name()}”?\nThis cannot be undone."):
-            return
-        with self._vault_lock:
-            self.vault.delete(self.current.id)
-        self._refresh_list()
-        self._show_empty_form()
-
-    # ---- password helpers ------------------------------------------------
-    def _toggle_pw(self) -> None:
-        self._pw_shown = not self._pw_shown
-        self.pw_entry.config(show="" if self._pw_shown else "•")
-
-    def _update_pw_strength(self) -> None:
-        self.pw_strength.config(text=strength_label(self.pw_var.get()))
-
-    def _generate_pw(self) -> None:
-        policy = PasswordPolicy.from_dict(
-            self.current.password_policy if self.current else None)
-        dlg = GeneratorDialog(self, policy)
-        self.wait_window(dlg)
-        if dlg.result:
-            self.pw_var.set(dlg.result)
-            if self.current and dlg.result_policy:
-                self.current.password_policy = dlg.result_policy.to_dict()
-            if not self._pw_shown:
-                self._toggle_pw()
-
-    # ---- clipboard -------------------------------------------------------
-    def _copy(self, value: str, label: str) -> None:
-        if not value:
-            self.status.config(text=f"{label} is empty.")
-            return
-        self.clipboard_clear()
-        self.clipboard_append(value)
-        self._clip_value = value
-        self.status.config(text=f"{label} copied — clears in {CLIPBOARD_CLEAR_SECONDS}s.")
-        self.after(CLIPBOARD_CLEAR_SECONDS * 1000, lambda: self._clear_clip(value))
-
-    def _clear_clip(self, value: str) -> None:
-        # Only clear if the clipboard still holds what we put there.
-        try:
-            if self.clipboard_get() == value and self._clip_value == value:
-                self.clipboard_clear()
-                self.clipboard_append("")
-        except tk.TclError:
-            pass
-
-    # ---- auto-lock -------------------------------------------------------
-    def _mark_activity(self, _event=None) -> None:
-        import time
+                    if len(password) < 8:
+                        return {"ok": False, "error": "Use at least 8 characters."}
+                    self._vault = Vault.create(path, password)
+        except crypto.WrongPasswordError:
+            return {"ok": False, "error": "That isn't the master password. Try again."}
+        except crypto.VaultFormatError as exc:
+            return {"ok": False, "error": str(exc)}
         self._last_activity = time.time()
+        self._start_connector()
+        self.check_updates()
+        return {"ok": True}
 
-    def _schedule_autolock(self) -> None:
-        self.after(20000, self._check_autolock)
-
-    def _check_autolock(self) -> None:
-        import time
-        if self.vault is None:
-            return
-        if time.time() - self._last_activity > AUTO_LOCK_MINUTES * 60:
-            self._lock_now()
-            return
-        self._schedule_autolock()
-
-    def _lock_now(self) -> None:
+    def lock(self) -> dict:
+        with self._lock:
+            self._vault = None
+        self.sync_cancel()
         self._stop_connector()
-        self._stop_sync()
-        self.config(menu=tk.Menu(self))
-        self._show_lock()
+        clipboard.wipe_now()
+        return {"ok": True}
 
-    # ---- menu actions ----------------------------------------------------
-    def _change_master(self) -> None:
-        new = simpledialog.askstring("Change master password",
-                                     "New master password (min 8 chars):", show="•", parent=self)
-        if new is None:
-            return
-        if len(new) < 8:
-            messagebox.showwarning("Too short", "Use at least 8 characters.")
-            return
-        confirm = simpledialog.askstring("Change master password",
-                                         "Type it again to confirm:", show="•", parent=self)
-        if confirm != new:
-            messagebox.showwarning("Mismatch", "The passwords did not match.")
-            return
-        with self._vault_lock:
-            self.vault.change_password(new)
-        messagebox.showinfo("Done", "Master password changed.")
+    def ping(self) -> None:
+        """The page calls this on user activity, which keeps auto-lock away."""
+        if self._vault is not None:
+            self._last_activity = time.time()
 
-    def _show_location(self) -> None:
-        messagebox.showinfo("Vault location",
-                            f"Your encrypted vault file is:\n\n{paths.vault_path()}\n\n"
-                            "Back this file up. It is useless to anyone without your master password.")
+    # ---- entries -----------------------------------------------------------
+    def entries(self) -> list[dict]:
+        v = self._need()
+        with self._lock:
+            return [_summary(e) for e in v.active_entries()]
 
-    def _about(self) -> None:
-        messagebox.showinfo(
-            "About MyVault",
-            "MyVault — your own offline password manager.\n\n"
-            "• 100% local. Nothing is sent anywhere.\n"
-            "• Encrypted with scrypt + AES-256-GCM.\n"
-            "• Only your master password can open it.\n\n"
-            "Keep a backup of your vault file and never forget your master password.")
+    def entry(self, entry_id: str) -> dict | None:
+        v = self._need()
+        e = v.get(entry_id)
+        return e.to_dict() if e and not e.deleted else None
 
-    def _on_close(self) -> None:
-        self._stop_connector()
-        self._stop_sync()
-        self.destroy()
+    def save_entry(self, data: dict) -> dict:
+        v = self._need()
+        kind = data.get("kind", "login")
+        if kind not in KINDS:
+            return {"ok": False, "error": "Unknown entry type."}
+        with self._lock:
+            e = v.get(str(data.get("id", ""))) if data.get("id") else None
+            is_new = e is None or e.deleted
+            if is_new:
+                e = Entry(kind=kind)
+            e.kind = kind
+            for key in TEXT_FIELDS:
+                if key in data:
+                    setattr(e, key, str(data[key] or "") if key in ("password", "notes")
+                            else str(data[key] or "").strip())
+            e.custom = _str_map(data.get("custom"))
+            e.fields = _str_map(data.get("fields"))
+            if isinstance(data.get("password_policy"), dict):
+                e.password_policy = PasswordPolicy.from_dict(data["password_policy"]).to_dict()
+            if e.display_name() == "(untitled)":
+                return {"ok": False, "error": "Give it a name first."}
+            try:
+                v.add(e) if is_new else v.update(e)
+            except OSError as exc:
+                return {"ok": False, "error": f"Couldn't write the vault file: {exc}"}
+        return {"ok": True, "id": e.id}
 
-    # ---- LAN sync --------------------------------------------------------
-    def _start_sync(self) -> None:
-        cfg = config.load()
-        if not cfg.get("sync_enabled", True):
-            return
+    def delete_entry(self, entry_id: str) -> dict:
+        v = self._need()
+        with self._lock:
+            v.delete(entry_id)
+        return {"ok": True}
+
+    def read_text_file(self) -> dict:
+        """Pick a key file (e.g. ~/.ssh/id_ed25519) and return its text."""
+        self._need()
+        picked = self._window.create_file_dialog(webview.OPEN_DIALOG, directory=str(Path.home() / ".ssh"))
+        if not picked:
+            return {"ok": False}
+        p = Path(picked[0])
+        if p.stat().st_size > 64 * 1024:
+            return {"ok": False, "error": "That file is too big to be a key."}
         try:
-            self.sync_service = sync.SyncService(self, on_result=self._on_sync_result)
-            self.sync_service.start()
-        except OSError:
-            self.sync_service = None   # port busy; sync just unavailable
+            return {"ok": True, "name": p.name, "text": p.read_text("utf-8").strip()}
+        except (OSError, UnicodeDecodeError):
+            return {"ok": False, "error": "That isn't a text key file."}
 
-    def _stop_sync(self) -> None:
-        if self.sync_service is not None:
-            self.sync_service.stop()
-            self.sync_service = None
+    # ---- clipboard / generator --------------------------------------------
+    def copy(self, text: str) -> dict:
+        self._need()
+        ok = clipboard.copy_secret(str(text), CLIPBOARD_CLEAR_SECONDS)
+        return {"ok": ok, "clears_in": CLIPBOARD_CLEAR_SECONDS}
 
-    def _on_sync_result(self, result: sync.SyncResult) -> None:
-        # Called from a sync thread. Record it and ask the UI to refresh the list.
-        self._last_sync = result
-        if result.ok and result.added_or_updated:
-            self._pending_refresh.set()
+    def generate(self, policy: dict | None = None) -> dict:
+        try:
+            pw = generate(PasswordPolicy.from_dict(policy))
+        except (ValueError, TypeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "password": pw, "strength": strength_label(pw)}
 
-    # -- SyncProvider API (called from sync threads) --
-    def get_password(self) -> str:
-        return self.vault._password if self.vault else ""
+    def strength(self, password: str) -> str:
+        return strength_label(str(password))
 
-    def get_entries(self) -> list[dict]:
-        if self.vault is None:
-            return []
-        with self._vault_lock:
-            return [e.to_dict() for e in self.vault.entries]
+    # ---- settings ----------------------------------------------------------
+    def change_master(self, current: str, new: str) -> dict:
+        v = self._need()
+        if current != v._password:
+            return {"ok": False, "error": "The current master password is wrong."}
+        if len(new) < 8:
+            return {"ok": False, "error": "Use at least 8 characters."}
+        with self._lock:
+            v.change_password(new)
+        return {"ok": True}
 
-    def apply_merged(self, merged: list[dict]) -> int:
-        if self.vault is None:
-            return 0
-        with self._vault_lock:
-            before = {e.id: e.updated_at for e in self.vault.entries}
-            self.vault.entries = [Entry.from_dict(d) for d in merged]
-            self.vault.save()
-            return sum(1 for e in self.vault.entries
-                       if before.get(e.id) is None or e.updated_at > before[e.id])
+    def vault_info(self) -> dict:
+        return {"path": str(paths.vault_path())}
 
-    def device_id(self) -> str:
-        return self.vault.device_id if self.vault else ""
+    def connector_info(self) -> dict:
+        cfg = config.load()
+        return {"running": bool(self._connector and self._connector.running),
+                "port": cfg["port"], "token": cfg["token"], "extension_dir": str(EXTENSION_DIR)}
 
-    def _sync_dialog(self) -> None:
-        LanSyncDialog(self)
+    def regen_token(self) -> dict:
+        config.regenerate_token()
+        self._stop_connector()
+        if self._vault is not None:
+            self._start_connector()
+        return self.connector_info()
 
-    # ---- browser connector ----------------------------------------------
+    def autostart_state(self) -> dict:
+        return {"available": autostart.available(), "enabled": autostart.enabled()}
+
+    def set_autostart(self, on: bool) -> dict:
+        if not autostart.available():
+            return {"available": False, "enabled": False}
+        autostart.set_enabled(bool(on))
+        return self.autostart_state()
+
+    def folders(self) -> dict:
+        return {"data": str(paths.data_dir()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
+
+    def open_folder(self, which: str) -> dict:
+        """Open one of MyVault's own folders in Explorer (paths found at runtime,
+        so they're right on any machine). Nothing outside these three."""
+        target = {"data": paths.data_dir(), "app": app_dir(), "extension": EXTENSION_DIR}.get(which)
+        if target is None or not target.is_dir():
+            return {"ok": False, "error": "That folder isn't there."}
+        vault = paths.vault_path()
+        if which == "data" and vault.exists() and os.name == "nt":
+            subprocess.Popen(["explorer", f"/select,{vault}"])   # highlights vault.dat
+        elif os.name == "nt":
+            os.startfile(target)
+        else:
+            subprocess.Popen(["xdg-open" if sys.platform != "darwin" else "open", str(target)])
+        return {"ok": True, "path": str(target)}
+
+    def copy_plain(self, text: str) -> dict:
+        """Non-secret copy (token, folder path): no auto-clear."""
+        return {"ok": clipboard.copy_secret(str(text), clear_after=0)}
+
+    # ---- QR sync -----------------------------------------------------------
+    def sync_start(self) -> dict:
+        self._need()
+        self.sync_cancel()
+        try:
+            self._pairing = sync.PairingSession(_SyncProvider(self))
+        except OSError as exc:
+            return {"ok": False, "error": f"Couldn't open the sync port: {exc}"}
+        qr = segno.make(self._pairing.uri, error="m")
+        # Pure black on white with the full 4-module quiet zone: easiest for phone cameras.
+        svg = qr.svg_inline(scale=8, border=4, dark="#000000", light="#FFFFFF", omitsize=True)  # viewBox, so CSS scales it instead of cropping
+        hosts = sync.parse_uri(self._pairing.uri)[0]
+        return {"ok": True, "svg": svg, "uri": self._pairing.uri, "ttl": sync.PAIRING_TTL,
+                "hosts": hosts, "public": _network_is_public(hosts[0])}
+
+    def sync_status(self) -> dict:
+        s = self._pairing
+        if s is None:
+            return {"state": "idle"}
+        r = s.result
+        out = {"state": s.state, "seconds_left": max(0, int(s.expires_at - time.time())),
+               "changed": r.added_or_updated if r else 0,
+               "rejected": s.failed_attempts, "error": s.last_error, "version": __version__}
+        if r:
+            out.update(peer_version=r.peer_version, received=r.received, sent=r.sent,
+                       update_error=r.update_error)
+        return out
+
+    def sync_cancel(self) -> dict:
+        if self._pairing is not None:
+            self._pairing.cancel()
+            self._pairing = None
+        return {"ok": True}
+
+    # ---- updates ------------------------------------------------------------
+    def update_state(self) -> dict:
+        cfg = config.load()
+        ready = update.ready_installer()
+        return {"current": __version__, "ask": cfg.get("update_check") is None,
+                "enabled": bool(cfg.get("update_check")), "ready": ready.version if ready else "",
+                "last_check": cfg.get("last_update_check", 0), **self._upd}
+
+    def set_update_check(self, on: bool) -> dict:
+        cfg = config.load()
+        cfg["update_check"] = bool(on)
+        config.save(cfg)
+        if on:
+            self.check_updates(force=True)
+        return self.update_state()
+
+    def check_updates(self, force: bool = False) -> dict:
+        """Online check, in the background: only if the user said yes, and at
+        most once a day unless they press "Check now"."""
+        cfg = config.load()
+        if not cfg.get("update_check") or self._upd["checking"]:
+            return self.update_state()
+        if not force and time.time() - cfg.get("last_update_check", 0) < 24 * 3600:
+            return self.update_state()
+
+        def work():
+            self._upd.update(checking=True, error="")
+            try:
+                m, raw, sig = update.check_online()
+                c = config.load()
+                c["last_update_check"] = time.time()
+                config.save(c)
+                if update.newer(m["version"], __version__):
+                    self._upd_release = (m, raw, sig)
+                    self._upd.update(available=m["version"], notes=str(m.get("notes", ""))[:500])
+                else:
+                    self._upd.update(available="", notes="")
+            except Exception as exc:   # offline, GitHub down, no release yet...
+                self._upd["error"] = _friendly_update_error(exc)
+            finally:
+                self._upd["checking"] = False
+                self._js("MV.updates()")
+        threading.Thread(target=work, daemon=True).start()
+        return self.update_state()
+
+    def update_now(self) -> dict:
+        """Download (if needed), verify, and run the newer installer."""
+        if self._upd["busy"]:
+            return self.update_state()
+
+        def work():
+            self._upd.update(busy=True, error="", progress=0)
+            try:
+                if not update.ready_installer() and self._upd_release:
+                    m, raw, sig = self._upd_release
+                    update.download(m, raw, sig, update.PLATFORM,
+                                    progress=lambda got, total: self._upd.update(progress=int(got * 100 / total)))
+                    if "android" in m.get("files", {}):   # so this PC can hand it to your phone
+                        try:
+                            update.download(m, raw, sig, "android")
+                        except Exception:
+                            pass
+                self.install_update()
+            except Exception as exc:
+                self._upd["error"] = _friendly_update_error(exc)
+            finally:
+                self._upd["busy"] = False
+                self._js("MV.updates()")
+        threading.Thread(target=work, daemon=True).start()
+        return self.update_state()
+
+    def install_update(self) -> dict:
+        pkg = update.ready_installer()
+        if pkg is None:
+            return {"ok": False, "error": "No verified update is waiting."}
+        # The installer replaces the program files, keeps the vault, and
+        # starts MyVault again when it's done.
+        subprocess.Popen([str(pkg.path), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                         creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
+        self.lock()
+        if self._window is not None:
+            self._window.destroy()
+        return {"ok": True}
+
+    # ---- paper backup ------------------------------------------------------
+    def backup_export(self, password: str) -> dict:
+        v = self._need()
+        if len(password) < 8:
+            return {"ok": False, "error": "Use at least 8 characters for the backup password."}
+        picked = self._window.create_file_dialog(
+            webview.SAVE_DIALOG, save_filename=f"MyVault backup {time.strftime('%Y-%m-%d')}.pdf",
+            file_types=("PDF (*.pdf)",))
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        with self._lock:
+            entries = [e.to_dict() for e in v.active_entries()]
+        target.write_bytes(paper.build_pdf(entries, password))
+        return {"ok": True, "path": str(target), "count": len(entries)}
+
+    def backup_import(self, password: str) -> dict:
+        v = self._need()
+        picked = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("PDF (*.pdf)",))
+        if not picked:
+            return {"ok": False}
+        try:
+            got, bad = paper.read_pdf(Path(picked[0]).read_bytes(), password)
+        except paper.BackupError as exc:
+            return {"ok": False, "error": str(exc)}
+        with self._lock:
+            merged, counts = sync.restore_entries(
+                [e.to_dict() for e in v.entries], [Entry.from_dict(d).to_dict() for d in got], time.time())
+            v.entries = [Entry.from_dict(d) for d in merged]
+            v.save()
+        self._js("MV.refresh()")
+        return {"ok": True, "found": len(got), "unreadable": bad, **counts}
+
+    # ---- browser connector -------------------------------------------------
     def _start_connector(self) -> None:
         cfg = config.load()
         if not cfg.get("enabled", True):
             return
         try:
-            self.connector = server.Connector(self, cfg["token"], int(cfg["port"]))
-            self.connector.start()
+            self._connector = server.Connector(_ConnectorProvider(self), cfg["token"], int(cfg["port"]))
+            self._connector.start()
         except OSError:
-            # Port busy or blocked — auto-fill just won't be available; the app
-            # keeps working normally. Surfaced in the Browser auto-fill dialog.
-            self.connector = None
+            self._connector = None   # port busy: auto-fill unavailable, app still works
 
     def _stop_connector(self) -> None:
-        if self.connector is not None:
-            self.connector.stop()
-            self.connector = None
+        if self._connector is not None:
+            self._connector.stop()
+            self._connector = None
 
-    def _poll_connector(self) -> None:
-        # The connector runs in another thread; it flags when it changed the
-        # vault so the main thread can safely refresh the list.
-        if self.vault is None:
-            return
-        if self._pending_refresh.is_set():
-            self._pending_refresh.clear()
-            self._refresh_list()
-        self.after(700, self._poll_connector)
+    def _shutdown(self) -> None:
+        self.lock()
 
-    # -- provider API called by server.py (from the connector thread) --
+
+class _SyncProvider:
+    """What sync.py needs (runs on the pairing thread)."""
+
+    def __init__(self, api: Api):
+        self.api = api
+
+    # -- version + update hand-over --
+    def app_version(self) -> str:
+        return __version__
+
+    def platform(self) -> str:
+        return update.PLATFORM
+
+    def offers(self) -> dict:
+        return update.offers()
+
+    def package_for(self, platform: str):
+        return update.packages().get(platform)
+
+    def receive_package(self, platform: str, manifest: bytes, sig: str, tmp) -> str:
+        if platform != update.PLATFORM:
+            raise update.UpdateError("Not a package for this PC.")
+        pkg = update.store(manifest, sig, platform, tmp)
+        self.api._js("MV.updates()")
+        return pkg.version
+
+    def device_id(self) -> str:
+        return self.api._vault.device_id if self.api._vault else ""
+
+    def get_entries(self) -> list[dict]:
+        with self.api._lock:
+            return [e.to_dict() for e in self.api._need().entries]
+
+    def apply_merged(self, merged: list[dict]) -> int:
+        with self.api._lock:
+            v = self.api._need()
+            before = {e.id: e.updated_at for e in v.entries}
+            v.entries = [Entry.from_dict(d) for d in merged]
+            v.save()
+            changed = sum(1 for e in v.entries
+                          if before.get(e.id) is None or e.updated_at > before[e.id])
+        self.api._js("MV.refresh()")
+        return changed
+
+
+class _ConnectorProvider:
+    """What server.py needs (runs on the connector thread)."""
+
+    def __init__(self, api: Api):
+        self.api = api
+
     def is_unlocked(self) -> bool:
-        return self.vault is not None
+        return self.api._vault is not None
 
     def match(self, domain: str) -> list[dict]:
-        if self.vault is None:
+        v = self.api._vault
+        if v is None:
             return []
-        out = []
-        for e in self.vault.active_entries():
-            if any(webmatch.hosts_match(domain, h) for h in webmatch.entry_hosts(e)):
-                out.append({
-                    "id": e.id,
-                    "title": e.display_name(),
-                    "username": e.username,
-                    "email": e.email,
-                    "password": e.password,
-                })
-        return out
+        return [{"id": e.id, "title": e.display_name(), "username": e.username,
+                 "email": e.email, "password": e.password}
+                for e in v.active_entries()
+                if e.kind == "login"
+                and any(webmatch.hosts_match(domain, h) for h in webmatch.entry_hosts(e))]
 
     def save(self, cred: dict) -> dict:
-        if self.vault is None:
+        v = self.api._vault
+        if v is None:
             return {"ok": False, "error": "locked"}
         domain = webmatch.normalize_host(cred.get("domain") or cred.get("url") or "")
         login = (cred.get("username") or cred.get("email") or "").strip()
         password = cred.get("password") or ""
         if not password:
             return {"ok": False, "error": "no password"}
+        profile = ("username", "email", "phone", "region", "age", "gender")
 
-        with self._vault_lock:
-            # Find an existing entry for this site + same login to update.
+        with self.api._lock:
             target = None
-            for e in self.vault.active_entries():
+            for e in v.active_entries():
+                if e.kind != "login":
+                    continue
                 same_site = any(webmatch.hosts_match(domain, h) for h in webmatch.entry_hosts(e))
-                same_login = login and login in (e.username, e.email)
-                if same_site and (same_login or not login):
+                if same_site and (not login or login in (e.username, e.email)):
                     target = e
                     break
-
             if target is None:
-                entry = Entry(
-                    title=domain or cred.get("title") or login,
-                    website=domain,
-                    username=cred.get("username", "") or "",
-                    email=cred.get("email", "") or "",
-                    password=password,
-                    phone=cred.get("phone", "") or "",
-                )
-                self._apply_extra(entry, cred)
-                self.vault.add(entry)
+                entry = Entry(title=domain or login, website=domain, password=password,
+                              **{f: str(cred.get(f) or "") for f in profile})
+                _apply_extra(entry, cred)
+                v.add(entry)
                 action, entry_id = "created", entry.id
-            elif (target.password != password
-                  or self._has_new_details(target, cred)):
+            elif target.password != password or _has_new_details(target, cred, profile):
                 target.password = password
-                # Fill in any fields the entry didn't already have.
-                for field in ("username", "email", "phone"):
-                    if cred.get(field) and not getattr(target, field):
-                        setattr(target, field, cred[field])
-                self._apply_extra(target, cred)
-                self.vault.update(target)
+                for f in profile:
+                    if cred.get(f) and not getattr(target, f):
+                        setattr(target, f, str(cred[f]))
+                _apply_extra(target, cred)
+                v.update(target)
                 action, entry_id = "updated", target.id
             else:
                 action, entry_id = "unchanged", target.id
-
-        self._pending_refresh.set()
+        self.api._js("MV.refresh()")
         return {"ok": True, "action": action, "id": entry_id}
-
-    @staticmethod
-    def _apply_extra(entry: Entry, cred: dict) -> None:
-        """Merge any extra captured key/values (e.g. from a signup form) into the
-        entry's custom fields, without clobbering ones the user already set."""
-        extra = cred.get("extra") or {}
-        for key, value in extra.items():
-            if value and key and key not in entry.custom:
-                entry.custom[str(key)] = str(value)
-
-    @staticmethod
-    def _has_new_details(target: Entry, cred: dict) -> bool:
-        for field in ("username", "email", "phone"):
-            if cred.get(field) and not getattr(target, field):
-                return True
-        extra = cred.get("extra") or {}
-        return any(v and k not in target.custom for k, v in extra.items())
 
     def generate(self, policy: dict | None) -> str:
         try:
             return generate(PasswordPolicy.from_dict(policy))
-        except ValueError:
+        except (ValueError, TypeError):
             return generate(PasswordPolicy())
 
-    def _browser_dialog(self) -> None:
-        BrowserConnectDialog(self)
+
+def _friendly_update_error(exc: Exception) -> str:
+    import urllib.error
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 404:
+        return "No release has been published yet."
+    if isinstance(exc, (urllib.error.URLError, OSError, TimeoutError)):
+        return "Couldn't reach GitHub. Check your internet connection."
+    return str(exc)
+
+
+def _network_is_public(ip: str) -> bool:
+    """True when Windows files this WiFi as a Public network. Its firewall then
+    drops the phone's sync connection without telling anyone, so the UI warns."""
+    if os.name != "nt":
+        return False
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             f"(Get-NetIPAddress -IPAddress '{ipaddress.ip_address(ip)}' -ErrorAction SilentlyContinue"
+             " | Get-NetConnectionProfile).NetworkCategory"],
+            capture_output=True, text=True, timeout=6, creationflags=subprocess.CREATE_NO_WINDOW)
+        return out.stdout.strip() == "Public"
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
+def _apply_extra(entry: Entry, cred: dict) -> None:
+    """Merge extra captured sign-up details into custom fields, never clobbering."""
+    for key, value in (cred.get("extra") or {}).items():
+        if value and key and str(key) not in entry.custom:
+            entry.custom[str(key)[:80]] = str(value)[:500]
+
+
+def _has_new_details(target: Entry, cred: dict, profile) -> bool:
+    if any(cred.get(f) and not getattr(target, f) for f in profile):
+        return True
+    return any(v and k not in target.custom for k, v in (cred.get("extra") or {}).items())
+
+
+def _page() -> str:
+    html = (UI_DIR / "index.html").read_text("utf-8")
+    css = (UI_DIR / "app.css").read_text("utf-8")
+    js = (UI_DIR / "app.js").read_text("utf-8")
+    return html.replace("/*__CSS__*/", css).replace("//__JS__", js)
+
+
+_mutex = None
+
+
+def _focus_running_copy() -> bool:
+    """One MyVault at a time (two would fight over the connector port). If one
+    is already open, bring its window forward and return True."""
+    global _mutex
+    if os.name != "nt":
+        return False
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _mutex = k32.CreateMutexW(None, False, r"Local\MyVault.SingleInstance")
+    if ctypes.get_last_error() != 183:          # ERROR_ALREADY_EXISTS
+        return False
+    u32 = ctypes.windll.user32
+    found = []
+    proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+
+    def visit(hwnd, _):
+        title, cls = ctypes.create_unicode_buffer(64), ctypes.create_unicode_buffer(64)
+        u32.GetWindowTextW(hwnd, title, 64)
+        u32.GetClassNameW(hwnd, cls, 64)
+        if title.value == "MyVault" and cls.value.startswith("WindowsForms"):
+            found.append(hwnd)
+        return True
+    u32.EnumWindows(proc(visit), 0)
+    for hwnd in found:
+        u32.ShowWindow(hwnd, 9)                 # SW_RESTORE
+        u32.SetForegroundWindow(hwnd)
+    return True
 
 
 def run() -> None:
-    app = MyVaultApp()
-    app.mainloop()
+    if _focus_running_copy():
+        return
+    if os.name == "nt":   # own taskbar identity and icon, not Python's
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+    api = Api()
+    window = webview.create_window(
+        "MyVault", html=_page(), js_api=api, width=1100, height=720,
+        min_size=(820, 560), background_color="#F4F5F7", text_select=True,
+        minimized="--minimized" in sys.argv)   # started at sign-in: wait in the taskbar, locked
+    api._window = window
+    window.events.closed += api._shutdown
+    webview.start(private_mode=True, icon=str(ICON) if ICON.exists() else None)

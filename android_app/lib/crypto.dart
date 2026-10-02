@@ -41,14 +41,29 @@ Uint8List _randomBytes(int n) {
   return Uint8List.fromList(List<int>.generate(n, (_) => rnd.nextInt(256)));
 }
 
-Uint8List _deriveKey(String password, Uint8List salt, int n, int r, int p, int dkLen) {
+Uint8List _deriveKey(
+  String password,
+  Uint8List salt,
+  int n,
+  int r,
+  int p,
+  int dkLen,
+) {
   final derivator = Scrypt()..init(ScryptParameters(n, r, p, dkLen, salt));
   return derivator.process(Uint8List.fromList(utf8.encode(password)));
 }
 
-Uint8List _gcm(bool forEncryption, Uint8List key, Uint8List nonce, Uint8List input) {
+Uint8List _gcm(
+  bool forEncryption,
+  Uint8List key,
+  Uint8List nonce,
+  Uint8List input,
+) {
   final cipher = GCMBlockCipher(AESEngine())
-    ..init(forEncryption, AEADParameters(KeyParameter(key), _tagBits, nonce, Uint8List(0)));
+    ..init(
+      forEncryption,
+      AEADParameters(KeyParameter(key), _tagBits, nonce, Uint8List(0)),
+    );
   return cipher.process(input);
 }
 
@@ -77,7 +92,8 @@ Uint8List encryptBytes(Uint8List plaintext, String password) {
     },
   };
   return Uint8List.fromList(
-      utf8.encode(const JsonEncoder.withIndent('  ').convert(envelope)));
+    utf8.encode(const JsonEncoder.withIndent('  ').convert(envelope)),
+  );
 }
 
 /// Decrypt a MyVault file. Throws [WrongPasswordException] on bad password/tamper.
@@ -110,6 +126,8 @@ Uint8List decryptBytes(Uint8List fileBytes, String password) {
   try {
     return _gcm(false, key, nonce, data);
   } on InvalidCipherTextException {
-    throw WrongPasswordException('Wrong master password (or the file was altered).');
+    throw WrongPasswordException(
+      'Wrong master password (or the file was altered).',
+    );
   }
 }

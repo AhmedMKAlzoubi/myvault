@@ -30,14 +30,14 @@ class PasswordPolicy {
   });
 
   Map<String, dynamic> toJson() => {
-        'length': length,
-        'use_lower': useLower,
-        'use_upper': useUpper,
-        'use_digits': useDigits,
-        'use_symbols': useSymbols,
-        'avoid_ambiguous': avoidAmbiguous,
-        'allowed_symbols': allowedSymbols,
-      };
+    'length': length,
+    'use_lower': useLower,
+    'use_upper': useUpper,
+    'use_digits': useDigits,
+    'use_symbols': useSymbols,
+    'avoid_ambiguous': avoidAmbiguous,
+    'allowed_symbols': allowedSymbols,
+  };
 
   factory PasswordPolicy.fromJson(Map<String, dynamic>? j) {
     if (j == null) return PasswordPolicy();
