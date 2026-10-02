@@ -1,104 +1,182 @@
 # MyVault
 
-Your own small, **offline** password manager. It keeps all the details you type
-into websites and apps — username, email, password, region, age, gender, and
-anything else — neatly organized and locked behind **one master password** you
-memorize, so you never have to reuse passwords or dig through notes again.
+An offline password manager for Windows and Android. One master password opens
+an encrypted vault holding your logins, API keys, client IDs and secrets, SSH
+keys, and private notes. Nothing goes to a cloud or a company.
 
-- **100% local.** Nothing is ever sent to the internet or any company.
-- **Encrypted.** The file on your disk is scrambled with strong encryption
-  (scrypt + AES‑256‑GCM). Without your master password it is useless to anyone.
-- **Lightweight.** Uses about 20–40 MB of memory and stays out of your way.
+- **Encrypted on disk.** scrypt turns your master password into a key, and
+  AES-256-GCM seals the vault with it. The password itself is never stored.
+- **Sync by QR code.** Your PC shows a one-time code, your phone scans it, and the
+  two swap changes over your own WiFi. No account and no server.
+- **Paper backup.** Print the whole vault as a PDF where nothing is readable,
+  not even the site names. The app reads the PDF back, and the phone can restore
+  from the printed QR codes.
+- **Browser fill.** A small extension for Chrome, Edge, Brave and Comet fills
+  logins when you click a login box. On sign-up forms it suggests a strong
+  password and offers to save the new account.
 
-> ⚠️ **The one rule:** there is *no password reset*. If you forget your master
-> password, your vault cannot be recovered — that is exactly what makes it safe.
-> Write the master password down somewhere physically safe, and keep a backup of
-> your vault file (see below).
+> **There is no password reset.** If you forget the master password, nobody can
+> open the vault, not even you. That's what keeps it safe. Write the master
+> password down and keep it somewhere physical.
 
 ---
 
-## How to run it (Windows)
+## Windows app
 
-**The easy way:** double‑click **`run_myvault.bat`** in this folder.
+**Install it:** run `MyVault-Setup-<version>.exe` from the **Releases** page. It
+installs like any other app, with a desktop shortcut, a Start menu entry and an
+uninstaller under *Settings → Apps*. No admin rights needed: it goes into
+`%LOCALAPPDATA%\Programs\MyVault`, or Program Files if you choose "install for
+all users". Because the installer isn't code-signed yet, Windows SmartScreen may
+say it "protected your PC": choose **More info → Run anyway**.
 
-**The manual way**, from a terminal opened in this folder:
+Your vault is stored separately in `%LOCALAPPDATA%\MyVault\vault.dat`, so
+updating or uninstalling the app never touches it. **Settings → Folders** opens
+the vault folder, the program folder and the browser-extension folder in
+Explorer.
 
-```
-python main.py
-```
+**Run from source** (for development): double-click `run_myvault.bat`. Set it up
+once on a new machine:
 
-The first time it opens, you create your master password. After that, it just
-asks for that password to unlock.
-
-If you ever move this folder to a fresh computer, set it up once with:
-
-```
+```bash
 python -m venv .venv
+```
+
+```bash
 .venv\Scripts\pip install -r requirements.txt
 ```
 
----
+**Build the installer yourself:**
 
-## Where your data lives
-
-Your accounts are saved in a single encrypted file:
-
-```
-Windows:  %LOCALAPPDATA%\MyVault\vault.dat
+```bash
+.venv\Scripts\pip install -r requirements-dev.txt
 ```
 
-(Use **Menu → “Where is my vault file?”** inside the app to see the exact path.)
+```bash
+.venv\Scripts\python packaging\build_windows.py
+```
 
-**Back this file up** — copy it to a USB stick or a private cloud folder now and
-then. It is safe to store anywhere because it is encrypted, but if you lose it
-*and* have no backup, your saved passwords are gone.
+That writes `dist\MyVault\MyVault.exe` and `dist\MyVault-Setup-<version>.exe`. It
+needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(`winget install JRSoftware.InnoSetup`). The icons come from
+`tools\make_icons.py`.
 
----
+What's in it:
 
-## What it does today
+| | |
+|---|---|
+| Entry types | Login, API key (service, endpoint, client ID, client secret, API key, token), SSH key (host, port, user, private key, passphrase, public key, fingerprint), secure note. Plus extra fields of your own on any entry. |
+| Reveal | Secret values stay under a printed "security tint" until you choose to show them, and cover themselves again after 20 seconds. |
+| Copy | Copied secrets skip Windows clipboard history (Win+V) and cloud clipboard, and clear after 30 seconds. |
+| Generator | Uppercase, lowercase, numbers and symbols toggles, avoid look-alike characters, length slider from 6 to 128, strength meter. |
+| Auto-lock | After 5 minutes without use, and when you close the window. |
+| Keyboard | `Ctrl F` search, `Ctrl N` new login, `Ctrl S` save, `Ctrl L` lock, arrow keys in the list. |
 
-- Add, edit, search and delete entries with all the common sign‑up fields, plus
-  unlimited **extra fields** for anything else (security questions, PINs, etc.).
-- **Generate a password** that matches a specific site's rules (length, symbols,
-  digits…), and remember those rules per entry so you can regenerate later.
-- **Copy** username / email / password to the clipboard; the clipboard
-  auto‑clears after 30 seconds.
-- **Auto‑locks** itself after 5 minutes of inactivity.
-- **Browser auto‑fill & capture** *(Bonus #1 & #2)* — a companion extension for
-  Comet/Chrome/Edge fills website logins from MyVault and offers to save new ones
-  you type. See [`browser-extension/README.md`](browser-extension/README.md) to
-  set it up. It talks to the app only on `127.0.0.1`, protected by a pairing
-  token, and only while the app is open and unlocked.
+The vault file is useless without your master password, so you can copy it to a
+USB stick as a backup.
 
-- **Android app** *(Bonus #4)* — a Flutter app in [`android_app/`](android_app/)
-  that opens the **exact same encrypted vault file** (verified byte‑for‑byte in
-  both directions). Download the APK from the repo's **Releases** page.
-- **LAN auto‑sync** *(Bonus #5)* — with the app open on two devices on the same
-  WiFi, each unlocked with the same master password, their vaults find each other
-  and merge (newest edit per entry wins; deletions carry across). The exchange is
-  encrypted with a key derived from your master password, so only your own
-  devices can take part. Menu → **LAN sync…** on the PC; the **sync** button on
-  the phone. First time, Windows will ask you to **Allow** MyVault through the
-  firewall (that's what lets your phone reach it) — say yes.
+## Android app
 
-All five requested features are now built. **What's next (optional):** Linux and
-iOS builds (same Flutter codebase), a system‑tray background mode, and a
-one‑click installer.
+A Flutter app in [`android_app/`](android_app/) that opens the same vault format.
+Download the APK from the **Releases** page, or build it yourself (see
+[`android_app/README.md`](android_app/README.md)).
 
-The vault file format is documented in [`VAULT_FORMAT.md`](VAULT_FORMAT.md) so
-every future app can read and write the same file.
+The phone app has the same entry types, reveal and generator. It locks after 30
+seconds in the background or 5 minutes idle, blocks screenshots and the
+recent-apps preview, marks copied secrets as sensitive, and is excluded from
+Google cloud backup.
 
----
+## Sync PC ↔ phone
 
-## Is this really secure?
+1. PC: **Sync with phone → Show sync code.**
+2. Phone: tap the **scan** button and point the camera at the code.
+3. Both end up with the newest version of every entry. Deletions carry across.
 
-The building blocks are the same ones real password managers use:
+The code holds a one-time random 256-bit key and the PC's address. The key only
+travels through the camera, so nobody else on the WiFi can read or tamper with
+the exchange. The PC listens only while the code is on screen, for at most two
+minutes, and stops after one sync. The first time, Windows may ask whether
+MyVault may use the network: allow it on **private** networks.
 
-- **scrypt** turns your master password into an encryption key and is
-  deliberately slow + memory‑hungry, which makes mass password‑guessing very
-  expensive.
-- **AES‑256‑GCM** encrypts the data and detects any tampering.
-- Your master password is **never stored** anywhere.
+## Updates
 
-It is not audited software, so for now treat it as "much better than reusing
-passwords and keeping them in notes" — which is exactly the problem it solves.
+- **When you sync,** each device tells the other its version. If the PC is newer
+  it hands the phone its update over the encrypted channel, and the phone asks
+  "Install now?". It works the other way too: a phone that updated online
+  passes the PC its installer. No internet is needed.
+- **Online (optional, asked once):** new versions come out now and then. To spot
+  them, the apps look (at most once a day) at a small,
+  signed version file from this repo's Releases page. Nothing from the vault is
+  ever sent. Updates are only installed if they carry the maintainer's
+  signature, and Android also checks that the APK is signed with MyVault's
+  release key.
+
+Making a release (maintainer):
+
+```bash
+.venv\Scripts\python packaging\release.py --notes "What changed" --publish
+```
+
+That builds the signed phone APK, the Windows installer with the APK inside,
+and the signed `latest.json`, then uploads them to a GitHub release. The keys
+live in `%USERPROFILE%\.myvault-release` (created once by
+`tools\make_release_keys.py`) and are never committed.
+
+## Paper backup
+
+**Paper backup → Save PDF…** asks for a backup password (it can be your master
+password, or a different one) and writes a PDF. Each entry becomes one encrypted
+block, printed as text and as a QR code. Print it and keep it somewhere safe,
+away from the backup password.
+
+To restore, use **Paper backup → Choose PDF…** on the PC, or **Restore from
+paper** on the phone and scan each code. Restored entries merge into the vault,
+and the newer copy of each one wins.
+
+## Browser extension
+
+See [`browser-extension/README.md`](browser-extension/README.md). In short: load
+the folder as an unpacked extension, then paste the pairing token from
+**Browser auto-fill** in the app. The extension talks only to the app on
+`127.0.0.1`, only while it's unlocked, and never fills anything without a click.
+
+## How it's built
+
+```
+myvault/            Windows app (Python)
+  crypto.py         scrypt + AES-256-GCM vault file
+  vault.py          entries, kinds, load/save (atomic writes)
+  sync.py           QR pairing session + encrypted exchange
+  paper.py          encrypted PDF writer/reader (no PDF library needed)
+  clipboard.py      private clipboard (no history, auto-clear)
+  server.py         127.0.0.1 connector for the browser extension
+  app.py            pywebview window + the API the UI calls
+  ui/               the interface: index.html, app.css, app.js
+assets/             the app icon (myvault.ico, icon-1024.png)
+packaging/          PyInstaller spec, Inno Setup script, build_windows.py
+tools/make_icons.py draws every icon size (Windows, Android, extension)
+android_app/        Android app (Flutter)
+browser-extension/  Chromium extension (Manifest V3)
+tests/              python tests/test_core.py, python tests/interop_sync.py
+```
+
+The file, sync and paper formats are written up in
+[`VAULT_FORMAT.md`](VAULT_FORMAT.md), so any implementation can read the same
+vault. Tests cover the crypto, the merge rules, QR sync (including a live
+Python ↔ Dart session), and the paper round-trip (including decoding QR codes
+scanned off a rendered page).
+
+```bash
+.venv\Scripts\python tests\test_core.py
+```
+
+## Limits worth knowing
+
+- The desktop app is Windows-only for now (the clipboard protection uses Windows
+  APIs). The UI and core are cross-platform Python, so macOS and Linux are mostly
+  a matter of a clipboard backend.
+- Sync needs both devices on the same network. Some guest or office networks
+  block device-to-device traffic.
+- Python can't wipe strings from memory, so a secret you've opened stays in RAM
+  until the app locks. That's the same limit most password managers live with.
+- No security audit has been done. Read the code, and report anything you find.

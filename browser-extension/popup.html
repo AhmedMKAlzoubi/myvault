@@ -3,48 +3,71 @@
 <head>
   <meta charset="utf-8">
   <style>
-    :root { --fg:#111; --muted:#666; --line:#ccc; }
-    * { box-sizing: border-box; font-family: Segoe UI, Arial, sans-serif; }
-    body { width: 300px; margin: 0; padding: 12px; color: var(--fg); background: #fff; }
-    h1 { font-size: 15px; margin: 0 0 2px; }
-    .status { font-size: 12px; margin-bottom: 10px; }
-    .dot { font-size: 12px; }
-    .ok { color: #0a7d00; } .bad { color: #a00000; }
-    .item { border: 1px solid var(--line); padding: 8px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
-    .item .t { font-size: 13px; } .item .s { font-size: 11px; color: var(--muted); }
-    button { border: 1px solid var(--fg); background: #fff; color: var(--fg); padding: 5px 10px; font-size: 12px; cursor: pointer; }
-    button.primary { background: var(--fg); color: #fff; }
-    button:hover { background: #333; color: #fff; }
-    .empty { font-size: 12px; color: var(--muted); padding: 8px 0; }
-    hr { border: none; border-top: 1px solid var(--line); margin: 12px 0; }
-    .gen { display: flex; gap: 6px; align-items: center; }
-    input { border: 1px solid var(--line); padding: 4px 6px; font-family: Consolas, monospace; font-size: 12px; }
-    #genout { flex: 1; }
-    .row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
-    a { color: var(--fg); font-size: 12px; }
+    :root { --paper:#F4F5F7; --sheet:#FBFBFC; --ink:#1B2433; --ink-2:#47526A; --ink-3:#5F687A; --rule:#D5DAE3; --rule-2:#C2C9D6;
+      --tint:#2F4A7A; --ok:#2D6A4A; --red:#B4432E; color-scheme: light; }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper:#12161E; --sheet:#1A202A; --ink:#E6EAF2; --ink-2:#B3BBC9; --ink-3:#959EAF; --rule:#2A3242; --rule-2:#384256;
+        --tint:#7E98CC; --ok:#7CC29B; --red:#E5866F; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    body { width: 330px; margin: 0; color: var(--ink); background: var(--sheet); font-size: 13px; }
+    header { position: relative; display: flex; align-items: center; gap: 9px; padding: 12px 14px; background: var(--paper); border-bottom: 1px solid var(--rule); }
+    header::before { content: ""; position: absolute; inset: 0; background: var(--tint); opacity: .18;
+      -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='7'%3E%3Cpath d='M0 3.5C2.3.7 4.7.7 7 3.5s4.7 2.8 7 0M0 7c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0M0 0c2.3-2.8 4.7-2.8 7 0s4.7 2.8 7 0' fill='none' stroke='%23000' stroke-width='.85'/%3E%3C/svg%3E") 0 0 / 14px 7px repeat; }
+    header > * { position: relative; }
+    header svg { width: 22px; height: 16px; }
+    h1 { font-size: 15px; font-weight: 600; margin: 0; flex: 1; }
+    main { padding: 12px 14px 14px; display: grid; gap: 10px; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-2); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); flex: none; }
+    .dot.ok { background: var(--ok); } .dot.bad { background: transparent; border: 1.5px dashed var(--red); }
+    .item { border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .item .t { font-weight: 500; } .item .s { font-size: 12px; color: var(--ink-3); }
+    .empty { font-size: 12.5px; color: var(--ink-3); }
+    button { border: 1px solid var(--rule-2); border-radius: 6px; background: var(--sheet); color: var(--ink); padding: 5px 11px; font-size: 12.5px; font-weight: 500; cursor: pointer; }
+    button:hover { border-color: var(--ink-3); }
+    button.primary { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+    .wide { width: 100%; }
+    hr { border: 0; border-top: 1px solid var(--rule); margin: 2px 0; }
+    .lbl { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+    .out { display: flex; gap: 6px; align-items: center; border: 1px solid var(--rule-2); border-radius: 6px; padding: 8px 8px 8px 10px; background: var(--paper); }
+    #genout { flex: 1; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13.5px; word-break: break-all; min-height: 18px; }
+    #genout .d { color: var(--tint); }
+    .len { display: grid; grid-template-columns: auto 1fr 34px; gap: 8px; align-items: center; font-size: 12.5px; }
+    .len output { text-align: right; font-variant-numeric: tabular-nums; }
+    input[type=range] { accent-color: var(--ink); }
+    .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
+    .toggles label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
+    .toggles input { accent-color: var(--ink); width: 15px; height: 15px; margin: 0; }
+    .recent { border: 1px dashed var(--rule-2); border-radius: 8px; padding: 8px 10px; display: grid; gap: 6px; }
+    a { color: var(--ink-2); font-size: 12px; }
   </style>
 </head>
 <body>
-  <h1>MyVault</h1>
-  <div class="status" id="status"><span class="dot">…</span> checking…</div>
-
-  <div id="matches"></div>
-
-  <button id="savepage" style="width:100%; margin-top:6px;">Save this page's login</button>
-
-  <hr>
-  <div class="gen">
-    <label style="font-size:12px;">Length</label>
-    <input id="genlen" type="number" min="6" max="64" value="16" style="width:56px;">
-    <button id="gengo">Generate</button>
-  </div>
-  <div class="row">
-    <input id="genout" readonly placeholder="generated password">
-    <button id="gencopy">Copy</button>
-  </div>
-
-  <hr>
-  <a href="#" id="opts">Settings / pairing token</a>
+  <header>
+    <svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l13.5 10L28.5 2"/></svg>
+    <h1>MyVault</h1>
+  </header>
+  <main>
+    <div class="status" id="status"><span class="dot"></span><span>Checking…</span></div>
+    <div id="matches"></div>
+    <div id="recent"></div>
+    <button id="savepage" class="wide">Save this page's login</button>
+    <hr>
+    <div class="lbl">Password generator</div>
+    <div class="out"><span id="genout"></span><button id="gengo" title="New password" aria-label="New password" style="padding:4px 7px;line-height:0"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4.5V11h-6.5"/></svg></button><button id="gencopy">Copy</button></div>
+    <div class="len"><span>Length</span><input id="genlen" type="range" min="6" max="128" value="20" aria-label="Length"><output id="lenout">20</output></div>
+    <div class="toggles">
+      <label><input type="checkbox" id="use_upper" checked> Uppercase A–Z</label>
+      <label><input type="checkbox" id="use_lower" checked> Lowercase a–z</label>
+      <label><input type="checkbox" id="use_digits" checked> Numbers 0–9</label>
+      <label><input type="checkbox" id="use_symbols" checked> Symbols !@#</label>
+      <label><input type="checkbox" id="avoid_ambiguous" checked> Avoid look-alikes</label>
+    </div>
+    <hr>
+    <a href="#" id="opts">Settings and pairing token</a>
+  </main>
   <script src="popup.js"></script>
 </body>
 </html>

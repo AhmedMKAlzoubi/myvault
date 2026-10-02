@@ -12,17 +12,30 @@ import 'crypto.dart';
 
 double _now() => DateTime.now().millisecondsSinceEpoch / 1000.0;
 
+const kinds = ['login', 'api', 'ssh', 'note'];
+const searchableFields = [
+  'service',
+  'client_id',
+  'endpoint',
+  'host',
+  'ssh_user',
+  'fingerprint',
+];
+
 class Entry {
   String id;
+  String kind; // login | api | ssh | note
   String title, website, app, username, email, password;
   String region, age, gender, phone, notes;
   Map<String, String> custom;
+  Map<String, String> fields; // kind-specific values (see kinds.dart)
   Map<String, dynamic> passwordPolicy;
   double createdAt, updatedAt;
   bool deleted;
 
   Entry({
     String? id,
+    this.kind = 'login',
     this.title = '',
     this.website = '',
     this.app = '',
@@ -35,20 +48,30 @@ class Entry {
     this.phone = '',
     this.notes = '',
     Map<String, String>? custom,
+    Map<String, String>? fields,
     Map<String, dynamic>? passwordPolicy,
     double? createdAt,
     double? updatedAt,
     this.deleted = false,
-  })  : id = id ?? _uuid(),
-        custom = custom ?? {},
-        passwordPolicy = passwordPolicy ?? {'length': 16},
-        createdAt = createdAt ?? _now(),
-        updatedAt = updatedAt ?? _now();
+  }) : id = id ?? _uuid(),
+       custom = custom ?? {},
+       fields = fields ?? {},
+       passwordPolicy = passwordPolicy ?? {'length': 16},
+       createdAt = createdAt ?? _now(),
+       updatedAt = updatedAt ?? _now();
 
   void touch() => updatedAt = _now();
 
   String displayName() {
-    for (final v in [title, website, app, username, email]) {
+    for (final v in [
+      title,
+      website,
+      app,
+      fields['service'] ?? '',
+      fields['host'] ?? '',
+      username,
+      email,
+    ]) {
       if (v.trim().isNotEmpty) return v;
     }
     return '(untitled)';
@@ -57,51 +80,64 @@ class Entry {
   bool matches(String query) {
     final q = query.trim().toLowerCase();
     if (q.isEmpty) return true;
-    final hay = [title, website, app, username, email, notes, ...custom.keys, ...custom.values]
-        .join(' ')
-        .toLowerCase();
+    final hay = [
+      title,
+      website,
+      app,
+      username,
+      email,
+      notes,
+      ...custom.keys,
+      ...custom.values,
+      for (final k in searchableFields) fields[k] ?? '',
+    ].join(' ').toLowerCase();
     return hay.contains(q);
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'website': website,
-        'app': app,
-        'username': username,
-        'email': email,
-        'password': password,
-        'region': region,
-        'age': age,
-        'gender': gender,
-        'phone': phone,
-        'notes': notes,
-        'custom': custom,
-        'password_policy': passwordPolicy,
-        'created_at': createdAt,
-        'updated_at': updatedAt,
-        'deleted': deleted,
-      };
+    'id': id,
+    'kind': kind,
+    'title': title,
+    'website': website,
+    'app': app,
+    'username': username,
+    'email': email,
+    'password': password,
+    'region': region,
+    'age': age,
+    'gender': gender,
+    'phone': phone,
+    'notes': notes,
+    'custom': custom,
+    'fields': fields,
+    'password_policy': passwordPolicy,
+    'created_at': createdAt,
+    'updated_at': updatedAt,
+    'deleted': deleted,
+  };
 
   factory Entry.fromJson(Map<String, dynamic> j) => Entry(
-        id: j['id'] as String?,
-        title: (j['title'] ?? '') as String,
-        website: (j['website'] ?? '') as String,
-        app: (j['app'] ?? '') as String,
-        username: (j['username'] ?? '') as String,
-        email: (j['email'] ?? '') as String,
-        password: (j['password'] ?? '') as String,
-        region: (j['region'] ?? '') as String,
-        age: (j['age'] ?? '') as String,
-        gender: (j['gender'] ?? '') as String,
-        phone: (j['phone'] ?? '') as String,
-        notes: (j['notes'] ?? '') as String,
-        custom: ((j['custom'] ?? {}) as Map).map((k, v) => MapEntry('$k', '$v')),
-        passwordPolicy: (j['password_policy'] ?? {'length': 16}) as Map<String, dynamic>,
-        createdAt: (j['created_at'] as num?)?.toDouble(),
-        updatedAt: (j['updated_at'] as num?)?.toDouble(),
-        deleted: (j['deleted'] ?? false) as bool,
-      );
+    id: j['id'] as String?,
+    kind: kinds.contains(j['kind']) ? j['kind'] as String : 'login',
+    title: (j['title'] ?? '') as String,
+    website: (j['website'] ?? '') as String,
+    app: (j['app'] ?? '') as String,
+    username: (j['username'] ?? '') as String,
+    email: (j['email'] ?? '') as String,
+    password: (j['password'] ?? '') as String,
+    region: (j['region'] ?? '') as String,
+    age: (j['age'] ?? '') as String,
+    gender: (j['gender'] ?? '') as String,
+    phone: (j['phone'] ?? '') as String,
+    notes: (j['notes'] ?? '') as String,
+    custom: ((j['custom'] ?? {}) as Map).map((k, v) => MapEntry('$k', '$v')),
+    fields: ((j['fields'] ?? {}) as Map).map((k, v) => MapEntry('$k', '$v')),
+    passwordPolicy: ((j['password_policy'] ?? {'length': 16}) as Map)
+        .cast<String, dynamic>(),
+    createdAt: (j['created_at'] as num?)?.toDouble(),
+    updatedAt: (j['updated_at'] as num?)?.toDouble(),
+    deleted: (j['deleted'] ?? false) as bool,
+  );
 }
 
 class Vault {
@@ -112,9 +148,9 @@ class Vault {
   List<Entry> entries;
 
   Vault(this.path, this.password)
-      : deviceId = _uuid(),
-        updatedAt = _now(),
-        entries = [];
+    : deviceId = _uuid(),
+      updatedAt = _now(),
+      entries = [];
 
   static Vault open(String path, String password) {
     final bytes = File(path).readAsBytesSync();
@@ -138,17 +174,61 @@ class Vault {
   void save() {
     updatedAt = _now();
     final payload = {
-      'content_version': 1,
+      'content_version': 2,
       'device_id': deviceId,
       'updated_at': updatedAt,
       'entries': entries.map((e) => e.toJson()).toList(),
     };
-    final blob = encryptBytes(Uint8List.fromList(utf8.encode(jsonEncode(payload))), password);
+    final blob = encryptBytes(
+      Uint8List.fromList(utf8.encode(jsonEncode(payload))),
+      password,
+    );
     // Atomic write: temp then rename.
     final tmp = File('$path.tmp');
     tmp.writeAsBytesSync(blob, flush: true);
     if (File(path).existsSync()) File(path).deleteSync();
     tmp.renameSync(path);
+  }
+
+  /// Restore from a paper backup. Unlike sync, a backup copy beats a local
+  /// deletion even when the deletion is newer (restoring means "bring these
+  /// back"); a restored entry is touched so the next sync spreads it.
+  /// Mirrors restore_entries() in myvault/sync.py. Returns how many changed.
+  int restoreIn(List<Entry> backup) {
+    final byId = {for (final e in entries) e.id: e};
+    var changed = 0;
+    for (final e in backup) {
+      final cur = byId[e.id];
+      if (cur == null || e.updatedAt > cur.updatedAt) {
+        byId[e.id] = e;
+        changed++;
+      } else if (cur.deleted) {
+        e.deleted = false;
+        e.touch();
+        byId[e.id] = e;
+        changed++;
+      }
+    }
+    entries = byId.values.toList();
+    save();
+    return changed;
+  }
+
+  /// Merge entries from sync: newest updated_at per id wins.
+  /// Returns how many entries were added or changed here.
+  int mergeIn(List<Entry> incoming) {
+    final byId = {for (final e in entries) e.id: e};
+    var changed = 0;
+    for (final e in incoming) {
+      final cur = byId[e.id];
+      if (cur == null || e.updatedAt > cur.updatedAt) {
+        byId[e.id] = e;
+        changed++;
+      }
+    }
+    entries = byId.values.toList();
+    save();
+    return changed;
   }
 
   void changePassword(String newPassword) {
@@ -160,7 +240,11 @@ class Vault {
 
   List<Entry> search(String query) {
     final items = activeEntries().where((e) => e.matches(query)).toList();
-    items.sort((a, b) => a.displayName().toLowerCase().compareTo(b.displayName().toLowerCase()));
+    items.sort(
+      (a, b) => a.displayName().toLowerCase().compareTo(
+        b.displayName().toLowerCase(),
+      ),
+    );
     return items;
   }
 
@@ -186,6 +270,7 @@ class Vault {
     if (e != null) {
       e.deleted = true;
       e.password = '';
+      e.fields = {};
       e.touch();
       save();
     }

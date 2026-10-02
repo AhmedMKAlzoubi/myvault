@@ -4,38 +4,44 @@
   <meta charset="utf-8">
   <title>MyVault settings</title>
   <style>
-    * { box-sizing: border-box; font-family: Segoe UI, Arial, sans-serif; }
-    body { max-width: 520px; margin: 30px auto; padding: 0 16px; color: #111; }
-    h1 { font-size: 18px; }
-    p { font-size: 13px; color: #444; line-height: 1.5; }
-    label { display: block; font-size: 12px; color: #666; margin: 14px 0 4px; }
-    input, textarea { width: 100%; border: 1px solid #ccc; padding: 8px; font-family: Consolas, monospace; font-size: 13px; }
-    textarea { height: 60px; resize: vertical; }
+    :root { --paper:#F4F5F7; --sheet:#FBFBFC; --ink:#1B2433; --ink-2:#47526A; --rule-2:#C2C9D6; --tint:#2F4A7A; --ok:#2D6A4A; --red:#B4432E; color-scheme: light; }
+    @media (prefers-color-scheme: dark) {
+      :root { --paper:#12161E; --sheet:#1A202A; --ink:#E6EAF2; --ink-2:#B3BBC9; --rule-2:#384256; --tint:#7E98CC; --ok:#7CC29B; --red:#E5866F; color-scheme: dark; }
+    }
+    * { box-sizing: border-box; font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; }
+    body { max-width: 560px; margin: 40px auto; padding: 0 20px; color: var(--ink); background: var(--paper); font-size: 14px; line-height: 1.5; }
+    h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 8px; }
+    p { color: var(--ink-2); }
+    label { display: block; font-size: 12.5px; color: var(--ink-2); font-weight: 500; margin: 16px 0 5px; }
+    input, textarea { width: 100%; border: 1px solid var(--rule-2); border-radius: 6px; padding: 8px 10px; background: var(--sheet); color: var(--ink);
+      font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; }
+    input:focus, textarea:focus { outline: none; border-color: var(--tint); }
+    textarea { height: 64px; resize: vertical; }
     .port { width: 120px; }
-    button { border: 1px solid #111; background: #111; color: #fff; padding: 8px 16px; font-size: 13px; cursor: pointer; margin-top: 14px; }
-    button.sec { background: #fff; color: #111; margin-left: 6px; }
-    #msg { margin-top: 12px; font-size: 13px; }
-    .ok { color: #0a7d00; } .bad { color: #a00000; }
-    code { background: #f2f2f2; padding: 1px 4px; }
+    button { border: 1px solid var(--ink); border-radius: 6px; background: var(--ink); color: var(--paper); padding: 8px 16px; font-size: 13px; font-weight: 500; cursor: pointer; margin-top: 16px; }
+    button.sec { background: transparent; color: var(--ink); border-color: var(--rule-2); margin-left: 6px; }
+    #msg { margin-top: 14px; font-size: 13.5px; }
+    .ok { color: var(--ok); } .bad { color: var(--red); }
+    code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12.5px; }
   </style>
 </head>
 <body>
-  <h1>MyVault — pair with the app</h1>
-  <p>Open the MyVault desktop app, choose <b>Menu → Browser auto-fill…</b>, copy the
-     <b>pairing token</b>, and paste it here. The token lets this extension talk to the
-     app on your own computer only (<code>127.0.0.1</code>). Keep it secret.</p>
+  <h1>Pair with the MyVault app</h1>
+  <p>In the MyVault desktop app, open <b>Browser auto-fill</b> (bottom left), copy the
+     <b>pairing token</b> and paste it here. The token lets this extension talk to the
+     app on this computer only (<code>127.0.0.1</code>). Keep it private.</p>
 
-  <label>Pairing token</label>
-  <textarea id="token" placeholder="paste the token from the app"></textarea>
+  <label for="token">Pairing token</label>
+  <textarea id="token" placeholder="Paste the token from the app"></textarea>
 
-  <label>Port (leave as 8787 unless you changed it)</label>
+  <label for="port">Port (keep 8787 unless you changed it)</label>
   <input id="port" class="port" type="number" value="8787">
 
   <div>
     <button id="save">Save &amp; test</button>
     <button id="test" class="sec">Test connection</button>
   </div>
-  <div id="msg"></div>
+  <div id="msg" role="status"></div>
 
   <script src="options.js"></script>
 </body>

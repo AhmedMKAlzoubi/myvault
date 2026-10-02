@@ -1,8 +1,8 @@
 # MyVault for Android
 
-The Android version of MyVault. It opens the **exact same encrypted vault file**
-as the Windows app (verified byte-for-byte — see `test_fixtures/`), so once LAN
-sync is added your phone and PC will share one vault.
+The Android version of MyVault. It reads and writes the **same encrypted vault
+format** as the Windows app (checked with test vectors in `test_fixtures/`), and
+syncs with the PC by scanning the QR code the PC shows.
 
 Built with Flutter (one codebase that also targets Linux and iOS later).
 
@@ -21,8 +21,11 @@ Play Store.
 
 From this folder, with Flutter on your PATH:
 
-```
+```bash
 flutter pub get
+```
+
+```bash
 flutter build apk --release
 ```
 
@@ -30,15 +33,23 @@ The APK appears at `build/app/outputs/flutter-apk/app-release.apk`.
 
 To run it on a phone plugged in via USB (with USB debugging on):
 
-```
+```bash
 flutter run --release
 ```
 
 ## What it does
 
-Same core as the desktop app: a master-password-locked, encrypted vault with all
-the registration fields, custom fields, search, a password generator, and
-clipboard copy that auto-clears after 30 seconds. 100% offline.
+- Logins, API keys, SSH keys and secure notes, with extra fields of your own.
+- Secret values stay covered by the tint until you tap the eye; they re-cover after 20 s.
+- Password generator: uppercase, lowercase, numbers, symbols, avoid look-alikes, length 6 to 128.
+- **Sync with PC:** tap the scan button, point at the code on the PC. Over your WiFi only.
+- **Restore from paper:** scan the QR codes on a printed MyVault backup.
+- Locks after 30 s in the background or 5 min idle. Screenshots and the
+  recent-apps preview are blocked. Copied secrets are marked sensitive and clear
+  after 30 s. Excluded from Google cloud backup.
+
+Run the tests with `flutter test`. `python tests/interop_sync.py` (from the repo
+root) runs a live sync between the Python PC code and this Dart code.
 
 ## Encryption
 
