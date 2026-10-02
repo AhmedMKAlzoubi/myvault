@@ -39,7 +39,7 @@ async function refresh() {
     const txt = el("div");
     txt.append(el("div", "t", m.title || domain), el("div", "s", m.username || m.email || "(no username)"));
     const b = el("button", "primary", "Fill");
-    b.onclick = async () => { await chrome.tabs.sendMessage(tab.id, { type: "fill", cred: m }); window.close(); };
+    b.onclick = async () => { await chrome.tabs.sendMessage(tab.id, { type: "fill", cred: m, domain }); window.close(); };
     div.append(txt, b);
     return div;
   }) : [el("div", "empty", `No saved logins for ${domain || "this page"}.`)]));

@@ -97,6 +97,21 @@ void main() {
     expect(c.port, 8789);
     expect(c.key, key);
     expect(() => SyncCode.parse('https://example.com'), throwsFormatException);
+    // A code naming an internet server (or a hostname) is refused outright.
+    expect(
+      () => SyncCode.parse('myvault://sync?v=2&h=8.8.8.8&p=8789&k=$k'),
+      throwsFormatException,
+    );
+    expect(
+      () => SyncCode.parse('myvault://sync?v=2&h=evil.example&p=8789&k=$k'),
+      throwsFormatException,
+    );
+    expect(
+      SyncCode.parse(
+        'myvault://sync?v=2&h=8.8.8.8,192.168.1.7&p=8789&k=$k',
+      ).hosts,
+      ['192.168.1.7'],
+    );
     expect(
       () => SyncCode.parse('myvault://sync?v=1&h=a&p=1&k=AA'),
       throwsFormatException,

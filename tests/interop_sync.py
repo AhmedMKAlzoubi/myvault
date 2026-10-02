@@ -10,6 +10,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -67,7 +68,8 @@ with tempfile.TemporaryDirectory() as d:
     s = sync.PairingSession(Provider(v), port=0, ttl=120)
     uri = s.uri.replace(s.uri.split("h=")[1].split("&")[0], "127.0.0.1")
     env = dict(os.environ, MYVAULT_SYNC_URI=uri, MYVAULT_PHONE_DIR=str(d / "phone"),
-               MYVAULT_PC_VERSION="0.5.0", MYVAULT_PKG_VERSION=PKG, MYVAULT_APK_SIZE=str(len(apk)))
+               MYVAULT_PC_VERSION="0.5.0", MYVAULT_PKG_VERSION=PKG, MYVAULT_APK_SIZE=str(len(apk)),
+               MYVAULT_UPDATE_PUBKEY=update.UPDATE_PUBKEY.hex())
     flutter = "flutter.bat" if os.name == "nt" else "flutter"
     rc = subprocess.call([flutter, "test", "test/interop_sync_test.dart"], cwd=ROOT / "android_app", env=env)
     end = time.time() + 10
@@ -80,5 +82,6 @@ with tempfile.TemporaryDirectory() as d:
     assert ids["shared"].password == "phone-newer"
     got = update.packages()["windows"]
     assert s.result.received == PKG and got.path.read_bytes() == installer, (s.result, got)
-    assert s.result.sent == PKG and s.result.peer_version == "0.5.0", s.result
+    phone_version = re.search(r"appVersion = '([0-9.]+)'", (ROOT / "android_app" / "lib" / "version.dart").read_text()).group(1)
+    assert s.result.sent == PKG and s.result.peer_version == phone_version, s.result
     print("INTEROP OK: entries converged; APK went PC -> phone and the installer phone -> PC, both verified")

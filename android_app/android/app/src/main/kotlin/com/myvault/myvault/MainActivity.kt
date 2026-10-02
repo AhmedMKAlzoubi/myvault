@@ -5,6 +5,8 @@ import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -13,11 +15,46 @@ import android.os.PersistableBundle
 import android.view.WindowManager
 import androidx.core.content.FileProvider
 import java.io.File
+import java.security.MessageDigest
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    /** Only ever hand Android's installer an APK that is this very app: the same
+     *  package name and the same signing certificate as the installed MyVault.
+     *  A look-alike with another package name would otherwise install beside it. */
+    private fun isOwnUpdate(apk: File): Boolean {
+        val archive = archiveInfo(apk) ?: return false
+        if (archive.packageName != packageName) return false
+        val theirs = certs(archive)
+        val mine = certs(packageManager.getPackageInfo(packageName, signingFlags()))
+        return theirs.isNotEmpty() && theirs == mine
+    }
+
+    private fun signingFlags(): Int =
+        if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES
+        else @Suppress("DEPRECATION") PackageManager.GET_SIGNATURES
+
+    private fun archiveInfo(apk: File): PackageInfo? {
+        val info = packageManager.getPackageArchiveInfo(apk.path, signingFlags())
+        if (info != null && certs(info).isEmpty() && Build.VERSION.SDK_INT >= 28) {
+            // Some Android versions only fill archive signatures for the older flag.
+            @Suppress("DEPRECATION")
+            return packageManager.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNATURES)
+        }
+        return info
+    }
+
+    private fun certs(p: PackageInfo): Set<String> {
+        @Suppress("DEPRECATION")
+        val sigs = if (Build.VERSION.SDK_INT >= 28 && p.signingInfo != null) p.signingInfo!!.apkContentsSigners
+                   else p.signatures
+        return sigs?.map { s ->
+            MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it) }
+        }?.toSet() ?: emptySet()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // No screenshots, screen recording, or preview in the recent-apps switcher.
@@ -56,6 +93,10 @@ class MainActivity : FlutterActivity() {
                 return@setMethodCallHandler result.success(false)
             }
             val apk = File(call.arguments as String)
+            if (!isOwnUpdate(apk)) {
+                return@setMethodCallHandler result.error(
+                    "not_myvault", "That file isn't MyVault signed with MyVault's key, so it won't be installed.", null)
+            }
             val uri = FileProvider.getUriForFile(this, "$packageName.updates", apk)
             startActivity(Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")

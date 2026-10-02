@@ -174,7 +174,13 @@ Future<void> offerInstall(
     ),
   );
   if (go != true || !context.mounted) return;
-  final started = await upd.installApk(p);
+  final bool started;
+  try {
+    started = await upd.installApk(p);
+  } on upd.UpdateException catch (e) {
+    if (context.mounted) _snack(context, e.message);
+    return;
+  }
   if (!started && context.mounted) {
     _snack(
       context,

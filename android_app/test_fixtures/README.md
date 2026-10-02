@@ -17,3 +17,6 @@ incompatible way, opening this fixture will fail — a deliberate early warning.
   **`paper-fixture-pw`**. It holds one fake API-key entry (`client_secret` is
   `s3cr3t!`). The Dart tests decode it, so a change in either app's paper format
   shows up straight away.
+- `release_manifest.json` (+ `.sig`) — the real, published v0.5.0 `latest.json`,
+  signed with MyVault's update key. The Dart tests check the phone accepts it
+  and rejects any altered copy.

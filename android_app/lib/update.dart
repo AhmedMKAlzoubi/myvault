@@ -1,10 +1,10 @@
 /// Updates for the phone. Mirrors myvault/update.py (see it for the design).
 ///
 /// Packages arrive over QR sync from a newer PC, or online from GitHub Releases
-/// if the user said yes. The phone checks each file against the release
-/// manifest's SHA-256. Android itself refuses any APK not signed with MyVault's
-/// release key, and a PC installer this phone passes on is verified by the PC
-/// against the Ed25519 update signature before it runs.
+/// if the user said yes. Nothing is stored, offered or installed unless the
+/// release manifest carries a valid Ed25519 signature from MyVault's update key
+/// and the file matches the manifest's SHA-256. Before installing, Android-side
+/// code also checks the APK is this very app (same package, same signing key).
 library;
 
 import 'dart:convert';
@@ -13,11 +13,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:cryptography/cryptography.dart' as ed;
 import 'package:pointycastle/export.dart' show SHA256Digest;
 
 import 'version.dart';
 
 const platformName = 'android';
+
+/// MyVault's update key (public half). Same as UPDATE_PUBKEY in myvault/update.py.
+/// Not const only so the cross-language test can use a throwaway key.
+@visibleForTesting
+String updatePubKeyHex =
+    'ac26f647835b4fa6349e66b4646feadf04cba6b42d8efda57fa0404f5a0d547e';
 const _repo = 'AhmedMKAlzoubi/myvault';
 const latestUrl =
     'https://github.com/$_repo/releases/latest/download/latest.json';
@@ -45,7 +52,34 @@ bool isNewer(String a, String b) {
   return false;
 }
 
-/// Parse (not verify; see the library comment) a release manifest.
+/// Check the Ed25519 signature over the exact manifest bytes, then parse.
+Future<Map<String, dynamic>> verifyManifest(
+  List<int> raw,
+  String sigB64,
+) async {
+  bool ok;
+  try {
+    final key = [
+      for (var i = 0; i < updatePubKeyHex.length; i += 2)
+        int.parse(updatePubKeyHex.substring(i, i + 2), radix: 16),
+    ];
+    ok = await ed.Ed25519().verify(
+      raw,
+      signature: ed.Signature(
+        base64.decode(sigB64.trim()),
+        publicKey: ed.SimplePublicKey(key, type: ed.KeyPairType.ed25519),
+      ),
+    );
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) {
+    throw UpdateException("This update isn't signed by MyVault's update key.");
+  }
+  return parseManifest(raw);
+}
+
+/// Parse a manifest. Only call on bytes [verifyManifest] has checked.
 Map<String, dynamic> parseManifest(List<int> raw) {
   final m = jsonDecode(utf8.decode(raw)) as Map<String, dynamic>;
   if (m['app'] != 'MyVault' || !_verRe.hasMatch('${m['version']}')) {
@@ -103,7 +137,7 @@ Future<Map<String, Package>> packages() async {
       if (!sigFile.existsSync()) continue;
       try {
         final raw = mf.readAsBytesSync();
-        final m = parseManifest(raw);
+        final m = await verifyManifest(raw, sigFile.readAsStringSync());
         for (final e in (m['files'] as Map).entries) {
           final f = File('${dir.path}/${e.value['name']}');
           if (!f.existsSync() || f.lengthSync() != e.value['size']) continue;
@@ -138,7 +172,7 @@ Future<Package> store(
   String platform,
   File tmp,
 ) async {
-  final m = parseManifest(manifest);
+  final m = await verifyManifest(manifest, sig);
   final f = (m['files'] as Map)[platform];
   if (f == null) {
     throw UpdateException("The manifest doesn't list that package.");
@@ -232,7 +266,7 @@ class Release {
 Future<Release> checkOnline() async {
   final raw = await _get(latestUrl, 64 * 1024);
   final sig = utf8.decode(await _get('$latestUrl.sig', 1024)).trim();
-  return Release(parseManifest(raw), raw, sig);
+  return Release(await verifyManifest(raw, sig), raw, sig);
 }
 
 Future<Package> download(
@@ -265,5 +299,10 @@ const _ch = MethodChannel('myvault/update');
 
 /// Hands the APK to Android's installer. Returns false when the user first has
 /// to allow "Install unknown apps" for MyVault (Android opens that screen).
-Future<bool> installApk(Package p) async =>
-    (await _ch.invokeMethod<bool>('installApk', p.file.path)) ?? false;
+Future<bool> installApk(Package p) async {
+  try {
+    return (await _ch.invokeMethod<bool>('installApk', p.file.path)) ?? false;
+  } on PlatformException catch (e) {
+    throw UpdateException(e.message ?? "That update can't be installed.");
+  }
+}
