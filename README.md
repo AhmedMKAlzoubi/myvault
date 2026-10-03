@@ -72,7 +72,8 @@ What's in it:
 | Reveal | Secret values stay under a printed "security tint" until you choose to show them, and cover themselves again after 20 seconds. |
 | Copy | Copied secrets skip Windows clipboard history (Win+V) and cloud clipboard, and clear after 30 seconds. |
 | Generator | Uppercase, lowercase, numbers and symbols toggles, avoid look-alike characters, length slider from 6 to 128, strength meter. |
-| Auto-lock | After 5 minutes without use, and when you close the window. |
+| Auto-lock | After 5 minutes without use (change it in Settings), or at once with `Ctrl L` or the tray icon. |
+| Runs in the background | The X button hides MyVault to the notification area by the clock, so browser fill keeps working with no taskbar button. Click the icon to open it; right-click it to lock or quit. With **Start with Windows** on, it starts there, locked. |
 | Keyboard | `Ctrl F` search, `Ctrl N` new login, `Ctrl S` save, `Ctrl L` lock, arrow keys in the list. |
 
 The vault file is useless without your master password, so you can copy it to a

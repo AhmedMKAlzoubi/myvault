@@ -682,16 +682,64 @@ def _focus_running_copy() -> bool:
     return True
 
 
+def _run_in_tray(window, api: Api) -> None:
+    """Windows: the X button hides MyVault to the notification area instead of
+    quitting, so the browser extension keeps working with no taskbar button.
+    "Quit MyVault" in the tray menu really exits; so does signing out or shutting down."""
+    from System.Windows.Forms import CloseReason, FormWindowState
+    from webview.platforms.winforms import BrowserView
+
+    from . import tray
+
+    form = BrowserView.instances[window.uid]
+    state = {"quitting": False, "told": False}
+
+    def lock():
+        api.lock()
+        api._js("MV.onLocked('Locked from the tray.')")
+
+    def quit_():
+        state["quitting"] = True
+        icon.remove()
+        window.destroy()
+
+    icon = tray.Tray(str(ICON), window.show, lock, quit_)
+
+    def closing(sender, args):
+        if args.CloseReason != CloseReason.UserClosing or state["quitting"]:
+            return
+        args.Cancel = True
+        if sender.WindowState == FormWindowState.Minimized:
+            sender.WindowState = FormWindowState.Normal   # so "Open" brings it back full size
+        sender.Hide()
+        if not state["told"]:
+            state["told"] = True
+            icon.tell("MyVault is still running", "It's by the clock, so browser fill keeps working. "
+                      "Right-click the icon to lock or quit.")
+
+    form.FormClosing += closing
+    window.events.closed += icon.remove
+
+
 def run() -> None:
     if _focus_running_copy():
         return
+    tray_ok = os.name == "nt" and ICON.exists()
     if os.name == "nt":   # own taskbar identity and icon, not Python's
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     api = Api()
+    background = "--minimized" in sys.argv     # started at sign-in: wait in the tray (or taskbar), locked
     window = webview.create_window(
         "MyVault", html=_page(), js_api=api, width=1100, height=720,
         min_size=(820, 560), background_color="#F4F5F7", text_select=True,
-        minimized="--minimized" in sys.argv)   # started at sign-in: wait in the taskbar, locked
+        hidden=background and tray_ok, minimized=background and not tray_ok)
     api._window = window
+    if tray_ok:
+        def start_tray():
+            try:
+                _run_in_tray(window, api)
+            except Exception:
+                window.show()      # no tray: never leave MyVault invisible
+        window.events.before_show += start_tray
     window.events.closed += api._shutdown
     webview.start(private_mode=True, icon=str(ICON) if ICON.exists() else None)

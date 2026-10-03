@@ -896,7 +896,7 @@
         toast(`MyVault will lock after ${r.minutes === 60 ? "1 hour" : `${r.minutes} minute${r.minutes === 1 ? "" : "s"}`} without use.`);
       });
       panel.append(h("p", { class: "prose", style: "margin:0" }, "Lock MyVault when it hasn't been used for:"), sel,
-        h("p", { class: "hint" }, "Shorter is safer, especially on a shared computer. Closing MyVault always locks it."));
+        h("p", { class: "hint" }, "Shorter is safer, especially on a shared computer. The X button keeps MyVault running by the clock (so browser fill works); the timer still locks it, and you can lock or quit from the icon there."));
     })();
     return panel;
   }
@@ -914,7 +914,7 @@
       panel.append(h("label", { class: "switch" }, sw, h("span", { class: "sw-text" },
         h("span", {}, "Start MyVault when I sign in to Windows"),
         h("span", { class: "sw-sub" }, a.available
-          ? "It waits in the taskbar, locked, until you open it. Also listed in Windows Settings › Apps › Startup."
+          ? "It waits by the clock (in the notification area), locked, until you open it. Also listed in Windows Settings › Apps › Startup."
           : "Available in the installed app (MyVault-Setup), not when run from source."))));
     })();
     return panel;
@@ -971,7 +971,7 @@
         h("h3", {}, "How MyVault protects you"),
         h("ul", { class: "facts" },
           h("li", {}, icon("lock"), h("span", {}, h("b", {}, "Encrypted file. "), "Your master password is stretched with scrypt and the vault is sealed with AES-256-GCM. The password itself is never stored.")),
-          h("li", {}, icon("shield"), h("span", {}, h("b", {}, "Auto-lock. "), "MyVault locks itself after the time you pick above, and whenever you close it.")),
+          h("li", {}, icon("shield"), h("span", {}, h("b", {}, "Auto-lock. "), "MyVault locks itself after the time you pick above, even while it waits by the clock. Ctrl+L or the tray icon locks it at once.")),
           h("li", {}, icon("copy"), h("span", {}, h("b", {}, "Private clipboard. "), "Copied secrets skip Windows clipboard history and cloud sync, and clear after 30 seconds.")),
           h("li", {}, icon("wifi"), h("span", {}, h("b", {}, "No cloud. "), "Your vault is never sent to the internet. Sync happens only over your WiFi, after you scan a one-time code.")))),
       h("div", { class: "panel" },
