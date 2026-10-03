@@ -53,12 +53,27 @@ class SyncCode {
     final k = q['k']!;
     final key = base64Url.decode(k + '=' * ((4 - k.length % 4) % 4));
     if (key.length != 32) throw const FormatException('Bad key in sync code.');
-    return SyncCode(
-      q['h']!.split(','),
-      int.parse(q['p']!),
-      Uint8List.fromList(key),
-    );
+    // Only addresses on a home network (or this device). A code pointing at an
+    // internet server is someone else's, not your PC's: refuse to send the vault.
+    final hosts = q['h']!.split(',').where(isPrivateIPv4).toList();
+    if (hosts.isEmpty) {
+      throw const FormatException(
+        "That code doesn't point at a PC on your home network, so MyVault won't sync with it.",
+      );
+    }
+    return SyncCode(hosts, int.parse(q['p']!), Uint8List.fromList(key));
   }
+}
+
+/// 10/8, 172.16/12, 192.168/16, or loopback; IPv4 only, never a hostname.
+bool isPrivateIPv4(String h) {
+  final a = InternetAddress.tryParse(h);
+  if (a == null || a.type != InternetAddressType.IPv4) return false;
+  final b = a.rawAddress;
+  return b[0] == 10 ||
+      b[0] == 127 ||
+      (b[0] == 172 && b[1] >= 16 && b[1] <= 31) ||
+      (b[0] == 192 && b[1] == 168);
 }
 
 Uint8List _randomBytes(int n) {

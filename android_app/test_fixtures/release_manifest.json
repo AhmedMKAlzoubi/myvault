@@ -1,0 +1,18 @@
+{
+  "app": "MyVault",
+  "version": "0.5.0",
+  "published": "2026-10-03",
+  "notes": "MyVault 0.5.0: new look; logins, API keys, SSH keys and secure notes; QR sync between PC and phone; encrypted paper backup; Windows installer with start-with-Windows; updates pass between your devices when you sync, or are checked online if you allow it. Phones on 0.4: sync to your PC first, then uninstall the old app once and install this APK.",
+  "files": {
+    "windows": {
+      "name": "MyVault-Setup-0.5.0.exe",
+      "size": 24666980,
+      "sha256": "03c547a5184aa17cdc9ff6fa0964fa08d8c17b47879f1d96c39c958dd3b671c8"
+    },
+    "android": {
+      "name": "MyVault-0.5.0.apk",
+      "size": 25359099,
+      "sha256": "7508042082717f33dd8a26411204036dae29c2626eb45e4432242a831fbab16e"
+    }
+  }
+}

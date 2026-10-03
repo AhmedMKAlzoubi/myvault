@@ -131,6 +131,12 @@
     if (host) return mount;
     host = document.createElement("div");
     host.style.all = "initial";
+    // Inline !important beats any page stylesheet, so the page can't make our
+    // cards invisible while they still take clicks.
+    for (const [k, v] of [["display", "block"], ["opacity", "1"], ["visibility", "visible"], ["filter", "none"],
+      ["transform", "none"], ["clip-path", "none"], ["mask", "none"], ["position", "static"], ["pointer-events", "auto"]]) {
+      host.style.setProperty(k, v, "important");
+    }
     document.documentElement.appendChild(host);
     root = host.attachShadow({ mode: "closed" });
     root.innerHTML = `
@@ -196,15 +202,33 @@
   }
   function hidePanel() { if (mount) mount.replaceChildren(); }
 
+  // Fill only from a card the user can genuinely see: shown for a moment, and
+  // reported visible (not covered, faded or transformed) by the browser's own
+  // occlusion check. Stops a page hiding the card under a fake button.
+  function guardVisible(card) {
+    const shownAt = performance.now();
+    let visible = !("IntersectionObserver" in window);
+    try {
+      const io = new IntersectionObserver((es) => {
+        for (const e of es) visible = e.isVisible === undefined ? e.isIntersecting : e.isVisible;
+      }, { trackVisibility: true, delay: 100 });
+      io.observe(card);
+    } catch (_) {
+      visible = true;          // no occlusion API: fall back to the timing check
+    }
+    return () => visible && performance.now() - shownAt > 350;
+  }
+
   function showPanel(anchor, matches) {
     const m = ui();
     const card = el("div", "card");
+    const canFill = guardVisible(card);
     card.append(head("MyVault: choose an account"));
     matches.forEach((cred) => {
       const it = el("div", "item");
       it.tabIndex = 0;
       it.append(el("div", "", cred.title || DOMAIN), el("div", "sub", cred.username || cred.email || "(no username)"));
-      const go = (e) => { e.preventDefault(); fillWith(cred); };
+      const go = (e) => { e.preventDefault(); if (e.isTrusted && canFill()) fillWith(cred); };
       it.addEventListener("mousedown", go);
       it.addEventListener("keydown", (e) => { if (e.key === "Enter") go(e); });
       card.append(it);
@@ -358,7 +382,11 @@
 
   // ---------- messages from the popup ----------
   chrome.runtime.onMessage.addListener((msg, _s, resp) => {
-    if (msg.type === "fill" && msg.cred) { fillWith(msg.cred); resp({ ok: true }); }
+    if (msg.type === "fill" && msg.cred) {
+      // The popup says which site it meant; refuse if the tab has moved on since.
+      if (msg.domain && msg.domain !== DOMAIN) { resp({ ok: false, error: "the page changed" }); return true; }
+      fillWith(msg.cred); resp({ ok: true });
+    }
     else if (msg.type === "saveCurrent") { lastOffered = ""; maybeOfferSave(true); resp({ ok: true }); }
     return true;
   });

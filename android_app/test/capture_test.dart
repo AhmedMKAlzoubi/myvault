@@ -63,7 +63,8 @@ void main() {
         title: 'GitHub',
         website: 'github.com',
         username: 'ahmed-dev',
-        password: 'h8F-2kQz-Wp9x',
+        password:
+            'h8F-2kQz-Wp9x', // fake demo data for screenshots  gitleaks:allow
       ),
       Entry(
         id: '3',
