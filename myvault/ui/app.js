@@ -35,6 +35,7 @@
     wifi: P('<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="19.2" r=".7"/>'),
     paper: P('<path d="M6 3h12v18H6z"/><path d="M9 7h6M9 11h6M9 15h3"/>'),
     check: P('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+    keyboard: P('<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/>'),
     caps: P('<path d="M12 4l7 7.5h-3.8V15H8.8v-3.5H5z"/><path d="M8.8 19.5h6.4"/>'),
     folder: P('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
   };
@@ -423,7 +424,31 @@
     renderView(e);
   }
 
+  // Auto-type: name the program first, then type only after the user confirms.
+  async function askAutotype(e, box) {
+    const t = await call("autotype_target");
+    if (!t.ok) {
+      box.replaceChildren(h("div", { class: "result bad" }, t.error,
+        h("p", { class: "hint", style: "margin:6px 0 0" }, "How it works: click the username box in the other program, switch back to MyVault, then choose Type into app.")));
+      return;
+    }
+    const go = async (mode) => {
+      box.replaceChildren(h("div", { class: "result" }, "Typing…"));
+      const r = await call("autotype", e.id, mode);
+      box.replaceChildren(h("div", { class: "result" + (r.ok ? "" : " bad") },
+        r.ok ? `Typed into “${t.title}”. Press Enter there to sign in.` : r.error));
+    };
+    box.replaceChildren(h("div", { class: "panel", style: "margin-top:14px" },
+      h("p", { class: "prose", style: "margin:0" }, "Type into ", h("b", {}, t.title), "?"),
+      h("p", { class: "hint" }, "MyVault will step aside and type into the box you last clicked there. Make sure that's the username box."),
+      h("div", { class: "updrow", style: "display:flex;gap:8px;flex-wrap:wrap" },
+        btn("Username + password", () => go("both"), "primary sm"),
+        btn("Password only", () => go("password"), "sm"),
+        btn("Cancel", () => box.replaceChildren(), "sm"))));
+  }
+
   function renderView(e) {
+    const typeBox = h("div", { "aria-live": "polite" });
     const K = KINDS[e.kind] || KINDS.login;
     const rows = [...K.fields, ...(K.more || [])].map((f) => [f, getVal(e, f)]).filter(([, v]) => v);
     const custom = Object.entries(e.custom || {});
@@ -431,7 +456,10 @@
     sheet(h("article", { class: "page" },
       h("header", { class: "page-head" }, h("span", { class: "glyph" }, icon(e.kind)),
         h("div", { class: "ttl" }, h("h2", {}, e.title || "(untitled)"), h("p", { class: "byline" }, sub)),
-        h("div", { class: "head-acts" }, btn("Edit", () => renderEdit(e), "", "edit"))),
+        h("div", { class: "head-acts" },
+          e.kind === "login" && e.password && btn("Type into app", () => askAutotype(e, typeBox), "", "keyboard"),
+          btn("Edit", () => renderEdit(e), "", "edit"))),
+      typeBox,
       rows.length || e.notes ? h("dl", { class: "fields" }, rows.map(([f, v]) => fieldRow(f, v)),
         e.kind !== "note" && !!e.notes && fieldRow(F("notes", "Notes", { multi: 1, prose: 1 }), e.notes))
         : h("p", { class: "prose" }, "Nothing stored here yet. Choose Edit to add details."),
@@ -857,6 +885,22 @@
         iconBtn("copy", `Copy ${title.toLowerCase()} path`, async () => { await call("copy_plain", path); toast("Path copied."); })));
   }
 
+  function autolockPanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Auto-lock"));
+    (async () => {
+      const a = await call("autolock_state");
+      const sel = h("select", { class: "inp", "aria-label": "Lock after", style: "max-width:220px" },
+        a.choices.map((m) => h("option", { value: m, selected: m === a.minutes || null }, m === 60 ? "1 hour" : `${m} minute${m === 1 ? "" : "s"}`)));
+      sel.addEventListener("change", async () => {
+        const r = await call("set_autolock", Number(sel.value));
+        toast(`MyVault will lock after ${r.minutes === 60 ? "1 hour" : `${r.minutes} minute${r.minutes === 1 ? "" : "s"}`} without use.`);
+      });
+      panel.append(h("p", { class: "prose", style: "margin:0" }, "Lock MyVault when it hasn't been used for:"), sel,
+        h("p", { class: "hint" }, "Shorter is safer, especially on a shared computer. Closing MyVault always locks it."));
+    })();
+    return panel;
+  }
+
   function startupPanel() {
     const panel = h("div", { class: "panel" }, h("h3", {}, "Start with Windows"));
     (async () => {
@@ -915,6 +959,7 @@
           if (r.ok) { cur.value = n1.value = n2.value = ""; msg.append(h("div", { class: "result" }, "Master password changed. Use the new one next time you unlock.")); }
           else msg.append(h("p", { class: "err" }, r.error));
         }, "primary"))),
+      autolockPanel(),
       startupPanel(),
       updatesPanel(),
       h("div", { class: "panel" },
@@ -926,9 +971,15 @@
         h("h3", {}, "How MyVault protects you"),
         h("ul", { class: "facts" },
           h("li", {}, icon("lock"), h("span", {}, h("b", {}, "Encrypted file. "), "Your master password is stretched with scrypt and the vault is sealed with AES-256-GCM. The password itself is never stored.")),
-          h("li", {}, icon("shield"), h("span", {}, h("b", {}, "Auto-lock. "), "MyVault locks after 5 minutes without use, and when you close it.")),
+          h("li", {}, icon("shield"), h("span", {}, h("b", {}, "Auto-lock. "), "MyVault locks itself after the time you pick above, and whenever you close it.")),
           h("li", {}, icon("copy"), h("span", {}, h("b", {}, "Private clipboard. "), "Copied secrets skip Windows clipboard history and cloud sync, and clear after 30 seconds.")),
-          h("li", {}, icon("wifi"), h("span", {}, h("b", {}, "No cloud. "), "Nothing is sent to the internet. Sync happens only over your WiFi, after you scan a one-time code."))))));
+          h("li", {}, icon("wifi"), h("span", {}, h("b", {}, "No cloud. "), "Your vault is never sent to the internet. Sync happens only over your WiFi, after you scan a one-time code.")))),
+      h("div", { class: "panel" },
+        h("h3", {}, "About MyVault"),
+        h("p", { class: "hint" }, "Made by Ahmed Mohammed. No account, no cloud, no tracking. Contact: ahmedmohammedkhear@gmail.com"),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap;gap:8px;margin-top:10px" },
+          ...[["Privacy policy", "PRIVACY.md"], ["Terms of use", "TERMS.md"], ["Security", "SECURITY.md"], ["What's new", "CHANGELOG.md"]]
+            .map(([t, f]) => btn(t, () => call("open_doc", f), "sm"))))));
   }
 
   // ---- global keys & activity ---------------------------------------------------

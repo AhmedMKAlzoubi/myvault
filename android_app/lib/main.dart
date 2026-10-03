@@ -12,16 +12,21 @@ import 'crypto.dart';
 import 'generator.dart';
 import 'kinds.dart';
 import 'paper.dart' as paper;
+import 'autofill.dart';
 import 'sync.dart' as qrsync;
 import 'theme.dart';
+import 'update.dart' as upd;
 import 'update_ui.dart';
 import 'vault.dart';
 import 'version.dart';
 
-void main() => runApp(const MyVaultApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Session.loadLockPrefs();
+  await loadAutofillRequest();
+  runApp(const MyVaultApp());
+}
 
-const _autoLockBackground = Duration(seconds: 30);
-const _autoLockIdle = Duration(minutes: 5);
 const _clipboardClear = Duration(seconds: 30);
 
 /// Lets the screenshot capture (test/capture_test.dart) point at a temp vault.
@@ -47,6 +52,31 @@ class Session {
   static DateTime? _pausedAt;
   static Timer? _idle;
 
+  /// Settings › Auto-lock (saved in the app's small prefs file).
+  static int idleMinutes = 5;
+  static int backgroundSeconds = 30;
+  static const idleChoices = [1, 2, 5, 10, 15, 30, 60];
+  static const backgroundChoices = [0, 30, 60, 300];
+
+  static Future<void> loadLockPrefs() async {
+    try {
+      final p = await upd.loadPrefs();
+      final i = p['lock_idle_min'], b = p['lock_bg_sec'];
+      if (idleChoices.contains(i)) idleMinutes = i as int;
+      if (backgroundChoices.contains(b)) backgroundSeconds = b as int;
+    } catch (_) {
+      // first run, or no storage yet: keep the defaults
+    }
+  }
+
+  static Future<void> saveLockPrefs() async {
+    final p = await upd.loadPrefs();
+    p['lock_idle_min'] = idleMinutes;
+    p['lock_bg_sec'] = backgroundSeconds;
+    await upd.savePrefs(p);
+    touch();
+  }
+
   static void open(Vault v) {
     vault = v;
     touch();
@@ -56,8 +86,10 @@ class Session {
     _idle?.cancel();
     if (vault != null) {
       _idle = Timer(
-        _autoLockIdle,
-        () => lock('Locked after 5 minutes without use.'),
+        Duration(minutes: idleMinutes),
+        () => lock(
+          'Locked after $idleMinutes minute${idleMinutes == 1 ? '' : 's'} without use.',
+        ),
       );
     }
   }
@@ -78,7 +110,7 @@ class Session {
     _pausedAt = null;
     if (vault != null &&
         p != null &&
-        DateTime.now().difference(p) > _autoLockBackground) {
+        DateTime.now().difference(p) >= Duration(seconds: backgroundSeconds)) {
       lock();
     }
   }
@@ -432,9 +464,13 @@ class _UnlockPageState extends State<UnlockPage> {
       final vault = await _openVault(_path, pw, _exists);
       Session.open(vault);
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pushReplacement(MaterialPageRoute(builder: (_) => const HomePage()));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => autofillRequest != null
+              ? AutofillPickPage(vault: vault)
+              : const HomePage(),
+        ),
+      );
     } on WrongPasswordException {
       setState(() {
         _busy = false;
@@ -586,7 +622,19 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) startupUpdateFlow(context);
+      _importCaptures();
     });
+  }
+
+  Future<void> _importCaptures() async {
+    final n = await importCaptures(v);
+    if (n == 0 || !mounted) return;
+    setState(() {});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Saved $n login${n == 1 ? '' : 's'} from other apps.'),
+      ),
+    );
   }
 
   List<Entry> get _items => v
@@ -663,10 +711,22 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const ChangeMasterPage()));
+      case 'autolock':
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AutoLockPage()));
+      case 'autofill':
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AutofillSetupPage()));
       case 'updates':
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const UpdatesPage()));
+      case 'about':
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const AboutPage()));
       case 'lock':
         Session.lock();
     }
@@ -709,7 +769,13 @@ class _HomePageState extends State<HomePage> {
                 value: 'master',
                 child: Text('Change master password'),
               ),
+              PopupMenuItem(value: 'autolock', child: Text('Auto-lock')),
+              PopupMenuItem(
+                value: 'autofill',
+                child: Text('Autofill in other apps'),
+              ),
               PopupMenuItem(value: 'updates', child: Text('Updates')),
+              PopupMenuItem(value: 'about', child: Text('About & privacy')),
               PopupMenuItem(value: 'lock', child: Text('Lock now')),
             ],
           ),
@@ -1187,6 +1253,26 @@ class _EntryEditPageState extends State<EntryEditPage> {
                                 ? _shown.add(f.key)
                                 : _shown.remove(f.key),
                           ),
+                        ),
+                        // Direct paste: doesn't depend on Android's paste bubble.
+                        IconButton(
+                          icon: const Icon(Icons.content_paste, size: 20),
+                          tooltip: 'Paste',
+                          onPressed: () async {
+                            final clip = await Clipboard.getData('text/plain');
+                            final text = clip?.text ?? '';
+                            if (!mounted) return;
+                            if (text.isEmpty) {
+                              return _snack(
+                                context,
+                                'The clipboard is empty. Copy the text again, then tap Paste.',
+                              );
+                            }
+                            setState(() {
+                              c.text = f.multi ? text : text.trim();
+                              if (f.gen) _shown.add(f.key);
+                            });
+                          },
                         ),
                         if (f.gen)
                           IconButton(
@@ -1982,4 +2068,85 @@ class _ChangeMasterPageState extends State<ChangeMasterPage> {
       ],
     ),
   );
+}
+
+// =====================================================================
+//  Settings › Auto-lock
+// =====================================================================
+class AutoLockPage extends StatefulWidget {
+  const AutoLockPage({super.key});
+  @override
+  State<AutoLockPage> createState() => _AutoLockPageState();
+}
+
+class _AutoLockPageState extends State<AutoLockPage> {
+  String _idle(int m) => m == 60 ? '1 hour' : '$m minute${m == 1 ? '' : 's'}';
+  String _bg(int s) => s == 0
+      ? 'Immediately'
+      : s < 60
+      ? 'After $s seconds'
+      : 'After ${s ~/ 60} minute${s == 60 ? '' : 's'}';
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    Widget head(String t) => Padding(
+      padding: const EdgeInsets.fromLTRB(0, 18, 0, 4),
+      child: Text(
+        t,
+        style: TextStyle(fontWeight: FontWeight.w600, color: e.ink2),
+      ),
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Auto-lock')),
+      body: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+        children: [
+          head('Lock when I haven\'t used MyVault for'),
+          RadioGroup<int>(
+            groupValue: Session.idleMinutes,
+            onChanged: (v) {
+              setState(() => Session.idleMinutes = v!);
+              Session.saveLockPrefs();
+            },
+            child: Column(
+              children: [
+                for (final m in Session.idleChoices)
+                  RadioListTile<int>(
+                    value: m,
+                    title: Text(_idle(m)),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+              ],
+            ),
+          ),
+          head('Lock after I switch to another app'),
+          RadioGroup<int>(
+            groupValue: Session.backgroundSeconds,
+            onChanged: (v) {
+              setState(() => Session.backgroundSeconds = v!);
+              Session.saveLockPrefs();
+            },
+            child: Column(
+              children: [
+                for (final s in Session.backgroundChoices)
+                  RadioListTile<int>(
+                    value: s,
+                    title: Text(_bg(s)),
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Shorter is safer. "Immediately" also locks when you briefly switch apps to copy something.',
+            style: TextStyle(color: e.ink3, fontSize: 12.5),
+          ),
+        ],
+      ),
+    );
+  }
 }

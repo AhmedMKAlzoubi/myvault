@@ -366,7 +366,25 @@
     const sig = cred.username + "|" + cred.email + "|" + cred.password;
     if (sig === lastOffered && !force) return;
     lastOffered = sig;
+    // You accepted MyVault's suggested password for this sign-up: you clearly
+    // want it kept, so save straight away instead of asking again.
+    if (suggested && cred.password === suggested && !force) return autoSave(cred);
     showSaveBar(cred, isNew);
+  }
+
+  function autoSave(cred) {
+    chrome.runtime.sendMessage({ type: "save", cred: { ...cred, domain: DOMAIN, url: location.origin } }, (res) => {
+      matchesLoaded = false;
+      if (res && res.ok) {
+        chrome.runtime.sendMessage({ type: "forget", domain: DOMAIN });
+        suggested = "";
+        toast(`Saved your new ${DOMAIN} account to MyVault.`);
+      } else {
+        // Couldn't reach the app: fall back to asking, so nothing is lost.
+        lastOffered = "";
+        showSaveBar(cred, true);
+      }
+    });
   }
 
   document.addEventListener("submit", () => setTimeout(maybeOfferSave, 0), true);

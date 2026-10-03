@@ -13,7 +13,10 @@ keys, and private notes. Nothing goes to a cloud or a company.
   from the printed QR codes.
 - **Browser fill.** A small extension for Chrome, Edge, Brave and Comet fills
   logins when you click a login box. On sign-up forms it suggests a strong
-  password and offers to save the new account.
+  password, and saves the new account once you use it.
+- **Fill other apps.** On Android, MyVault can be the phone's autofill service, so
+  it fills and saves logins in any app or in Chrome. On Windows, **Type into app**
+  types a login into the program behind MyVault.
 
 > **There is no password reset.** If you forget the master password, nobody can
 > open the vault, not even you. That's what keeps it safe. Write the master
@@ -82,9 +85,21 @@ Download the APK from the **Releases** page, or build it yourself (see
 [`android_app/README.md`](android_app/README.md)).
 
 The phone app has the same entry types, reveal and generator. It locks after 30
-seconds in the background or 5 minutes idle, blocks screenshots and the
-recent-apps preview, marks copied secrets as sensitive, and is excluded from
-Google cloud backup.
+seconds in the background or 5 minutes idle (change both under **menu › Auto-lock**),
+blocks screenshots and the recent-apps preview, marks copied secrets as sensitive,
+and is excluded from Google cloud backup.
+
+**Autofill in other apps:** open **menu › Autofill in other apps › Turn on** and
+pick MyVault. Then:
+
+- Tap a login box in any app and choose **Fill with MyVault**. MyVault asks for
+  your master password, then you pick the account.
+- When you sign in or sign up somewhere new, Android asks **Save to MyVault?**.
+  The login is sealed with a key held by the Android Keystore until your next
+  unlock, then added to the vault.
+- Website addresses are trusted only when a real browser reports them. Any other
+  app is matched by its app id, so an app can't pretend to be your bank's
+  website.
 
 ## Sync PC ↔ phone
 
@@ -140,6 +155,13 @@ the folder as an unpacked extension, then paste the pairing token from
 **Browser auto-fill** in the app. The extension talks only to the app on
 `127.0.0.1`, only while it's unlocked, and never fills anything without a click.
 
+**Desktop programs** (Steam, Discord, game launchers and so on) aren't web pages,
+so the extension can't reach them. Instead, click into the program's username box
+first, then open the login in MyVault and choose **Type into app**. MyVault
+minimises itself and types the username, Tab and the password into that window.
+It names the window first, and types nothing if that window isn't the one in
+front.
+
 ## How it's built
 
 ```
@@ -170,6 +192,55 @@ scanned off a rendered page).
 .venv\Scripts\python tests\test_core.py
 ```
 
+## Troubleshooting
+
+**The phone scans the code, then says "Couldn't reach your PC"**
+
+Windows is probably treating your home WiFi as a **Public** network, and its
+firewall silently blocks other devices on Public networks. MyVault's sync
+screen shows a red warning when this is the case. To fix it:
+
+1. Open **Settings → Network & internet → Wi‑Fi**.
+2. Click your WiFi network's name (or "*Name* properties").
+3. Under **Network profile type**, choose **Private network**.
+4. Back in MyVault, choose **Show sync code** again and scan the new code.
+
+Only do this for networks you trust, like your own home WiFi. Leave café,
+airport and hotel WiFi on Public; blocking sync there is what you want. The
+first time you sync, Windows may also ask whether MyVault may use the network:
+choose **Allow** for private networks. Some guest or office networks block
+device-to-device traffic entirely ("client isolation"); there, sync can't work.
+
+**The phone says "App not installed" when updating**
+
+Versions up to 0.4 were signed with a temporary developer key; 0.5 and later
+use MyVault's release key. Android won't install an app over one signed with a
+different key. This happens once: sync the phone to your PC, uninstall the old
+app, install the new APK, create a master password, then sync again to get
+your entries back. After that, updates install normally.
+
+**The scanner doesn't react to the code**
+
+Hold the phone 15 to 30 cm from the screen, and make sure all three big corner
+squares of the code are visible. If MyVault says "That QR code isn't a MyVault
+sync code", it read a different code.
+
+**Restoring a backup PDF changes nothing**
+
+Make sure you typed the *backup* password (the one chosen when the PDF was
+made, which may differ from your master password). Restoring brings back every
+entry in the backup, including ones deleted since.
+
+**Windows says "Windows protected your PC" when installing**
+
+The installer isn't code-signed yet. Click **More info → Run anyway**.
+
+**Paste doesn't work on the phone**
+
+Use the **paste** button inside the field (next to the eye). MyVault clears
+copied secrets from the clipboard after 30 seconds, so copy again if it's been
+a while.
+
 ## Limits worth knowing
 
 - The desktop app is Windows-only for now (the clipboard protection uses Windows
@@ -179,4 +250,16 @@ scanned off a rendered page).
   block device-to-device traffic.
 - Python can't wipe strings from memory, so a secret you've opened stays in RAM
   until the app locks. That's the same limit most password managers live with.
-- No security audit has been done. Read the code, and report anything you find.
+- No independent security audit has been done; MyVault has had an automated and
+  self-review only. Read the code, and report anything you find (see
+  [SECURITY.md](SECURITY.md)).
+
+## Privacy, terms and security
+
+- [Privacy policy](PRIVACY.md): MyVault collects nothing; your vault stays on your devices.
+- [Terms of use](TERMS.md)
+- [Security policy](SECURITY.md): how to report a problem privately.
+- [Changelog](CHANGELOG.md)
+
+Contact: [GitHub Issues](https://github.com/AhmedMKAlzoubi/myvault/issues) or
+ahmedmohammedkhear@gmail.com.

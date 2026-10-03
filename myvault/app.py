@@ -20,16 +20,17 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 
 import segno
 import webview
 
-from . import __version__, autostart, clipboard, config, crypto, paper, paths, server, sync, update, webmatch
+from . import __version__, autostart, autotype, clipboard, config, crypto, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault
 
-AUTO_LOCK_MINUTES = 5
+AUTO_LOCK_CHOICES = (1, 2, 5, 10, 15, 30, 60)   # minutes; Settings > Auto-lock
 CLIPBOARD_CLEAR_SECONDS = 30
 # The repo root when run from source; the bundle's _internal folder when installed
 # (PyInstaller lays out myvault/ and assets/ the same way).
@@ -66,7 +67,7 @@ def _summary(e: Entry) -> dict:
         user, host = e.fields.get("ssh_user", ""), e.fields.get("host", "")
         sub = f"{user}@{host}" if user and host else (host or user)
     else:
-        sub = (e.notes or "").split("\n", 1)[0][:60]
+        sub = ""      # a secure note's text is secret: never show it in the list
     return {"id": e.id, "kind": e.kind, "title": e.display_name(), "subtitle": sub,
             "website": e.website, "updated_at": e.updated_at}
 
@@ -84,6 +85,7 @@ class Api:
         self._pairing: sync.PairingSession | None = None
         self._upd = {"checking": False, "available": "", "notes": "", "progress": 0, "busy": False, "error": ""}
         self._upd_release = None     # (manifest, raw, sig) of a newer release found online
+        self._autotype_hwnd = 0      # the window "Type into app" will type into
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
     # ---- plumbing ----------------------------------------------------------
@@ -103,14 +105,25 @@ class Api:
     def _autolock_loop(self) -> None:
         while True:
             time.sleep(10)
-            if self._vault is not None and time.time() - self._last_activity > AUTO_LOCK_MINUTES * 60:
+            minutes = _autolock_minutes()
+            if self._vault is not None and time.time() - self._last_activity > minutes * 60:
                 self.lock()
-                self._js("MV.onLocked('Locked after 5 minutes of inactivity.')")
+                self._js(f"MV.onLocked('Locked after {minutes} minute{'s' if minutes != 1 else ''} without use.')")
 
     # ---- unlock / lock -----------------------------------------------------
     def boot(self) -> dict:
         return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
-                "version": __version__, "autolock": AUTO_LOCK_MINUTES}
+                "version": __version__, "autolock": _autolock_minutes()}
+
+    def autolock_state(self) -> dict:
+        return {"minutes": _autolock_minutes(), "choices": list(AUTO_LOCK_CHOICES)}
+
+    def set_autolock(self, minutes: int) -> dict:
+        if int(minutes) in AUTO_LOCK_CHOICES:
+            cfg = config.load()
+            cfg["autolock_minutes"] = int(minutes)
+            config.save(cfg)
+        return self.autolock_state()
 
     def unlock(self, password: str) -> dict:
         path = paths.vault_path()
@@ -244,6 +257,31 @@ class Api:
             self._start_connector()
         return self.connector_info()
 
+    # ---- auto-type into other programs --------------------------------------
+    def autotype_target(self) -> dict:
+        """Name the program MyVault would type into (the window right behind it)."""
+        self._need()
+        if not autotype.available():
+            return {"ok": False, "error": "Auto-type works on Windows only."}
+        t = autotype.target_window()
+        if not t:
+            return {"ok": False, "error": "Click into the other program's login box first, then come back here."}
+        self._autotype_hwnd = t[0]
+        return {"ok": True, "title": t[1]}
+
+    def autotype(self, entry_id: str, mode: str = "both") -> dict:
+        v = self._need()
+        e = v.get(entry_id)
+        if e is None or e.deleted or e.kind != "login":
+            return {"ok": False, "error": "That entry isn't there any more."}
+        hwnd, self._autotype_hwnd = self._autotype_hwnd, 0
+        if not hwnd:
+            return {"ok": False, "error": "Choose Type into app again."}
+        login = e.username or e.email
+        parts = [e.password] if mode == "password" or not login else [login, e.password]
+        err = autotype.type_into(hwnd, parts, self._window.minimize)
+        return {"ok": not err, "error": err}
+
     def autostart_state(self) -> dict:
         return {"available": autostart.available(), "enabled": autostart.enabled()}
 
@@ -255,6 +293,13 @@ class Api:
 
     def folders(self) -> dict:
         return {"data": str(paths.data_dir()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
+
+    def open_doc(self, name: str) -> dict:
+        """Open one of MyVault's published documents in the browser (fixed list, never a free URL)."""
+        if name not in ("PRIVACY.md", "TERMS.md", "SECURITY.md", "CHANGELOG.md"):
+            return {"ok": False}
+        webbrowser.open(f"https://github.com/{update.REPO}/blob/main/{name}")
+        return {"ok": True}
 
     def open_folder(self, which: str) -> dict:
         """Open one of MyVault's own folders in Explorer (paths found at runtime,
@@ -554,6 +599,11 @@ class _ConnectorProvider:
             return generate(PasswordPolicy.from_dict(policy))
         except (ValueError, TypeError):
             return generate(PasswordPolicy())
+
+
+def _autolock_minutes() -> int:
+    m = config.load().get("autolock_minutes", 5)
+    return m if m in AUTO_LOCK_CHOICES else 5
 
 
 def _friendly_update_error(exc: Exception) -> str:
