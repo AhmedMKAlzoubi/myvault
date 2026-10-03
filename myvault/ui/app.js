@@ -536,17 +536,48 @@
         const parts = [inp, eye];
         let meter = null, genBox = null;
         if (f.gen) {
-          meter = strengthLine();
-          meter.set(value);
-          inp.addEventListener("input", () => meter.set(inp.value));
-          const genBtn = btn("Generate", () => {
-            if (genBox) { genBox.remove(); genBox = null; return; }
+          // A password already in the box is never one stray click from being
+          // replaced: "Generate" only shows while the box is empty. Otherwise
+          // "Change password" asks first, and a saved one can be put back.
+          const saved = value;
+          let choice = null;
+          const strength = strengthLine();
+          const close = () => { genBox?.remove(); choice?.remove(); genBox = choice = null; };
+          const openGen = () => {
+            close();
             genBox = generatorPanel(policy, {
-              onUse: (pw, pol) => { inp.value = pw; policy = pol; eye.show(); meter.set(pw); dirty(); genBox.remove(); genBox = null; },
+              onUse: (pw, pol) => { inp.value = pw; policy = pol; eye.show(); dirty(); close(); sync(); },
             });
             wrap.append(genBox);
-          }, "sm", "dice");
-          parts.push(genBtn);
+          };
+          const genBtn = btn("Generate", () => (genBox ? close() : openGen()), "sm", "dice");
+          const changeBtn = btn("Change password", () => {
+            if (choice) return close();
+            close();
+            choice = h("div", { class: "result bad", role: "alert", style: "margin-top:10px;display:grid;gap:10px" },
+              h("span", {}, h("b", {}, "Replace this password? "), saved
+                ? "Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out."
+                : "The password in the box will be replaced."),
+              h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+                btn("Type a new one", () => { close(); inp.readOnly = false; inp.value = ""; dirty(); sync(); inp.focus(); }, "sm", "edit"),
+                btn("Generate one", openGen, "sm", "dice"),
+                btn("Keep it", close, "sm")));
+            wrap.append(choice);
+          }, "sm", "refresh");
+          const undo = btn("Keep the old password", () => {
+            close(); inp.value = saved; inp.readOnly = true; sync(); toast("The saved password is back.");
+          }, "sm", "x");
+          function sync() {
+            strength.set(inp.value);
+            genBtn.hidden = inp.value !== "";
+            changeBtn.hidden = inp.value === "";
+            undo.hidden = !saved || inp.value === saved;
+          }
+          inp.readOnly = !!saved;      // the saved password can be viewed and copied, not edited by accident
+          inp.addEventListener("input", sync);
+          parts.push(genBtn, changeBtn);
+          meter = h("div", {}, strength, h("div", { style: "margin-top:8px" }, undo));
+          sync();
         }
         if (f.file) parts.push(fileBtn(inp));
         const wrap = h("div", { class: "field" }, h("label", {}, f.label),
@@ -744,9 +775,9 @@
     }
 
     function idle(msg, bad = false) {
-      area.replaceChildren(
+      area.replaceChildren(h("div", { style: "display:grid;gap:12px" },      // h() drops an empty msg; replaceChildren would print "undefined"
         msg && h("div", { class: "result" + (bad ? " bad" : "") }, msg),
-        h("div", {}, btn(msg ? "Show a new code" : "Show sync code", start, "primary", "phone")));
+        h("div", {}, btn(msg ? "Show a new code" : "Show sync code", start, "primary", "phone"))));
     }
     async function start() {
       const r = await call("sync_start");
@@ -756,7 +787,7 @@
       const bar = h("i", {});
       const status = h("div", { class: "status" }, h("span", { class: "dot wait" }), "Waiting for your phone…");
       const left = h("p", { class: "hint" });
-      area.replaceChildren(r.public && h("div", { class: "result bad", role: "alert" },
+      area.replaceChildren(...[r.public && h("div", { class: "result bad", role: "alert" },
         h("b", {}, "Windows is blocking your phone. "),
         "It treats this WiFi as a Public network, so it drops the phone's connection. On your home WiFi, open ",
         h("b", {}, "Settings › Network & internet › Wi‑Fi › (your network)"), " and set ",
@@ -765,7 +796,7 @@
       h("div", { class: "qr-window" }, qr,
         h("div", { style: "display:grid;gap:10px" }, status, left, h("div", { class: "countdown" }, bar),
           h("p", { class: "hint" }, `This PC: ${r.hosts.join(", ")}`),
-          h("div", {}, btn("Cancel", () => { stopSync(); idle(); }, "sm")))));
+          h("div", {}, btn("Cancel", () => { stopSync(); idle(); }, "sm"))))].filter(Boolean));
       S.syncTimer = setInterval(async () => {
         const s = await call("sync_status");
         if (s.state === "waiting") {

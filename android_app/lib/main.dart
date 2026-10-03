@@ -1146,6 +1146,11 @@ class _EntryEditPageState extends State<EntryEditPage> {
       f.key: TextEditingController(text: f.read(_e)),
   };
   final _shown = <String>{};
+  // A saved password is never one stray tap from being replaced: it's
+  // read-only, and "Change password" asks first (see _changePassword).
+  late final String _savedPw = _e.password;
+  late bool _pwLocked = _savedPw.isNotEmpty;
+  final _pwFocus = FocusNode();
   late final List<List<TextEditingController>> _custom = [
     for (final c in _e.custom.entries)
       [
@@ -1213,8 +1218,46 @@ class _EntryEditPageState extends State<EntryEditPage> {
     }
   }
 
+  Future<void> _changePassword() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Replace this password?'),
+        content: Text(
+          _savedPw.isNotEmpty
+              ? 'Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out.'
+              : 'The password in the box will be replaced.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Keep it'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'type'),
+            child: const Text('Type a new one'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'generate'),
+            child: const Text('Generate one'),
+          ),
+        ],
+      ),
+    );
+    if (choice == 'type') {
+      setState(() {
+        _pwLocked = false;
+        _c['password']!.clear();
+      });
+      _pwFocus.requestFocus();
+    } else if (choice == 'generate') {
+      await _generate();
+    }
+  }
+
   Widget _field(FieldDef f) {
     final c = _c[f.key]!;
+    final filled = f.gen && c.text.isNotEmpty;
     final hidden = f.secret && !_shown.contains(f.key);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -1223,6 +1266,8 @@ class _EntryEditPageState extends State<EntryEditPage> {
         children: [
           TextField(
             controller: c,
+            focusNode: f.gen ? _pwFocus : null,
+            readOnly: f.gen && _pwLocked,
             obscureText: hidden && !f.multi,
             keyboardType: f.multi ? TextInputType.multiline : f.type,
             maxLines: f.multi ? (hidden ? 1 : 6) : 1,
@@ -1255,30 +1300,39 @@ class _EntryEditPageState extends State<EntryEditPage> {
                           ),
                         ),
                         // Direct paste: doesn't depend on Android's paste bubble.
-                        IconButton(
-                          icon: const Icon(Icons.content_paste, size: 20),
-                          tooltip: 'Paste',
-                          onPressed: () async {
-                            final clip = await Clipboard.getData('text/plain');
-                            final text = clip?.text ?? '';
-                            if (!mounted) return;
-                            if (text.isEmpty) {
-                              return _snack(
-                                context,
-                                'The clipboard is empty. Copy the text again, then tap Paste.',
+                        if (!filled)
+                          IconButton(
+                            icon: const Icon(Icons.content_paste, size: 20),
+                            tooltip: 'Paste',
+                            onPressed: () async {
+                              final clip = await Clipboard.getData(
+                                'text/plain',
                               );
-                            }
-                            setState(() {
-                              c.text = f.multi ? text : text.trim();
-                              if (f.gen) _shown.add(f.key);
-                            });
-                          },
-                        ),
-                        if (f.gen)
+                              final text = clip?.text ?? '';
+                              if (!mounted) return;
+                              if (text.isEmpty) {
+                                return _snack(
+                                  context,
+                                  'The clipboard is empty. Copy the text again, then tap Paste.',
+                                );
+                              }
+                              setState(() {
+                                c.text = f.multi ? text : text.trim();
+                                if (f.gen) _shown.add(f.key);
+                              });
+                            },
+                          ),
+                        if (f.gen && !filled)
                           IconButton(
                             icon: const Icon(Icons.casino_outlined, size: 20),
                             tooltip: 'Generate',
                             onPressed: _generate,
+                          ),
+                        if (filled)
+                          IconButton(
+                            icon: const Icon(Icons.autorenew, size: 20),
+                            tooltip: 'Change password',
+                            onPressed: _changePassword,
                           ),
                       ],
                     ),
@@ -1288,6 +1342,15 @@ class _EntryEditPageState extends State<EntryEditPage> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: StrengthBar(c.text),
+            ),
+          if (f.gen && _savedPw.isNotEmpty && c.text != _savedPw)
+            TextButton.icon(
+              onPressed: () => setState(() {
+                c.text = _savedPw;
+                _pwLocked = true;
+              }),
+              icon: const Icon(Icons.undo, size: 18),
+              label: const Text('Keep the old password'),
             ),
         ],
       ),

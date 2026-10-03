@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4 (3 October 2026)
+
+- **A saved password can't be replaced by accident** (Windows and Android). When you edit a login, its password is read-only, and Generate (and Paste on the phone) only appear while the box is empty. **Change password** first warns you, then lets you type a new one or generate one, and **Keep the old password** puts the saved one back until you save.
+- Windows: the Sync page no longer shows a stray "undefined" above the button.
+- README: screenshots.
+
 ## 0.5.3 (3 October 2026)
 
 - **Windows: runs in the background.** The X button now hides MyVault to the notification area by the clock instead of quitting, so browser fill keeps working without a taskbar button. Click the icon to open it; right-click it to lock or quit. Start with Windows now starts it there.
