@@ -369,6 +369,10 @@ def test_entry_kinds_search_and_names():
     assert e.display_name() == "OpenWeather"
     assert e.matches("openweather") and not e.matches("secret")
     assert Entry.from_dict({"kind": "bogus"}).kind == "login"
+    note = Entry(kind="note", title="Backup codes", notes="AAA\nBBB")
+    from myvault import app
+    assert app._summary(note)["subtitle"] == ""          # never shown in the sidebar
+    assert note.matches("backup") and not note.matches("aaa")
 
 
 def test_connector_signup_save_and_match():

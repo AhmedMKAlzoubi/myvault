@@ -3,6 +3,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'theme.dart';
 import 'update.dart' as upd;
@@ -279,6 +280,49 @@ class _UpdatesPageState extends State<UpdatesPage> {
               icon: const Icon(Icons.refresh),
               label: Text(_busy ? 'Checking…' : 'Check now'),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// About MyVault: version, and the privacy policy, terms and security policy
+/// (opened in the browser from GitHub).
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    Widget doc(String title, String file) => ListTile(
+      title: Text(title),
+      trailing: const Icon(Icons.open_in_new, size: 18),
+      onTap: () =>
+          const MethodChannel('myvault/update').invokeMethod('openDoc', file),
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('About MyVault')),
+      body: ListView(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: Text(
+              'MyVault $appVersion\n\nMade by Ahmed Mohammed. Free software under the GPL-3.0 licence. Your vault stays on your '
+              'devices: no account, no cloud, no tracking.',
+              style: TextStyle(color: e.ink2, height: 1.45),
+            ),
+          ),
+          doc('Privacy policy', 'PRIVACY.md'),
+          doc('Terms of use', 'TERMS.md'),
+          doc('Security & reporting a problem', 'SECURITY.md'),
+          doc("What's new", 'CHANGELOG.md'),
+          Padding(
+            padding: const EdgeInsets.all(18),
+            child: Text(
+              'Contact: ahmedmohammedkhear@gmail.com',
+              style: TextStyle(color: e.ink3, fontSize: 12.5),
+            ),
+          ),
         ],
       ),
     );

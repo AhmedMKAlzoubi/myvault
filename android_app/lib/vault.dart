@@ -86,7 +86,7 @@ class Entry {
       app,
       username,
       email,
-      notes,
+      if (kind != 'note') notes, // a secure note's body is secret
       ...custom.keys,
       ...custom.values,
       for (final k in searchableFields) fields[k] ?? '',

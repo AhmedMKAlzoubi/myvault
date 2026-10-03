@@ -1,0 +1,2 @@
+# Signed / byte-exact test files: never convert line endings.
+android_app/test_fixtures/** -text

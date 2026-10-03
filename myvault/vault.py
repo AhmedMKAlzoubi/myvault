@@ -72,7 +72,7 @@ class Entry:
         haystack = " ".join(
             str(v) for v in (
                 self.title, self.website, self.app, self.username,
-                self.email, self.notes,
+                self.email, "" if self.kind == "note" else self.notes,   # a note's body is secret
             )
         ).lower()
         haystack += " " + " ".join(str(k) + " " + str(v) for k, v in self.custom.items()).lower()

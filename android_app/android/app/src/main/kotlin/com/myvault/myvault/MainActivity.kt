@@ -83,9 +83,38 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        // Autofill in other apps: is MyVault the autofill provider, open the
+        // setting, and collect logins captured while the vault was locked.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/autofill_setup").setMethodCallHandler { call, result ->
+            val afm = if (Build.VERSION.SDK_INT >= 26) getSystemService(android.view.autofill.AutofillManager::class.java) else null
+            when (call.method) {
+                "status" -> result.success(mapOf(
+                    "supported" to (afm?.isAutofillSupported == true),
+                    "enabled" to (afm?.hasEnabledAutofillServices() == true)))
+                "open" -> {
+                    try {
+                        startActivity(Intent(Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, Uri.parse("package:$packageName")))
+                    } catch (_: Exception) {
+                        startActivity(Intent(Settings.ACTION_SETTINGS))
+                    }
+                    result.success(true)
+                }
+                "takeInbox" -> result.success(CaptureInbox.take(this))
+                else -> result.notImplemented()
+            }
+        }
         // Updates: hand a downloaded/received APK to Android's own installer.
         // Android refuses it unless it's signed with the same key as this app.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/update").setMethodCallHandler { call, result ->
+            if (call.method == "openDoc") {
+                // Only MyVault's own published documents, never an arbitrary URL.
+                val name = setOf("PRIVACY.md", "TERMS.md", "SECURITY.md", "CHANGELOG.md")
+                    .firstOrNull { it == call.arguments }
+                    ?: return@setMethodCallHandler result.error("bad_doc", "Unknown document.", null)
+                startActivity(Intent(Intent.ACTION_VIEW,
+                    Uri.parse("https://github.com/AhmedMKAlzoubi/myvault/blob/main/$name")))
+                return@setMethodCallHandler result.success(true)
+            }
             if (call.method != "installApk") return@setMethodCallHandler result.notImplemented()
             if (Build.VERSION.SDK_INT >= 26 && !packageManager.canRequestPackageInstalls()) {
                 // First time only: the user allows "Install unknown apps" for MyVault.
