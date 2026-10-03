@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 (3 October 2026)
+
+- **Windows: runs in the background.** The X button now hides MyVault to the notification area by the clock instead of quitting, so browser fill keeps working without a taskbar button. Click the icon to open it; right-click it to lock or quit. Start with Windows now starts it there.
+
 ## 0.5.2 (3 October 2026)
 
 - **Android: autofill in other apps.** Turn MyVault on as Android's autofill service (menu › Autofill in other apps). It fills logins in apps and Chrome after you unlock, and saves new sign-ins you allow ("Save to MyVault?").

@@ -38,7 +38,7 @@ RestartApplications=no
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "startup"; Description: "Start MyVault when I sign in to Windows (it waits in the taskbar, locked)"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "startup"; Description: "Start MyVault when I sign in to Windows (it waits by the clock, locked)"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Registry]
 ; Same per-user Run entry the in-app switch (Settings > Start with Windows) manages.
