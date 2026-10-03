@@ -78,6 +78,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--notes", default="", help="short release notes shown in the update prompt")
     ap.add_argument("--publish", action="store_true", help="create the GitHub release and upload the files")
+    ap.add_argument("--prerelease", action="store_true",
+                    help="a test build: never offered as an update or as a version to go back to")
     args = ap.parse_args()
     v = __version__
     if not (KEYS / "key.properties").exists() or not (KEYS / "update_key.pem").exists():
@@ -116,7 +118,8 @@ def main() -> None:
 
     if args.publish:
         subprocess.run(["gh", "release", "create", f"v{v}", *[str(f) for f in sorted(OUT.iterdir())],
-                        "--title", f"MyVault {v}", "--notes", args.notes or f"MyVault {v}"], cwd=ROOT, check=True)
+                        "--title", f"MyVault {v}", "--notes", args.notes or f"MyVault {v}",
+                        *(["--prerelease"] if args.prerelease else [])], cwd=ROOT, check=True)
         print(f"Published v{v}. Apps that check online will offer it within a day.")
     else:
         print("Not published. To publish, run again with --publish (needs `gh auth login`).")

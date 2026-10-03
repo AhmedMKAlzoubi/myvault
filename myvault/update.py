@@ -41,6 +41,7 @@ PLATFORM = "windows"
 REPO = "AhmedMKAlzoubi/myvault"
 LATEST_URL = f"https://github.com/{REPO}/releases/latest/download/latest.json"
 ASSET_URL = "https://github.com/" + REPO + "/releases/download/v{version}/{name}"
+RELEASES_API = f"https://api.github.com/repos/{REPO}/releases?per_page=30"
 MAX_PACKAGE = 200 * 1024 * 1024
 _NAME_RE = re.compile(r"^MyVault[A-Za-z0-9._-]{1,80}\.(exe|apk)$")
 _VER_RE = re.compile(r"^\d{1,4}\.\d{1,4}\.\d{1,4}$")
@@ -174,6 +175,25 @@ def check_online() -> tuple[dict, bytes, str]:
     raw = _get(LATEST_URL, 64 * 1024)
     sig = _get(LATEST_URL + ".sig", 1024).decode("ascii").strip()
     return verify_manifest(raw, sig), raw, sig
+
+
+def previous_release(current: str = __version__) -> tuple[dict, bytes, str]:
+    """For going back: the newest stable (not pre-release) release older than
+    `current` whose signed manifest verifies and has a Windows installer."""
+    releases = json.loads(_get(RELEASES_API, 4 * 1024 * 1024))
+    tags = {str(r.get("tag_name", "")).removeprefix("v") for r in releases
+            if not r.get("draft") and not r.get("prerelease")}
+    for v in sorted((t for t in tags if _VER_RE.match(t) and newer(current, t)), key=vtuple, reverse=True)[:5]:
+        url = ASSET_URL.format(version=v, name="latest.json")
+        try:
+            raw = _get(url, 64 * 1024)
+            sig = _get(url + ".sig", 1024).decode("ascii").strip()
+            m = verify_manifest(raw, sig)
+        except (UpdateError, OSError, ValueError):
+            continue        # releases before 0.5.0 have no signed manifest: never offered
+        if m["version"] == v and PLATFORM in m.get("files", {}):
+            return m, raw, sig
+    raise UpdateError("There's no earlier signed MyVault release to go back to.")
 
 
 def download(m: dict, raw: bytes, sig: str, platform: str, progress=None) -> Package:

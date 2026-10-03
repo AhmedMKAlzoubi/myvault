@@ -280,6 +280,32 @@ class _UpdatesPageState extends State<UpdatesPage> {
               icon: const Icon(Icons.refresh),
               label: Text(_busy ? 'Checking…' : 'Check now'),
             ),
+          const SizedBox(height: 26),
+          const Text(
+            'Go back to the previous version',
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            "Android doesn't let an app install an older version of itself over a newer one. "
+            'Going back means removing MyVault, which also removes its copy of your vault, so:\n\n'
+            '1. Sync with your PC first, so the PC has everything.\n'
+            '2. Uninstall MyVault on this phone.\n'
+            '3. Install the older MyVault APK from the releases page.\n'
+            '4. Create a master password, then sync with your PC again.',
+            style: TextStyle(color: e.ink2, height: 1.45),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: () => const MethodChannel(
+                'myvault/update',
+              ).invokeMethod('openDoc', 'RELEASES'),
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: const Text('Open the releases page'),
+            ),
+          ),
         ],
       ),
     );

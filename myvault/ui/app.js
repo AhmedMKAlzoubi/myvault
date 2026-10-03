@@ -964,8 +964,36 @@
           h("span", { class: "sw-sub" }, "MyVault looks at a small signed version file on GitHub, at most once a day. Nothing from your vault is sent."))),
         h("p", { class: "hint" }, u.checking ? "Checking…" : u.error ? u.error
           : u.available ? `MyVault ${u.available} is available. See the card on the left.` : `Last checked: ${when}.`),
-        u.enabled && h("div", {}, btn("Check now", async () => { await call("check_updates", true); paint(); setTimeout(paint, 2500); setTimeout(refreshUpdates, 2600); }, "sm", "refresh")));
+        u.enabled && h("div", {}, btn("Check now", async () => { await call("check_updates", true); paint(); setTimeout(paint, 2500); setTimeout(refreshUpdates, 2600); }, "sm", "refresh")),
+        goBack());
     };
+    // If an update causes trouble: reinstall the stable release before this one.
+    function goBack() {
+      const slot = h("div", {});
+      const box = h("div", { style: "display:grid;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--rule)" },
+        h("b", {}, "Go back to the previous version"),
+        h("p", { class: "hint", style: "margin:0" }, "If an update causes trouble, MyVault can reinstall the stable release before it. Only versions signed by MyVault are offered, and your vault is copied first."),
+        slot);
+      const idle = () => slot.replaceChildren(btn("Find the previous version", find, "sm", "refresh"));
+      async function find() {
+        slot.replaceChildren(h("span", { class: "hint" }, "Looking on GitHub…"));
+        const r = await call("rollback_info");
+        if (!r.ok) return slot.replaceChildren(h("p", { class: "err", style: "margin:0 0 8px" }, r.error), btn("Try again", find, "sm"));
+        slot.replaceChildren(h("div", { class: "result bad", role: "alert", style: "display:grid;gap:10px" },
+          h("span", {}, h("b", {}, `Go back from ${r.current} to ${r.version}? `),
+            `MyVault first copies your vault to ${r.backup} in your vault folder, then downloads ${r.version}, checks its signature, installs it and opens again. ` +
+            `Updates are never installed without asking, so you can choose Later if it offers ${r.current} again.`),
+          h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+            btn(`Go back to ${r.version}`, async () => {
+              slot.replaceChildren(h("span", { class: "hint" }, `Downloading and checking ${r.version}…`));
+              const x = await call("rollback");
+              if (!x.ok) slot.replaceChildren(h("p", { class: "err", style: "margin:0 0 8px" }, x.error), btn("Try again", find, "sm"));
+            }, "primary sm"),
+            btn("Cancel", idle, "sm"))));
+      }
+      idle();
+      return box;
+    }
     paint();
     return panel;
   }
