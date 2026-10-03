@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hmac
 import json
+import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -26,6 +27,8 @@ from . import __version__
 HOST = "127.0.0.1"
 MAX_BODY = 64 * 1024
 TOKEN_HEADER = "X-MyVault-Token"
+# chrome-extension://<32 letters a-p>  or  moz-extension://<uuid>
+_EXT_ORIGIN = re.compile(r"chrome-extension://[a-p]{32}|moz-extension://[0-9a-f-]{36}")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -40,8 +43,9 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _origin_allowed(self) -> str:
         origin = self.headers.get("Origin", "")
-        # Only browser extensions get CORS access reflected back.
-        if origin.startswith("chrome-extension://") or origin.startswith("moz-extension://"):
+        # Only browser extensions get CORS access reflected back, and only an
+        # exact extension-id origin, so nothing else (e.g. CR/LF) can reach a header.
+        if _EXT_ORIGIN.fullmatch(origin):
             return origin
         return "null"
 
