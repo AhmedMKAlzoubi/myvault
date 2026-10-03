@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
@@ -11,6 +12,8 @@ import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 import 'crypto.dart';
 import 'generator.dart';
 import 'kinds.dart';
+import 'l10n.dart';
+import 'l10n_ar.dart' show arabicMonths;
 import 'paper.dart' as paper;
 import 'autofill.dart';
 import 'sync.dart' as qrsync;
@@ -23,6 +26,12 @@ import 'version.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Session.loadLockPrefs();
+  try {
+    final pick = (await upd.loadPrefs())['language'];
+    if (languageChoices.contains(pick)) language.value = pick as String;
+  } catch (_) {
+    // first run: follow the phone's language
+  }
   await loadAutofillRequest();
   runApp(const MyVaultApp());
 }
@@ -88,7 +97,9 @@ class Session {
       _idle = Timer(
         Duration(minutes: idleMinutes),
         () => lock(
-          'Locked after $idleMinutes minute${idleMinutes == 1 ? '' : 's'} without use.',
+          tr(
+            'Locked after $idleMinutes minute${idleMinutes == 1 ? '' : 's'} without use.',
+          ),
         ),
       );
     }
@@ -147,13 +158,13 @@ class _Clip {
 
 void _snack(BuildContext c, String msg) => ScaffoldMessenger.of(c)
   ..hideCurrentSnackBar()
-  ..showSnackBar(SnackBar(content: Text(msg)));
+  ..showSnackBar(SnackBar(content: Text(tr(msg))));
 
 Future<void> _copy(BuildContext c, String value, String what) async {
-  if (value.isEmpty) return _snack(c, '$what is empty.');
+  if (value.isEmpty) return _snack(c, tr('$what is empty.'));
   await _Clip.copy(value);
   if (c.mounted) {
-    _snack(c, '$what copied. It clears from the clipboard in 30 s.');
+    _snack(c, tr('$what copied. It clears from the clipboard in 30 s.'));
   }
 }
 
@@ -185,13 +196,22 @@ class _MyVaultAppState extends State<MyVaultApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) => Listener(
     onPointerDown: (_) => Session.touch(),
-    child: MaterialApp(
-      title: 'MyVault',
-      navigatorKey: _nav,
-      theme: buildTheme(Envelope.light, Brightness.light),
-      darkTheme: buildTheme(Envelope.dark, Brightness.dark),
-      debugShowCheckedModeBanner: false,
-      home: const UnlockPage(),
+    // A language change rebuilds the whole app in the new language (and
+    // direction); an open vault stays open.
+    child: ValueListenableBuilder<String>(
+      valueListenable: language,
+      builder: (_, pick, _) => MaterialApp(
+        key: ValueKey(pick),
+        title: 'MyVault',
+        navigatorKey: _nav,
+        theme: buildTheme(Envelope.light, Brightness.light),
+        darkTheme: buildTheme(Envelope.dark, Brightness.dark),
+        debugShowCheckedModeBanner: false,
+        locale: Locale(isArabic ? 'ar' : 'en'),
+        supportedLocales: const [Locale('en'), Locale('ar')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: Session.vault == null ? const UnlockPage() : const HomePage(),
+      ),
     ),
   );
 }
@@ -278,6 +298,8 @@ class SecretValueState extends State<SecretValue>
     final e = Envelope.of(context);
     final text = Text(
       open ? widget.value : '',
+      textDirection:
+          TextDirection.ltr, // secrets read left to right, in Arabic too
       style: TextStyle(
         fontFamily: 'monospace',
         fontSize: 14,
@@ -286,7 +308,7 @@ class SecretValueState extends State<SecretValue>
       ),
     );
     return Semantics(
-      label: open ? null : 'Hidden value',
+      label: open ? null : tr('Hidden value'),
       // Concealed = dashed outline under the tint; revealed = solid ink outline.
       child: CustomPaint(
         foregroundPainter: _Outline(
@@ -374,7 +396,7 @@ class StrengthBar extends StatelessWidget {
           Container(
             width: 30,
             height: 4,
-            margin: const EdgeInsets.only(right: 3),
+            margin: const EdgeInsetsDirectional.only(end: 3),
             decoration: BoxDecoration(
               color: i < lv ? col : e.rule,
               borderRadius: BorderRadius.circular(2),
@@ -382,7 +404,7 @@ class StrengthBar extends StatelessWidget {
           ),
         const SizedBox(width: 8),
         Text(
-          s.isEmpty ? '' : 'Strength: $s',
+          s.isEmpty ? '' : tr('Strength: $s'),
           style: TextStyle(fontSize: 12.5, color: e.ink2),
         ),
       ],
@@ -410,6 +432,8 @@ Widget pwText(BuildContext c, String pw, {double size = 18}) {
       fontSize: size,
       letterSpacing: .4,
     ),
+    textDirection:
+        TextDirection.ltr, // a password reads left to right, in Arabic too
   );
 }
 
@@ -443,17 +467,18 @@ class _UnlockPageState extends State<UnlockPage> {
   Future<void> _submit() async {
     final pw = _pw1.text;
     if (pw.isEmpty) {
-      return setState(() => _error = 'Enter your master password.');
+      return setState(() => _error = tr('Enter your master password.'));
     }
     if (!_exists) {
       if (pw.length < 8) {
         return setState(
-          () => _error =
-              'Use at least 8 characters. A short sentence works well.',
+          () => _error = tr(
+            'Use at least 8 characters. A short sentence works well.',
+          ),
         );
       }
       if (pw != _pw2.text) {
-        return setState(() => _error = "The two passwords don't match.");
+        return setState(() => _error = tr("The two passwords don't match."));
       }
     }
     setState(() {
@@ -474,7 +499,7 @@ class _UnlockPageState extends State<UnlockPage> {
     } on WrongPasswordException {
       setState(() {
         _busy = false;
-        _error = "That isn't the master password. Try again.";
+        _error = tr("That isn't the master password. Try again.");
       });
     } on VaultFormatException catch (e) {
       setState(() {
@@ -520,7 +545,7 @@ class _UnlockPageState extends State<UnlockPage> {
                         const EnvelopeMark(width: 30),
                         const SizedBox(width: 10),
                         Text(
-                          'MyVault',
+                          tr('MyVault'),
                           style: TextStyle(
                             fontSize: 26,
                             fontWeight: FontWeight.w600,
@@ -533,8 +558,12 @@ class _UnlockPageState extends State<UnlockPage> {
                     const SizedBox(height: 10),
                     Text(
                       _exists
-                          ? 'Your vault is sealed. Enter your master password to open it.'
-                          : "Choose the one password that opens your vault. It's the only one you'll need to remember.",
+                          ? tr(
+                              'Your vault is sealed. Enter your master password to open it.',
+                            )
+                          : tr(
+                              "Choose the one password that opens your vault. It's the only one you'll need to remember.",
+                            ),
                       style: TextStyle(color: e.ink2, height: 1.4),
                     ),
                     const SizedBox(height: 18),
@@ -543,9 +572,11 @@ class _UnlockPageState extends State<UnlockPage> {
                       obscureText: true,
                       autofocus: true,
                       decoration: InputDecoration(
-                        hintText: _exists
-                            ? 'Master password'
-                            : 'Choose a master password',
+                        hintText: tr(
+                          _exists
+                              ? 'Master password'
+                              : 'Choose a master password',
+                        ),
                       ),
                       onChanged: _exists ? null : (_) => setState(() {}),
                       onSubmitted: (_) => _exists ? _submit() : null,
@@ -555,8 +586,8 @@ class _UnlockPageState extends State<UnlockPage> {
                       TextField(
                         controller: _pw2,
                         obscureText: true,
-                        decoration: const InputDecoration(
-                          hintText: 'Type it again',
+                        decoration: InputDecoration(
+                          hintText: tr('Type it again'),
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -569,8 +600,10 @@ class _UnlockPageState extends State<UnlockPage> {
                           borderRadius: BorderRadius.circular(6),
                         ),
                         child: Text(
-                          "There's no reset. If this password is forgotten, nobody can open the vault, not even you. "
-                          'Write it down and keep it somewhere safe.',
+                          tr(
+                            "There's no reset. If this password is forgotten, nobody can open the vault, not even you. "
+                            'Write it down and keep it somewhere safe.',
+                          ),
                           style: TextStyle(
                             fontSize: 12.5,
                             color: e.ink2,
@@ -581,15 +614,15 @@ class _UnlockPageState extends State<UnlockPage> {
                     ],
                     if (_error.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      Text(_error, style: TextStyle(color: e.red)),
+                      Text(tr(_error), style: TextStyle(color: e.red)),
                     ],
                     const SizedBox(height: 18),
                     FilledButton(
                       onPressed: _busy ? null : _submit,
                       child: Text(
                         _busy
-                            ? (_exists ? 'Opening…' : 'Creating…')
-                            : (_exists ? 'Unlock' : 'Create my vault'),
+                            ? (_exists ? tr('Opening…') : tr('Creating…'))
+                            : (_exists ? tr('Unlock') : tr('Create my vault')),
                       ),
                     ),
                   ],
@@ -632,7 +665,9 @@ class _HomePageState extends State<HomePage> {
     setState(() {});
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Saved $n login${n == 1 ? '' : 's'} from other apps.'),
+        content: Text(
+          tr('Saved $n login${n == 1 ? '' : 's'} from other apps.'),
+        ),
       ),
     );
   }
@@ -659,8 +694,8 @@ class _HomePageState extends State<HomePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'What are you adding?',
+              Text(
+                tr('What are you adding?'),
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
@@ -669,10 +704,10 @@ class _HomePageState extends State<HomePage> {
                   contentPadding: EdgeInsets.zero,
                   leading: Glyph(k.value.icon, size: 40),
                   title: Text(
-                    k.value.label,
+                    tr(k.value.label),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  subtitle: Text(k.value.desc),
+                  subtitle: Text(tr(k.value.desc)),
                   onTap: () => Navigator.pop(c, k.key),
                 ),
             ],
@@ -723,6 +758,10 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const UpdatesPage()));
+      case 'language':
+        Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const LanguagePage()));
       case 'about':
         Navigator.of(
           context,
@@ -742,41 +781,48 @@ class _HomePageState extends State<HomePage> {
     };
     return Scaffold(
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
             EnvelopeMark(width: 24),
             SizedBox(width: 10),
-            Text('MyVault'),
+            Text(tr('MyVault')),
           ],
         ),
         actions: [
           IconButton(
             onPressed: _sync,
             icon: const Icon(Icons.qr_code_scanner),
-            tooltip: 'Sync with PC',
+            tooltip: tr('Sync with PC'),
           ),
           IconButton(
             onPressed: Session.lock,
             icon: const Icon(Icons.lock_outline),
-            tooltip: 'Lock',
+            tooltip: tr('Lock'),
           ),
           PopupMenuButton<String>(
             onSelected: _menu,
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'gen', child: Text('Password generator')),
-              PopupMenuItem(value: 'paper', child: Text('Restore from paper')),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: 'gen',
+                child: Text(tr('Password generator')),
+              ),
+              PopupMenuItem(
+                value: 'paper',
+                child: Text(tr('Restore from paper')),
+              ),
               PopupMenuItem(
                 value: 'master',
-                child: Text('Change master password'),
+                child: Text(tr('Change master password')),
               ),
-              PopupMenuItem(value: 'autolock', child: Text('Auto-lock')),
+              PopupMenuItem(value: 'autolock', child: Text(tr('Auto-lock'))),
               PopupMenuItem(
                 value: 'autofill',
-                child: Text('Autofill in other apps'),
+                child: Text(tr('Autofill in other apps')),
               ),
-              PopupMenuItem(value: 'updates', child: Text('Updates')),
-              PopupMenuItem(value: 'about', child: Text('About & privacy')),
-              PopupMenuItem(value: 'lock', child: Text('Lock now')),
+              PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
+              PopupMenuItem(value: 'language', child: Text(tr('Language'))),
+              PopupMenuItem(value: 'about', child: Text(tr('About & privacy'))),
+              PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
             ],
           ),
         ],
@@ -791,9 +837,9 @@ class _HomePageState extends State<HomePage> {
                 TextField(
                   controller: _search,
                   onChanged: (_) => setState(() {}),
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     prefixIcon: Icon(Icons.search, size: 20),
-                    hintText: 'Search',
+                    hintText: tr('Search'),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -803,13 +849,13 @@ class _HomePageState extends State<HomePage> {
                     scrollDirection: Axis.horizontal,
                     children: [
                       for (final f in [
-                        ('all', 'All'),
+                        ('all', tr('All')),
                         for (final k in kindDefs.entries)
-                          (k.key, k.value.plural),
+                          (k.key, tr(k.value.plural)),
                       ])
                         if (f.$1 == 'all' || counts[f.$1]! > 0)
                           Padding(
-                            padding: const EdgeInsets.only(right: 6),
+                            padding: const EdgeInsetsDirectional.only(end: 6),
                             child: ChoiceChip(
                               label: Text(
                                 '${f.$2}  ${f.$1 == 'all' ? v.activeEntries().length : counts[f.$1]}',
@@ -865,7 +911,7 @@ class _HomePageState extends State<HomePage> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _new,
         icon: const Icon(Icons.add),
-        label: const Text('New'),
+        label: Text(tr('New')),
       ),
     );
   }
@@ -897,7 +943,9 @@ class _Empty extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  empty ? 'Your vault is empty' : 'Nothing matches “$query”',
+                  empty
+                      ? tr('Your vault is empty')
+                      : tr('Nothing matches “$query”'),
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w600,
@@ -906,8 +954,10 @@ class _Empty extends StatelessWidget {
                 const SizedBox(height: 8),
                 Text(
                   empty
-                      ? 'Start with the account you use most. Logins, API keys, SSH keys and notes are all encrypted on this phone.'
-                      : 'Try a shorter word, or check the type filter.',
+                      ? tr(
+                          'Start with the account you use most. Logins, API keys, SSH keys and notes are all encrypted on this phone.',
+                        )
+                      : tr('Try a shorter word, or check the type filter.'),
                   textAlign: TextAlign.center,
                   style: TextStyle(color: e.ink2, height: 1.4),
                 ),
@@ -916,7 +966,7 @@ class _Empty extends StatelessWidget {
                   FilledButton.icon(
                     onPressed: onAdd,
                     icon: const Icon(Icons.add),
-                    label: const Text('Add your first entry'),
+                    label: Text(tr('Add your first entry')),
                   ),
                 ],
               ],
@@ -965,12 +1015,16 @@ class _EntryViewPageState extends State<EntryViewPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(f.label, style: TextStyle(fontSize: 12.5, color: e.ink2)),
+                Text(
+                  tr(f.label),
+                  style: TextStyle(fontSize: 12.5, color: e.ink2),
+                ),
                 const SizedBox(height: 4),
                 f.secret
                     ? SecretValue(value, key: key, multi: f.multi)
                     : SelectableText(
                         value,
+                        textDirection: f.mono ? TextDirection.ltr : null,
                         style: TextStyle(
                           fontSize: 15,
                           fontFamily: f.mono || (f.multi && f.key != 'notes')
@@ -984,7 +1038,7 @@ class _EntryViewPageState extends State<EntryViewPage> {
           if (f.secret) _RevealButton(target: key),
           IconButton(
             icon: const Icon(Icons.copy_outlined, size: 20),
-            tooltip: 'Copy ${f.label.toLowerCase()}',
+            tooltip: tr('Copy ${f.label.toLowerCase()}'),
             onPressed: () => _copy(context, value, f.label),
           ),
         ],
@@ -1002,7 +1056,7 @@ class _EntryViewPageState extends State<EntryViewPage> {
     ].map((f) => (f, f.read(x))).where((r) => r.$2.isNotEmpty).toList();
     final custom = x.custom.entries.toList();
     final sub = [
-      k.label,
+      tr(k.label),
       x.kind == 'login' ? x.website : (x.fields['service'] ?? ''),
     ].where((s) => s.isNotEmpty).join(' · ');
     String date(double t) {
@@ -1021,7 +1075,7 @@ class _EntryViewPageState extends State<EntryViewPage> {
         'Nov',
         'Dec',
       ];
-      return '${d.day} ${m[d.month - 1]} ${d.year}';
+      return '${d.day} ${(isArabic ? arabicMonths : m)[d.month - 1]} ${d.year}';
     }
 
     return Scaffold(
@@ -1030,7 +1084,7 @@ class _EntryViewPageState extends State<EntryViewPage> {
           TextButton.icon(
             onPressed: _edit,
             icon: const Icon(Icons.edit_outlined, size: 18),
-            label: const Text('Edit'),
+            label: Text(tr('Edit')),
           ),
           const SizedBox(width: 6),
         ],
@@ -1068,7 +1122,7 @@ class _EntryViewPageState extends State<EntryViewPage> {
           if (custom.isNotEmpty) ...[
             const SizedBox(height: 22),
             Text(
-              'Extra fields',
+              tr('Extra fields'),
               style: TextStyle(
                 fontWeight: FontWeight.w600,
                 color: e.ink2,
@@ -1082,13 +1136,15 @@ class _EntryViewPageState extends State<EntryViewPage> {
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                'Nothing stored here yet. Tap Edit to add details.',
+                tr('Nothing stored here yet. Tap Edit to add details.'),
                 style: TextStyle(color: e.ink2),
               ),
             ),
           const SizedBox(height: 20),
           Text(
-            'Last changed ${date(x.updatedAt)} · Created ${date(x.createdAt)}',
+            tr(
+              'Last changed ${date(x.updatedAt)} · Created ${date(x.createdAt)}',
+            ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
           ),
         ],
@@ -1113,7 +1169,7 @@ class _RevealButtonState extends State<_RevealButton> {
         open ? Icons.visibility_off_outlined : Icons.visibility_outlined,
         size: 20,
       ),
-      tooltip: open ? 'Hide' : 'Show',
+      tooltip: tr(open ? 'Hide' : 'Show'),
       onPressed: () {
         widget.target.currentState?.toggle();
         setState(() {});
@@ -1170,7 +1226,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
         if (r[0].text.trim().isNotEmpty) r[0].text.trim(): r[1].text,
     };
     if (_e.displayName() == '(untitled)') {
-      return _snack(context, 'Give it a name first.');
+      return _snack(context, tr('Give it a name first.'));
     }
     final v = Session.vault!;
     widget.isNew ? v.add(_e) : v.update(_e);
@@ -1181,18 +1237,23 @@ class _EntryEditPageState extends State<EntryEditPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Delete for good?'),
+        title: Text(tr('Delete for good?')),
         content: Text(
-          '“${_e.displayName()}” will be removed from this phone, and from your PC at the next sync.',
+          tr(
+            '“${_e.displayName()}” will be removed from this phone, and from your PC at the next sync.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
-            child: const Text('Keep it'),
+            child: Text(tr('Keep it')),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, true),
-            child: Text('Delete', style: TextStyle(color: Envelope.of(c).red)),
+            child: Text(
+              tr('Delete'),
+              style: TextStyle(color: Envelope.of(c).red),
+            ),
           ),
         ],
       ),
@@ -1222,24 +1283,26 @@ class _EntryEditPageState extends State<EntryEditPage> {
     final choice = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        title: const Text('Replace this password?'),
+        title: Text(tr('Replace this password?')),
         content: Text(
           _savedPw.isNotEmpty
-              ? 'Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out.'
-              : 'The password in the box will be replaced.',
+              ? tr(
+                  'Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out.',
+                )
+              : tr('The password in the box will be replaced.'),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c),
-            child: const Text('Keep it'),
+            child: Text(tr('Keep it')),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, 'type'),
-            child: const Text('Type a new one'),
+            child: Text(tr('Type a new one')),
           ),
           TextButton(
             onPressed: () => Navigator.pop(c, 'generate'),
-            child: const Text('Generate one'),
+            child: Text(tr('Generate one')),
           ),
         ],
       ),
@@ -1267,6 +1330,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
           TextField(
             controller: c,
             focusNode: f.gen ? _pwFocus : null,
+            textDirection: f.secret || f.mono ? TextDirection.ltr : null,
             readOnly: f.gen && _pwLocked,
             obscureText: hidden && !f.multi,
             keyboardType: f.multi ? TextInputType.multiline : f.type,
@@ -1279,7 +1343,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
               fontFamily: f.mono || f.secret ? 'monospace' : null,
             ),
             decoration: InputDecoration(
-              labelText: f.label,
+              labelText: tr(f.label),
               suffixIcon: !f.secret
                   ? null
                   : Row(
@@ -1292,7 +1356,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                                 : Icons.visibility_off_outlined,
                             size: 20,
                           ),
-                          tooltip: hidden ? 'Show' : 'Hide',
+                          tooltip: tr(hidden ? 'Show' : 'Hide'),
                           onPressed: () => setState(
                             () => hidden
                                 ? _shown.add(f.key)
@@ -1303,7 +1367,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                         if (!filled)
                           IconButton(
                             icon: const Icon(Icons.content_paste, size: 20),
-                            tooltip: 'Paste',
+                            tooltip: tr('Paste'),
                             onPressed: () async {
                               final clip = await Clipboard.getData(
                                 'text/plain',
@@ -1313,7 +1377,9 @@ class _EntryEditPageState extends State<EntryEditPage> {
                               if (text.isEmpty) {
                                 return _snack(
                                   context,
-                                  'The clipboard is empty. Copy the text again, then tap Paste.',
+                                  tr(
+                                    'The clipboard is empty. Copy the text again, then tap Paste.',
+                                  ),
                                 );
                               }
                               setState(() {
@@ -1325,13 +1391,13 @@ class _EntryEditPageState extends State<EntryEditPage> {
                         if (f.gen && !filled)
                           IconButton(
                             icon: const Icon(Icons.casino_outlined, size: 20),
-                            tooltip: 'Generate',
+                            tooltip: tr('Generate'),
                             onPressed: _generate,
                           ),
                         if (filled)
                           IconButton(
                             icon: const Icon(Icons.autorenew, size: 20),
-                            tooltip: 'Change password',
+                            tooltip: tr('Change password'),
                             onPressed: _changePassword,
                           ),
                       ],
@@ -1350,7 +1416,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                 _pwLocked = true;
               }),
               icon: const Icon(Icons.undo, size: 18),
-              label: const Text('Keep the old password'),
+              label: Text(tr('Keep the old password')),
             ),
         ],
       ),
@@ -1362,13 +1428,15 @@ class _EntryEditPageState extends State<EntryEditPage> {
     final e = Envelope.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.isNew ? 'New ${_k.label.toLowerCase()}' : 'Edit'),
+        title: Text(
+          tr(widget.isNew ? 'New ${_k.label.toLowerCase()}' : 'Edit'),
+        ),
         actions: [
           if (!widget.isNew)
             IconButton(
               onPressed: _delete,
               icon: const Icon(Icons.delete_outline),
-              tooltip: 'Delete',
+              tooltip: tr('Delete'),
             ),
         ],
       ),
@@ -1378,7 +1446,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
           TextField(
             controller: _title,
             autofocus: widget.isNew,
-            decoration: const InputDecoration(labelText: 'Name'),
+            decoration: InputDecoration(labelText: tr('Name')),
           ),
           const SizedBox(height: 14),
           for (final f in _k.fields) _field(f),
@@ -1391,7 +1459,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                 tilePadding: EdgeInsets.zero,
                 initiallyExpanded: _k.more.any((f) => f.read(_e).isNotEmpty),
                 title: Text(
-                  'Profile details',
+                  tr('Profile details'),
                   style: TextStyle(
                     color: e.ink2,
                     fontSize: 14,
@@ -1399,7 +1467,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                   ),
                 ),
                 subtitle: Text(
-                  'App, phone, region, age, gender',
+                  tr('App, phone, region, age, gender'),
                   style: TextStyle(color: e.ink3, fontSize: 12),
                 ),
                 children: [for (final f in _k.more) _field(f)],
@@ -1411,20 +1479,20 @@ class _EntryEditPageState extends State<EntryEditPage> {
               controller: _notes,
               maxLines: 4,
               minLines: 2,
-              decoration: const InputDecoration(labelText: 'Notes'),
+              decoration: InputDecoration(labelText: tr('Notes')),
             ),
           ],
           const SizedBox(height: 18),
           Row(
             children: [
               Text(
-                'Extra fields',
+                tr('Extra fields'),
                 style: TextStyle(color: e.ink2, fontWeight: FontWeight.w500),
               ),
               const Spacer(),
               TextButton.icon(
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('Add field'),
+                label: Text(tr('Add field')),
                 onPressed: () => setState(
                   () => _custom.add([
                     TextEditingController(),
@@ -1442,7 +1510,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
                   Expanded(
                     child: TextField(
                       controller: _custom[i][0],
-                      decoration: const InputDecoration(hintText: 'Label'),
+                      decoration: InputDecoration(hintText: tr('Label')),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1450,12 +1518,12 @@ class _EntryEditPageState extends State<EntryEditPage> {
                     flex: 2,
                     child: TextField(
                       controller: _custom[i][1],
-                      decoration: const InputDecoration(hintText: 'Value'),
+                      decoration: InputDecoration(hintText: tr('Value')),
                     ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close),
-                    tooltip: 'Remove field',
+                    tooltip: tr('Remove field'),
                     onPressed: () => setState(() => _custom.removeAt(i)),
                   ),
                 ],
@@ -1465,7 +1533,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
           FilledButton.icon(
             onPressed: _save,
             icon: const Icon(Icons.check),
-            label: const Text('Save'),
+            label: Text(tr('Save')),
           ),
         ],
       ),
@@ -1508,8 +1576,8 @@ class _GeneratorBodyState extends State<GeneratorBody> {
       SwitchListTile(
         dense: true,
         contentPadding: EdgeInsets.zero,
-        title: Text(label),
-        subtitle: Text(sub),
+        title: Text(tr(label)),
+        subtitle: Text(tr(sub)),
         value: value,
         onChanged: (v) {
           set(v);
@@ -1525,7 +1593,7 @@ class _GeneratorBodyState extends State<GeneratorBody> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Container(
-          padding: const EdgeInsets.fromLTRB(14, 12, 6, 12),
+          padding: const EdgeInsetsDirectional.fromSTEB(14, 12, 6, 12),
           decoration: BoxDecoration(
             color: e.paper,
             border: Border.all(color: e.rule2),
@@ -1536,19 +1604,19 @@ class _GeneratorBodyState extends State<GeneratorBody> {
               Expanded(
                 child: _pw.isEmpty
                     ? Text(
-                        'Turn on at least one kind of character.',
+                        tr('Turn on at least one kind of character.'),
                         style: TextStyle(color: e.ink2),
                       )
                     : pwText(context, _pw, size: 19),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh),
-                tooltip: 'New password',
+                tooltip: tr('New password'),
                 onPressed: _regen,
               ),
               IconButton(
                 icon: const Icon(Icons.copy_outlined),
-                tooltip: 'Copy',
+                tooltip: tr('Copy'),
                 onPressed: () => _copy(context, _pw, 'Password'),
               ),
             ],
@@ -1559,7 +1627,7 @@ class _GeneratorBodyState extends State<GeneratorBody> {
         const SizedBox(height: 6),
         Row(
           children: [
-            const Text('Length'),
+            Text(tr('Length')),
             Expanded(
               child: Slider(
                 min: 6,
@@ -1576,7 +1644,7 @@ class _GeneratorBodyState extends State<GeneratorBody> {
               width: 34,
               child: Text(
                 '${_p.length}',
-                textAlign: TextAlign.right,
+                textAlign: TextAlign.end,
                 style: const TextStyle(
                   fontFeatures: [FontFeature.tabularFigures()],
                 ),
@@ -1584,13 +1652,28 @@ class _GeneratorBodyState extends State<GeneratorBody> {
             ),
           ],
         ),
-        _sw('Uppercase letters', 'A–Z', _p.useUpper, (v) => _p.useUpper = v),
-        _sw('Lowercase letters', 'a–z', _p.useLower, (v) => _p.useLower = v),
-        _sw('Numbers', '0–9', _p.useDigits, (v) => _p.useDigits = v),
-        _sw('Symbols', '! @ # \$ …', _p.useSymbols, (v) => _p.useSymbols = v),
         _sw(
-          'Avoid look-alikes',
-          'No l, 1, O, 0, I',
+          tr('Uppercase letters'),
+          'A–Z',
+          _p.useUpper,
+          (v) => _p.useUpper = v,
+        ),
+        _sw(
+          tr('Lowercase letters'),
+          'a–z',
+          _p.useLower,
+          (v) => _p.useLower = v,
+        ),
+        _sw(tr('Numbers'), '0–9', _p.useDigits, (v) => _p.useDigits = v),
+        _sw(
+          tr('Symbols'),
+          '! @ # \$ …',
+          _p.useSymbols,
+          (v) => _p.useSymbols = v,
+        ),
+        _sw(
+          tr('Avoid look-alikes'),
+          tr('No l, 1, O, 0, I'),
           _p.avoidAmbiguous,
           (v) => _p.avoidAmbiguous = v,
         ),
@@ -1598,7 +1681,7 @@ class _GeneratorBodyState extends State<GeneratorBody> {
           const SizedBox(height: 10),
           FilledButton(
             onPressed: _pw.isEmpty ? null : () => widget.onUse!(_pw),
-            child: const Text('Use this password'),
+            child: Text(tr('Use this password')),
           ),
         ],
       ],
@@ -1626,12 +1709,14 @@ class GeneratorPage extends StatelessWidget {
   const GeneratorPage({super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Password generator')),
+    appBar: AppBar(title: Text(tr('Password generator'))),
     body: ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          "Random, from this phone's secure random source. Nothing is saved unless you copy it.",
+          tr(
+            "Random, from this phone's secure random source. Nothing is saved unless you copy it.",
+          ),
           style: TextStyle(color: Envelope.of(context).ink2),
         ),
         const SizedBox(height: 14),
@@ -1669,7 +1754,7 @@ class ScannerView extends StatefulWidget {
 class _ScannerViewState extends State<ScannerView> {
   final _ctrl = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
   bool _done = false;
-  String _status = 'Looking for a code…';
+  String _status = tr('Looking for a code…');
 
   @override
   void dispose() {
@@ -1707,8 +1792,10 @@ class _ScannerViewState extends State<ScannerView> {
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
-                "MyVault can't use the camera (${err.errorCode.name}). Allow camera access for MyVault in "
-                'Android settings › Apps › MyVault › Permissions, then try again.',
+                tr(
+                  "MyVault can't use the camera (${err.errorCode.name}). Allow camera access for MyVault in "
+                  'Android settings › Apps › MyVault › Permissions, then try again.',
+                ),
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Colors.white),
               ),
@@ -1781,7 +1868,9 @@ class _SyncPageState extends State<SyncPage> {
     setState(() {
       _state = r.ok ? 'done' : 'error';
       _msg = r.ok
-          ? 'Synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone. Your PC has the rest.${_versionNote(r)}'
+          ? tr(
+              'Synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone. Your PC has the rest.${_versionNote(r)}',
+            )
           : r.error;
     });
     final got = r.received;
@@ -1789,8 +1878,9 @@ class _SyncPageState extends State<SyncPage> {
       await offerInstall(
         context,
         got,
-        from:
-            'Your PC has MyVault ${got.version} and passed the update to this phone.',
+        from: tr(
+          'Your PC has MyVault ${got.version} and passed the update to this phone.',
+        ),
       );
     }
   }
@@ -1798,19 +1888,27 @@ class _SyncPageState extends State<SyncPage> {
   String _versionNote(qrsync.SyncResult r) {
     final pc = r.peerVersion;
     if (pc.isEmpty) {
-      return ' Your PC runs an older MyVault (before 0.5). Update it with the new installer; '
-          'after that, updates pass between your devices when you sync.';
+      return tr(
+        ' Your PC runs an older MyVault (before 0.5). Update it with the new installer; '
+        'after that, updates pass between your devices when you sync.',
+      );
     }
     if (r.received != null) return '';
     if (r.sent.isNotEmpty) {
-      return ' Your PC had MyVault $pc, so this phone passed it the ${r.sent} update. Install it from the card in the PC app.';
+      return tr(
+        ' Your PC had MyVault $pc, so this phone passed it the ${r.sent} update. Install it from the card in the PC app.',
+      );
     }
     if (isNewerVersion(pc, appVersion)) {
-      return ' Your PC has MyVault $pc (this phone has $appVersion).'
-          '${r.updateError.isEmpty ? ' Update this phone from Updates in the menu.' : ' The update couldn\'t be passed over: ${r.updateError}'}';
+      return tr(
+        ' Your PC has MyVault $pc (this phone has $appVersion).'
+        '${r.updateError.isEmpty ? ' Update this phone from Updates in the menu.' : ' The update couldn\'t be passed over: ${r.updateError}'}',
+      );
     }
     if (isNewerVersion(appVersion, pc)) {
-      return ' Your PC runs MyVault $pc (this phone has $appVersion). Update the PC when you can.';
+      return tr(
+        ' Your PC runs MyVault $pc (this phone has $appVersion). Update the PC when you can.',
+      );
     }
     return '';
   }
@@ -1820,14 +1918,16 @@ class _SyncPageState extends State<SyncPage> {
     final e = Envelope.of(context);
     if (_state == 'scan') {
       return Scaffold(
-        appBar: AppBar(title: const Text('Scan the code on your PC')),
+        appBar: AppBar(title: Text(tr('Scan the code on your PC'))),
         body: ScannerView(
-          hint:
-              'On your PC, open MyVault → Sync with phone → Show sync code. '
-              'Hold the phone 15–30 cm from the screen.',
+          hint: tr(
+            'On your PC, open MyVault → Sync with phone → Show sync code. '
+            'Hold the phone 15–30 cm from the screen.',
+          ),
           recognizes: (raw) => raw.startsWith('myvault://sync'),
-          wrongCode:
-              "That QR code isn't a MyVault sync code. Point at the code in MyVault's Sync with phone screen.",
+          wrongCode: tr(
+            "That QR code isn't a MyVault sync code. Point at the code in MyVault's Sync with phone screen.",
+          ),
           onCode: (raw) {
             _run(raw);
             return true;
@@ -1862,24 +1962,28 @@ class _SyncPageState extends State<SyncPage> {
       ),
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync with PC')),
+      appBar: AppBar(title: Text(tr('Sync with PC'))),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           Text(
-            'Your phone and PC swap changes directly over your WiFi. No cloud is involved.',
+            tr(
+              'Your phone and PC swap changes directly over your WiFi. No cloud is involved.',
+            ),
             style: TextStyle(color: e.ink2, height: 1.4),
           ),
           const SizedBox(height: 16),
           Text(
-            '1. On the PC, open MyVault and choose Sync with phone.\n2. Choose Show sync code.\n3. Tap Scan below and point the camera at it.',
+            tr(
+              '1. On the PC, open MyVault and choose Sync with phone.\n2. Choose Show sync code.\n3. Tap Scan below and point the camera at it.',
+            ),
             style: TextStyle(height: 1.6, color: e.ink),
           ),
           const SizedBox(height: 18),
           if (_state == 'busy') ...[
             const LinearProgressIndicator(minHeight: 3),
             const SizedBox(height: 10),
-            const Text('Syncing with your PC…'),
+            Text(tr('Syncing with your PC…')),
           ],
           if (_state == 'done' || _state == 'error')
             Container(
@@ -1891,24 +1995,28 @@ class _SyncPageState extends State<SyncPage> {
                     : e.red.withValues(alpha: .12),
                 borderRadius: BorderRadius.circular(6),
               ),
-              child: Text(_msg),
+              child: Text(tr(_msg)),
             ),
           if (_state != 'busy')
             FilledButton.icon(
               onPressed: () => setState(() => _state = 'scan'),
               icon: const Icon(Icons.qr_code_scanner),
-              label: Text(_state == 'intro' ? 'Scan sync code' : 'Scan again'),
+              label: Text(
+                tr(_state == 'intro' ? 'Scan sync code' : 'Scan again'),
+              ),
             ),
           const SizedBox(height: 24),
           fact(
             Icons.verified_user_outlined,
-            'The code is the key. ',
-            'It holds a one-time random key that only travels through the camera, so nobody else on the WiFi can read the sync.',
+            tr('The code is the key. '),
+            tr(
+              'It holds a one-time random key that only travels through the camera, so nobody else on the WiFi can read the sync.',
+            ),
           ),
           fact(
             Icons.wifi,
-            'Same WiFi only. ',
-            'The PC stops listening after one sync, or after 2 minutes.',
+            tr('Same WiFi only. '),
+            tr('The PC stops listening after one sync, or after 2 minutes.'),
           ),
         ],
       ),
@@ -1938,7 +2046,9 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
     if (_seen.contains(clean)) return;
     final block = paper.PaperBlock.parse(clean);
     if (block == null) {
-      return setState(() => _msg = "That code isn't from a MyVault backup.");
+      return setState(
+        () => _msg = tr("That code isn't from a MyVault backup."),
+      );
     }
     _seen.add(clean);
     try {
@@ -1946,7 +2056,7 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
       if (key == null) {
         setState(() {
           _busy = true;
-          _msg = 'Checking the backup password… (slow on purpose)';
+          _msg = tr('Checking the backup password… (slow on purpose)');
         });
         key = await paper.deriveBackupKey(_pw.text, block.salt);
         _keys[block.saltKey] = key;
@@ -1955,7 +2065,7 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
       setState(() {
         _found[entry.id] = entry;
         _busy = false;
-        _msg = 'Read ${_found.length}. Keep scanning, or tap Done.';
+        _msg = tr('Read ${_found.length}. Keep scanning, or tap Done.');
       });
     } on InvalidCipherTextException {
       _seen.remove(clean);
@@ -1963,12 +2073,12 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
       setState(() {
         _busy = false;
         _scanning = false;
-        _msg = "That backup password doesn't open this sheet.";
+        _msg = tr("That backup password doesn't open this sheet.");
       });
     } catch (_) {
       setState(() {
         _busy = false;
-        _msg = "Couldn't read that code. Try holding the phone steadier.";
+        _msg = tr("Couldn't read that code. Try holding the phone steadier.");
       });
     }
   }
@@ -1979,8 +2089,12 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
     _snack(
       context,
       changed == 0
-          ? 'Read $n ${n == 1 ? 'entry' : 'entries'}. All were already in your vault.'
-          : 'Read $n ${n == 1 ? 'entry' : 'entries'}. $changed restored or updated.',
+          ? tr(
+              'Read $n ${n == 1 ? 'entry' : 'entries'}. All were already in your vault.',
+            )
+          : tr(
+              'Read $n ${n == 1 ? 'entry' : 'entries'}. $changed restored or updated.',
+            ),
     );
     Navigator.of(context).pop();
   }
@@ -1990,10 +2104,11 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
     final e = Envelope.of(context);
     if (_scanning) {
       return Scaffold(
-        appBar: AppBar(title: Text('Scanning: ${_found.length} read')),
+        appBar: AppBar(title: Text(tr('Scanning: ${_found.length} read'))),
         body: ScannerView(
-          hint:
-              'Point the camera at each code on the backup sheet, one at a time.',
+          hint: tr(
+            'Point the camera at each code on the backup sheet, one at a time.',
+          ),
           onCode: (raw) {
             if (!_busy) _take(raw);
             return false;
@@ -2009,7 +2124,7 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
               const SizedBox(height: 8),
               FilledButton(
                 onPressed: _found.isEmpty ? null : _finish,
-                child: Text('Done: restore ${_found.length}'),
+                child: Text(tr('Done: restore ${_found.length}')),
               ),
             ],
           ),
@@ -2017,31 +2132,33 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
       );
     }
     return Scaffold(
-      appBar: AppBar(title: const Text('Restore from paper')),
+      appBar: AppBar(title: Text(tr('Restore from paper'))),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           Text(
-            'Bring back entries from a printed MyVault backup. Each code on the sheet is one encrypted entry; '
-            'restored entries are merged into this vault, keeping the newer version of anything you already have.',
+            tr(
+              'Bring back entries from a printed MyVault backup. Each code on the sheet is one encrypted entry; '
+              'restored entries are merged into this vault, keeping the newer version of anything you already have.',
+            ),
             style: TextStyle(color: e.ink2, height: 1.4),
           ),
           const SizedBox(height: 16),
           TextField(
             controller: _pw,
             obscureText: true,
-            decoration: const InputDecoration(labelText: 'Backup password'),
+            decoration: InputDecoration(labelText: tr('Backup password')),
           ),
           if (_msg.isNotEmpty) ...[
             const SizedBox(height: 10),
-            Text(_msg, style: TextStyle(color: e.red)),
+            Text(tr(_msg), style: TextStyle(color: e.red)),
           ],
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: () {
               if (_pw.text.isEmpty) {
                 return setState(
-                  () => _msg = 'Enter the backup password first.',
+                  () => _msg = tr('Enter the backup password first.'),
                 );
               }
               setState(() {
@@ -2050,7 +2167,7 @@ class _RestorePaperPageState extends State<RestorePaperPage> {
               });
             },
             icon: const Icon(Icons.qr_code_scanner),
-            label: const Text('Start scanning'),
+            label: Text(tr('Start scanning')),
           ),
         ],
       ),
@@ -2076,38 +2193,36 @@ class _ChangeMasterPageState extends State<ChangeMasterPage> {
   void _go() {
     final v = Session.vault!;
     if (_cur.text != v.password) {
-      return setState(() => _err = 'The current master password is wrong.');
+      return setState(() => _err = tr('The current master password is wrong.'));
     }
     if (_n1.text.length < 8) {
-      return setState(() => _err = 'Use at least 8 characters.');
+      return setState(() => _err = tr('Use at least 8 characters.'));
     }
     if (_n1.text != _n2.text) {
-      return setState(() => _err = "The new passwords don't match.");
+      return setState(() => _err = tr("The new passwords don't match."));
     }
     v.changePassword(_n1.text);
-    _snack(context, 'Master password changed.');
+    _snack(context, tr('Master password changed.'));
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Change master password')),
+    appBar: AppBar(title: Text(tr('Change master password'))),
     body: ListView(
       padding: const EdgeInsets.all(18),
       children: [
         TextField(
           controller: _cur,
           obscureText: true,
-          decoration: const InputDecoration(
-            labelText: 'Current master password',
-          ),
+          decoration: InputDecoration(labelText: tr('Current master password')),
         ),
         const SizedBox(height: 12),
         TextField(
           controller: _n1,
           obscureText: true,
           onChanged: (_) => setState(() {}),
-          decoration: const InputDecoration(labelText: 'New master password'),
+          decoration: InputDecoration(labelText: tr('New master password')),
         ),
         const SizedBox(height: 8),
         StrengthBar(_n1.text),
@@ -2115,17 +2230,19 @@ class _ChangeMasterPageState extends State<ChangeMasterPage> {
         TextField(
           controller: _n2,
           obscureText: true,
-          decoration: const InputDecoration(labelText: 'Type it again'),
+          decoration: InputDecoration(labelText: tr('Type it again')),
         ),
         if (_err.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Text(_err, style: TextStyle(color: Envelope.of(context).red)),
+          Text(tr(_err), style: TextStyle(color: Envelope.of(context).red)),
         ],
         const SizedBox(height: 18),
-        FilledButton(onPressed: _go, child: const Text('Change password')),
+        FilledButton(onPressed: _go, child: Text(tr('Change password'))),
         const SizedBox(height: 12),
         Text(
-          'Your PC keeps its own master password. Sync still works if they differ.',
+          tr(
+            'Your PC keeps its own master password. Sync still works if they differ.',
+          ),
           style: TextStyle(color: Envelope.of(context).ink3, fontSize: 12.5),
         ),
       ],
@@ -2145,10 +2262,10 @@ class AutoLockPage extends StatefulWidget {
 class _AutoLockPageState extends State<AutoLockPage> {
   String _idle(int m) => m == 60 ? '1 hour' : '$m minute${m == 1 ? '' : 's'}';
   String _bg(int s) => s == 0
-      ? 'Immediately'
+      ? tr('Immediately')
       : s < 60
-      ? 'After $s seconds'
-      : 'After ${s ~/ 60} minute${s == 60 ? '' : 's'}';
+      ? tr('After $s seconds')
+      : tr('After ${s ~/ 60} minute${s == 60 ? '' : 's'}');
 
   @override
   Widget build(BuildContext context) {
@@ -2161,11 +2278,11 @@ class _AutoLockPageState extends State<AutoLockPage> {
       ),
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('Auto-lock')),
+      appBar: AppBar(title: Text(tr('Auto-lock'))),
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
         children: [
-          head('Lock when I haven\'t used MyVault for'),
+          head(tr('Lock when I haven\'t used MyVault for')),
           RadioGroup<int>(
             groupValue: Session.idleMinutes,
             onChanged: (v) {
@@ -2177,14 +2294,14 @@ class _AutoLockPageState extends State<AutoLockPage> {
                 for (final m in Session.idleChoices)
                   RadioListTile<int>(
                     value: m,
-                    title: Text(_idle(m)),
+                    title: Text(tr(_idle(m))),
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                   ),
               ],
             ),
           ),
-          head('Lock after I switch to another app'),
+          head(tr('Lock after I switch to another app')),
           RadioGroup<int>(
             groupValue: Session.backgroundSeconds,
             onChanged: (v) {
@@ -2196,7 +2313,7 @@ class _AutoLockPageState extends State<AutoLockPage> {
                 for (final s in Session.backgroundChoices)
                   RadioListTile<int>(
                     value: s,
-                    title: Text(_bg(s)),
+                    title: Text(tr(_bg(s))),
                     contentPadding: EdgeInsets.zero,
                     dense: true,
                   ),
@@ -2205,11 +2322,46 @@ class _AutoLockPageState extends State<AutoLockPage> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Shorter is safer. "Immediately" also locks when you briefly switch apps to copy something.',
+            tr(
+              'Shorter is safer. "Immediately" also locks when you briefly switch apps to copy something.',
+            ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
           ),
         ],
       ),
     );
   }
+}
+
+// =====================================================================
+//  Language
+// =====================================================================
+class LanguagePage extends StatelessWidget {
+  const LanguagePage({super.key});
+
+  Future<void> _pick(String v) async {
+    try {
+      final p = await upd.loadPrefs();
+      p['language'] = v;
+      await upd.savePrefs(p);
+    } catch (_) {}
+    language.value = v;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: Text(tr('Language'))),
+    body: RadioGroup<String>(
+      groupValue: language.value,
+      onChanged: (v) => v == null ? null : _pick(v),
+      child: ListView(
+        children: [
+          // Each language is named in itself, so it can be found whichever one is showing.
+          RadioListTile(value: 'auto', title: Text(tr('Same as this phone'))),
+          RadioListTile(value: 'en', title: Text(tr('English'))),
+          const RadioListTile(value: 'ar', title: Text('العربية')),
+        ],
+      ),
+    ),
+  );
 }

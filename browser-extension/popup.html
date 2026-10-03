@@ -32,10 +32,10 @@
     hr { border: 0; border-top: 1px solid var(--rule); margin: 2px 0; }
     .lbl { font-size: 12px; color: var(--ink-2); font-weight: 600; }
     .out { display: flex; gap: 6px; align-items: center; border: 1px solid var(--rule-2); border-radius: 6px; padding: 8px 8px 8px 10px; background: var(--paper); }
-    #genout { flex: 1; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13.5px; word-break: break-all; min-height: 18px; }
+    #genout { direction: ltr; flex: 1; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13.5px; word-break: break-all; min-height: 18px; }
     #genout .d { color: var(--tint); }
     .len { display: grid; grid-template-columns: auto 1fr 34px; gap: 8px; align-items: center; font-size: 12.5px; }
-    .len output { text-align: right; font-variant-numeric: tabular-nums; }
+    .len output { text-align: end; font-variant-numeric: tabular-nums; }
     input[type=range] { accent-color: var(--ink); }
     .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; }
     .toggles label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; cursor: pointer; }
@@ -68,6 +68,7 @@
     <hr>
     <a href="#" id="opts">Settings and pairing token</a>
   </main>
+  <script src="i18n.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

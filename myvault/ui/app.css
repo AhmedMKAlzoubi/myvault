@@ -133,7 +133,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 9px 11px; resize: vertic
 .switch input { appearance: none; width: 34px; height: 20px; margin: 0; border-radius: 10px; flex: none;
   border: 1px dashed var(--ink-3); background: transparent; position: relative; cursor: pointer;
   transition: background-color .18s, border-color .18s; }
-.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px;
+.switch input::after { content: ""; position: absolute; top: 3px; inset-inline-start: 3px; width: 12px; height: 12px;
   border-radius: 50%; background: var(--ink-3); transition: transform .18s cubic-bezier(.2,.8,.2,1), background-color .18s; }
 .switch input:checked { background: var(--ink); border: 1px solid var(--ink); }
 .switch input:checked::after { transform: translateX(14px); background: var(--paper); }
@@ -174,14 +174,14 @@ textarea.inp { height: auto; min-height: 84px; padding: 9px 11px; resize: vertic
 
 /* ---- shell -------------------------------------------------------------- */
 .shell { display: grid; grid-template-columns: 300px 1fr; height: 100vh; }
-.rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-right: 1px solid var(--rule); }
+.rail { display: flex; flex-direction: column; min-height: 0; background: var(--panel); border-inline-end: 1px solid var(--rule); }
 .rail-head { display: flex; align-items: center; gap: 9px; padding: 14px 12px 10px 16px; }
 .rail-head .mark { width: 24px; height: 18px; }
 .rail-head b { font: 600 16px/1 var(--display); letter-spacing: -0.01em; flex: 1; }
 .search { position: relative; margin: 0 12px 8px; }
-.search .ic { position: absolute; left: 10px; top: 10px; color: var(--ink-3); }
-.search .inp { padding-left: 33px; padding-right: 44px; height: 36px; }
-.search kbd { position: absolute; right: 8px; top: 8px; font: 11px/18px var(--font); color: var(--ink-3);
+.search .ic { position: absolute; inset-inline-start: 10px; top: 10px; color: var(--ink-3); }
+.search .inp { padding-inline-start: 33px; padding-inline-end: 44px; height: 36px; }
+.search kbd { position: absolute; inset-inline-end: 8px; top: 8px; font: 11px/18px var(--font); color: var(--ink-3);
   border: 1px solid var(--rule-2); border-radius: 4px; padding: 0 6px; background: var(--sheet); }
 .filters { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
 .chip { height: 26px; padding: 0 9px; border-radius: 13px; border: 1px solid var(--rule-2); background: transparent;
@@ -211,7 +211,7 @@ textarea.inp { height: auto; min-height: 84px; padding: 9px 11px; resize: vertic
 .rail-new .btn { width: 100%; }
 .tools { padding: 6px 8px 10px; border-top: 1px solid var(--rule); display: grid; gap: 1px; }
 .tool { display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: var(--r);
-  border: 0; background: transparent; cursor: pointer; color: var(--ink-2); text-align: left; }
+  border: 0; background: transparent; cursor: pointer; color: var(--ink-2); text-align: start; }
 .tool:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--ink); }
 .tool[aria-current="page"] { background: var(--sheet); color: var(--ink); box-shadow: inset 0 0 0 1px var(--rule-2); }
 
@@ -296,7 +296,7 @@ input[type=range]::-webkit-slider-thumb { appearance: none; width: 18px; height:
 
 /* new-entry picker */
 .kinds { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
-.kind-card { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: start; text-align: left; padding: 16px;
+.kind-card { display: grid; grid-template-columns: 40px 1fr; gap: 12px; align-items: start; text-align: start; padding: 16px;
   border-radius: 8px; border: 1px solid var(--rule-2); background: var(--sheet); cursor: pointer; transition: border-color .15s, background-color .15s; }
 .kind-card:hover { border-color: var(--ink); background: var(--paper); }
 .kind-card .glyph { width: 40px; height: 40px; }
@@ -315,7 +315,7 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 /* tools */
 .panel { margin-top: 24px; padding: 20px; border: 1px solid var(--rule); border-radius: 8px; display: grid; gap: 14px; background: var(--sheet); }
 .panel + .panel { margin-top: 14px; }
-.steps { margin: 4px 0 0; padding-left: 20px; color: var(--ink-2); display: grid; gap: 4px; }
+.steps { margin: 4px 0 0; padding-inline-start: 20px; color: var(--ink-2); display: grid; gap: 4px; }
 .qr-window { display: grid; grid-template-columns: auto 1fr; gap: 24px; align-items: center; }
 .qr { width: 280px; height: 280px; padding: 0; background: #fff; border-radius: 8px; border: 1px solid var(--rule-2); position: relative; }
 .qr svg { width: 100%; height: 100%; display: block; }
@@ -370,3 +370,9 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 
 [hidden] { display: none !important; }
 .inp[readonly] { color: var(--ink-2); cursor: default; }
+
+/* Arabic (right to left). Secrets, addresses and code stay left to right. */
+[dir="rtl"] .switch input:checked::after { transform: translateX(-14px); }
+[dir="rtl"] details.more:not([open]) summary .ic { transform: scaleX(-1); }
+[dir="rtl"] .mono, [dir="rtl"] input[type="password"], [dir="rtl"] input[type="email"], [dir="rtl"] .pathline { direction: ltr; text-align: right; }
+[dir="rtl"] .secret-text, [dir="rtl"] .pw { direction: ltr; unicode-bidi: isolate; }

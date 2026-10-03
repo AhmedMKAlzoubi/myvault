@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ctypes
 import ipaddress
+import json
 import os
 import shutil
 import subprocess
@@ -27,7 +28,7 @@ from pathlib import Path
 import segno
 import webview
 
-from . import __version__, autostart, autotype, clipboard, config, crypto, paper, paths, server, sync, update, webmatch
+from . import __version__, autostart, autotype, clipboard, config, crypto, i18n, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault
 
@@ -117,6 +118,18 @@ class Api:
     def boot(self) -> dict:
         return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
                 "version": __version__, "autolock": _autolock_minutes()}
+
+    def language_state(self) -> dict:
+        return {"pick": i18n.choice(), "lang": i18n.language()}
+
+    def set_language(self, pick: str) -> dict:
+        if pick in i18n.CHOICES:
+            cfg = config.load()
+            cfg["language"] = pick
+            config.save(cfg)
+            if self._window is not None:
+                self._window.load_html(_page())    # the vault stays as it is (open or locked)
+        return self.language_state()
 
     def autolock_state(self) -> dict:
         return {"minutes": _autolock_minutes(), "choices": list(AUTO_LOCK_CHOICES)}
@@ -683,7 +696,10 @@ def _page() -> str:
     html = (UI_DIR / "index.html").read_text("utf-8")
     css = (UI_DIR / "app.css").read_text("utf-8")
     js = (UI_DIR / "app.js").read_text("utf-8")
-    return html.replace("/*__CSS__*/", css).replace("//__JS__", js)
+    lang = i18n.language()
+    html = html.replace('<html lang="en">', f'<html lang="{lang}" dir="{"rtl" if lang == "ar" else "ltr"}">')
+    words = json.dumps(i18n.arabic() if lang == "ar" else {}, ensure_ascii=False).replace("</", "<\\/")
+    return html.replace("/*__CSS__*/", css).replace("//__JS__", f"window.I18N = {words};\n{js}")
 
 
 _mutex = None
@@ -750,8 +766,8 @@ def _run_in_tray(window, api: Api) -> None:
         sender.Hide()
         if not state["told"]:
             state["told"] = True
-            icon.tell("MyVault is still running", "It's by the clock, so browser fill keeps working. "
-                      "Right-click the icon to lock or quit.")
+            icon.tell(i18n.tr("MyVault is still running"),
+                      i18n.tr("It's by the clock, so browser fill keeps working. Right-click the icon to lock or quit."))
 
     form.FormClosing += closing
     window.events.closed += icon.remove

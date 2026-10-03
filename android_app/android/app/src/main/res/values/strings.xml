@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The suggestion Android shows in other apps' login boxes. -->
+    <string name="fill_with_myvault">Fill with MyVault</string>
+</resources>

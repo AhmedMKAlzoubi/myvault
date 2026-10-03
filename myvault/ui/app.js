@@ -55,6 +55,45 @@
     s.innerHTML = MARK;
     return s;
   }
+  // ---- language --------------------------------------------------------------
+  // The interface is written in English. When it's shown in Arabic, Python
+  // passes window.I18N (myvault/ui/ar.json: English -> Arabic), and every
+  // string h() puts on screen goes through t(). Keys with {0}, {1}... match
+  // strings built from templates; a {t0} group is translated too (field names).
+  // Vault data must never be translated: show it with raw().
+  const I18N = window.I18N || {};
+  const PATTERNS = Object.keys(I18N).filter((k) => /\{t?\d\}/.test(k))
+    .sort((a, b) => b.length - a.length)
+    .map((k) => {
+      const names = [];
+      const body = k.split(/(\{t?\d\})/).map((part) => {
+        const m = /^\{(t?\d)\}$/.exec(part);
+        if (!m) return part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        names.push(m[1]);
+        return "([\\s\\S]+?)";
+      }).join("");
+      return [new RegExp("^" + body + "$"), names, I18N[k]];
+    });
+  const ENGLISH = !Object.keys(I18N).length;
+  const LOWER = Object.fromEntries(Object.entries(I18N).map(([k, v]) => [k.toLowerCase(), v]));
+  const word = (v) => { const x = t(v); return x !== v ? x : LOWER[v.toLowerCase()] ?? v; };   // labels are lowercased in sentences
+  const LOCALE = ENGLISH ? undefined : "ar-u-nu-latn";      // Arabic month names, the same digits as the rest of the app
+  function t(s) {
+    if (typeof s !== "string") return s;
+    const core = s.trim();
+    if (!core || ENGLISH) return s;
+    if (Object.hasOwn(I18N, core)) return s.replace(core, I18N[core]);
+    for (const [rx, names, out] of PATTERNS) {
+      const m = rx.exec(core);
+      if (m) return s.replace(core, out.replace(/\{(t?\d)\}/g, (_, n) => {
+        const v = m[names.indexOf(n) + 1];
+        return n[0] === "t" ? word(v) : v;
+      }));
+    }
+    return s;
+  }
+  const raw = (v) => h("bdi", {}, document.createTextNode(v == null ? "" : String(v)));   // data: shown as is
+
   function h(tag, props, ...kids) {
     const el = document.createElement(tag);
     for (const [k, v] of Object.entries(props || {})) {
@@ -62,11 +101,12 @@
       if (k === "class") el.className = v;
       else if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
       else if (k === "value" || k === "checked" || k === "disabled") el[k] = v;
-      else el.setAttribute(k, v === true ? "" : String(v));
+      else el.setAttribute(k, v === true ? "" : k === "title" || k === "aria-label" || k === "placeholder" ? t(String(v)) : String(v));
     }
+    if ((tag === "input" || tag === "textarea") && !el.dir) el.dir = "auto";   // Arabic or English, each the right way round
     for (const kid of kids.flat(Infinity)) {
       if (kid == null || kid === false) continue;
-      el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+      el.append(kid instanceof Node ? kid : document.createTextNode(t(String(kid))));
     }
     return el;
   }
@@ -87,12 +127,12 @@
 
   let toastTimer;
   function toast(msg, bad = false) {
-    const t = $("#toast");
-    t.textContent = msg;
-    t.classList.toggle("bad", bad);
-    t.classList.add("show");
+    const el = $("#toast");
+    el.textContent = t(msg);
+    el.classList.toggle("bad", bad);
+    el.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.remove("show"), 2600);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 2600);
   }
   async function copy(value, what) {
     if (!value) return toast(`${what} is empty.`);
@@ -159,18 +199,18 @@
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       err.textContent = "";
-      if (!pw1.value) return (err.textContent = "Enter your master password.");
+      if (!pw1.value) return (err.textContent = t("Enter your master password."));
       if (!exists) {
-        if (pw1.value.length < 8) return (err.textContent = "Use at least 8 characters. A short sentence works well.");
-        if (pw1.value !== pw2.value) return (err.textContent = "The two passwords don't match.");
+        if (pw1.value.length < 8) return (err.textContent = t("Use at least 8 characters. A short sentence works well."));
+        if (pw1.value !== pw2.value) return (err.textContent = t("The two passwords don't match."));
       }
       go.disabled = true;
-      go.textContent = exists ? "Opening…" : "Creating…";
+      go.textContent = t(exists ? "Opening…" : "Creating…");
       const r = await call("unlock", pw1.value);
       if (r.ok) return enterMain();
       go.disabled = false;
-      go.textContent = exists ? "Unlock" : "Create my vault";
-      err.textContent = r.error;
+      go.textContent = t(exists ? "Unlock" : "Create my vault");
+      err.textContent = t(r.error);
       pw1.select();
     });
     app.replaceChildren(h("div", { class: "lock" },
@@ -301,7 +341,7 @@
     ul.replaceChildren(...items.map((e) => h("li", { class: "item", role: "option", "data-id": e.id,
       "aria-selected": String(S.selected === e.id), onclick: () => guard(() => openEntry(e.id)) },
     h("span", { class: "glyph" }, icon(e.kind)),
-    h("span", { style: "min-width:0" }, h("div", { class: "t" }, e.title), e.subtitle && h("div", { class: "sub" }, e.subtitle)))));
+    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)), e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
   }
 
   function moveSel(d) {
@@ -383,8 +423,10 @@
   }
   function colorize(pw) {
     // digits in envelope blue, symbols bold: easier to read back character by character
-    return [...pw].map((c) => /[0-9]/.test(c) ? h("span", { class: "digit" }, c)
-      : /[^A-Za-z0-9\s]/.test(c) ? h("span", { class: "sym" }, c) : document.createTextNode(c));
+    // (text nodes made here, never strings through h(): a secret must never be translated)
+    const ch = (c) => document.createTextNode(c);
+    return [...pw].map((c) => /[0-9]/.test(c) ? h("span", { class: "digit" }, ch(c))
+      : /[^A-Za-z0-9\s]/.test(c) ? h("span", { class: "sym" }, ch(c)) : ch(c));
   }
 
   function fieldRow(f, value) {
@@ -403,7 +445,7 @@
         if (valEl.dataset.state === "open") valEl.seal(); else { valEl.open(); sync(true); }
       });
     } else {
-      valEl = h(multi ? "pre" : "span", { class: "val-plain" + (f.mono || (multi && !f.prose) ? " mono" : "") }, value);
+      valEl = h(multi ? "pre" : "span", { class: "val-plain" + (f.mono || (multi && !f.prose) ? " mono" : "") }, raw(value));
       if (multi) valEl.style.margin = "0";
     }
     return h("div", { class: "row" + (multi ? " multi" : "") },
@@ -439,7 +481,7 @@
         r.ok ? `Typed into “${t.title}”. Press Enter there to sign in.` : r.error));
     };
     box.replaceChildren(h("div", { class: "panel", style: "margin-top:14px" },
-      h("p", { class: "prose", style: "margin:0" }, "Type into ", h("b", {}, t.title), "?"),
+      h("p", { class: "prose", style: "margin:0" }, "Type into ", h("b", {}, raw(t.title)), "?"),
       h("p", { class: "hint" }, "MyVault will step aside and type into the box you last clicked there. Make sure that's the username box."),
       h("div", { class: "updrow", style: "display:flex;gap:8px;flex-wrap:wrap" },
         btn("Username + password", () => go("both"), "primary sm"),
@@ -452,10 +494,10 @@
     const K = KINDS[e.kind] || KINDS.login;
     const rows = [...K.fields, ...(K.more || [])].map((f) => [f, getVal(e, f)]).filter(([, v]) => v);
     const custom = Object.entries(e.custom || {});
-    const sub = [K.label, e.kind === "login" ? e.website : e.fields?.service].filter(Boolean).join(" · ");
+    const where = e.kind === "login" ? e.website : e.fields?.service;
     sheet(h("article", { class: "page" },
       h("header", { class: "page-head" }, h("span", { class: "glyph" }, icon(e.kind)),
-        h("div", { class: "ttl" }, h("h2", {}, e.title || "(untitled)"), h("p", { class: "byline" }, sub)),
+        h("div", { class: "ttl" }, h("h2", {}, e.title ? raw(e.title) : "(untitled)"), h("p", { class: "byline" }, K.label, where && [" · ", raw(where)])),
         h("div", { class: "head-acts" },
           e.kind === "login" && e.password && btn("Type into app", () => askAutotype(e, typeBox), "", "keyboard"),
           btn("Edit", () => renderEdit(e), "", "edit"))),
@@ -467,7 +509,7 @@
         h("dl", { class: "fields", style: "margin-top:8px" }, custom.map(([k, v]) => fieldRow(F(k, k), v)))],
       h("p", { class: "meta" }, `Last changed ${fmtDate(e.updated_at)} · Created ${fmtDate(e.created_at)}`)));
   }
-  const fmtDate = (t) => new Date(t * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  const fmtDate = (t) => new Date(t * 1000).toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
 
   // ---- new / edit --------------------------------------------------------------
   function showNew() {
@@ -493,7 +535,7 @@
       const s = pw ? await call("strength", pw) : "";
       if (mine !== n) return;
       meter.dataset.level = String(LV[s] || 0);
-      label.textContent = s ? `Strength: ${s}` : "";
+      label.textContent = s ? t(`Strength: ${s}`) : "";
     };
     return box;
   }
@@ -627,7 +669,7 @@
         if (k.value.trim()) out.custom[k.value.trim()] = v.value;
       });
       const r = await call("save_entry", out);
-      if (!r.ok) { err.textContent = r.error; return; }
+      if (!r.ok) { err.textContent = t(r.error); return; }
       S.dirty = false;
       toast(isNew ? "Saved to your vault." : "Changes saved.");
       await refresh();
@@ -688,7 +730,7 @@
       const r = await call("generate", p);
       if (!r.ok) {
         current = "";
-        out.textContent = "Turn on at least one kind of character.";
+        out.textContent = t("Turn on at least one kind of character.");
         meter.set("");
         return;
       }
@@ -764,11 +806,11 @@
 
     function versionNote(s) {
       const older = (a, b) => cmpVer(a, b) < 0;
-      if (!s.peer_version) return " Your phone runs an older MyVault (before 0.5) that can't take updates over sync. " +
-        "Install the new phone app once from the MyVault folder (Settings › Folders › MyVault program › packages).";
+      if (!s.peer_version) return [" Your phone runs an older MyVault (before 0.5) that can't take updates over sync. ",
+        "Install the new phone app once from the MyVault folder (Settings › Folders › MyVault program › packages)."];
       if (s.received) return ` Your phone had a newer MyVault (${s.received}) and passed it to this PC. Install it from the card on the left.`;
-      if (older(s.version, s.peer_version)) return ` Your phone has MyVault ${s.peer_version}; this PC has ${s.version}.` +
-        (s.update_error ? ` The update couldn't be passed over: ${s.update_error}` : " Update this PC when you can.");
+      if (older(s.version, s.peer_version)) return [` Your phone has MyVault ${s.peer_version}; this PC has ${s.version}.`,
+        s.update_error ? ` The update couldn't be passed over: ${s.update_error}` : " Update this PC when you can."];
       if (s.sent) return ` Your phone had MyVault ${s.peer_version}, so this PC sent it ${s.sent}. Tap Install on the phone.`;
       if (older(s.peer_version, s.version)) return ` Your phone runs MyVault ${s.peer_version} (this PC has ${s.version}). Update the phone when you can.`;
       return "";
@@ -800,7 +842,7 @@
       S.syncTimer = setInterval(async () => {
         const s = await call("sync_status");
         if (s.state === "waiting") {
-          left.textContent = `Code expires in ${Math.floor(s.seconds_left / 60)}:${String(s.seconds_left % 60).padStart(2, "0")}`;
+          left.textContent = t(`Code expires in ${Math.floor(s.seconds_left / 60)}:${String(s.seconds_left % 60).padStart(2, "0")}`);
           bar.style.transform = `scaleX(${s.seconds_left / r.ttl})`;
           return;
         }
@@ -808,8 +850,8 @@
         S.syncTimer = null;
         if (s.state === "done") {
           await refresh();
-          idle(`Synced. ${s.changed} ${s.changed === 1 ? "entry" : "entries"} updated on this PC. Your phone has the rest.` +
-            versionNote(s));
+          idle([`Synced. ${s.changed} ${s.changed === 1 ? "entry" : "entries"} updated on this PC. Your phone has the rest.`,
+            versionNote(s)]);
           refreshUpdates();
         } else {
           idle("The code expired before a phone connected. Show a new one when you're ready.", true);
@@ -856,14 +898,15 @@
           if (r.ok) {
             r1.value = "";
             await refresh();
-            const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
-            const parts = [r.added && `${r.added} added`, r.restored && `${r.restored} brought back after being deleted`,
-              r.updated && `${r.updated} updated to the backup's newer copy`].filter(Boolean);
-            rErr.append(h("div", { class: "result" },
-              `Read ${n(r.found, "entry", "entries")} from the backup. ` +
-              (parts.length ? parts.join(", ") + "." : "Everything in it was already in your vault, so nothing changed.") +
-              (r.unchanged && parts.length ? ` ${n(r.unchanged, "was", "were")} already up to date.` : "") +
-              (r.unreadable ? ` ${n(r.unreadable, "block", "blocks")} couldn't be read.` : "")));
+            const changed = r.added || r.restored || r.updated;
+            rErr.append(h("div", { class: "result" }, [
+              `Entries read from the backup: ${r.found}.`,
+              r.added && ` Added: ${r.added}.`,
+              r.restored && ` Brought back after being deleted: ${r.restored}.`,
+              r.updated && ` Updated to the backup's newer copy: ${r.updated}.`,
+              !changed && " Everything in it was already in your vault, so nothing changed.",
+              changed && r.unchanged && ` Already up to date: ${r.unchanged}.`,
+              r.unreadable && ` Blocks that couldn't be read: ${r.unreadable}.`]));
           } else if (r.error) rErr.append(h("div", { class: "result bad" }, r.error));
         }, "", "file")))));
   }
@@ -890,7 +933,7 @@
           h("li", {}, "Copy the extension folder path below. Choose “Load unpacked”, paste the path into the folder box at the top of the window, press Enter, then choose Select Folder. It's the folder with manifest.json inside."),
           h("li", {}, "Open the MyVault extension's settings, paste the pairing token, then choose Save & test.")),
         h("div", { class: "field" }, h("span", { class: "lbl" }, "Extension folder"),
-          h("div", { class: "inp-row" }, h("span", { class: "pathline" }, info.extension_dir),
+          h("div", { class: "inp-row" }, h("span", { class: "pathline" }, raw(info.extension_dir)),
             btn("Open folder", () => openFolder("extension"), "sm", "folder"),
             iconBtn("copy", "Copy folder path", async () => { await call("copy_plain", info.extension_dir); toast("Folder path copied."); }))),
         h("div", { class: "field" }, h("span", { class: "lbl" }, "Pairing token"),
@@ -911,9 +954,23 @@
     return h("div", { class: "field folder-row" },
       h("span", { class: "lbl" }, title),
       h("p", { class: "hint" }, about),
-      h("div", { class: "inp-row" }, h("span", { class: "pathline" }, path),
+      h("div", { class: "inp-row" }, h("span", { class: "pathline" }, raw(path)),
         btn("Open folder", () => openFolder(which), "sm", "folder"),
         iconBtn("copy", `Copy ${title.toLowerCase()} path`, async () => { await call("copy_plain", path); toast("Path copied."); })));
+  }
+
+  function languagePanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Language"));
+    (async () => {
+      const l = await call("language_state");
+      // Each language is named in itself, so it can be found whichever one is showing.
+      const sel = h("select", { class: "inp", "aria-label": "Language", style: "max-width:220px" },
+        [["auto", "Same as Windows"], ["en", "English"], ["ar", "العربية"]]
+          .map(([v, name]) => h("option", { value: v, selected: v === l.pick || null }, name)));
+      sel.addEventListener("change", () => call("set_language", sel.value));
+      panel.append(sel, h("p", { class: "hint" }, "The phone app and the browser extension have their own language settings."));
+    })();
+    return panel;
   }
 
   function autolockPanel() {
@@ -957,7 +1014,7 @@
       const u = await call("update_state");
       const sw = h("input", { type: "checkbox", role: "switch", checked: u.enabled });
       sw.addEventListener("change", async () => { await call("set_update_check", sw.checked); paint(); refreshUpdates(); });
-      const when = u.last_check ? new Date(u.last_check * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "never";
+      const when = u.last_check ? new Date(u.last_check * 1000).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" }) : "never";
       panel.replaceChildren(h("h3", {}, "Updates"),
         h("p", { class: "prose", style: "margin:0" }, `This is MyVault ${u.current}. Updates also arrive offline: when you sync, a newer phone or PC hands its update over.`),
         h("label", { class: "switch" }, sw, h("span", { class: "sw-text" }, h("span", {}, "Let me know when a new version is out"),
@@ -981,7 +1038,7 @@
         if (!r.ok) return slot.replaceChildren(h("p", { class: "err", style: "margin:0 0 8px" }, r.error), btn("Try again", find, "sm"));
         slot.replaceChildren(h("div", { class: "result bad", role: "alert", style: "display:grid;gap:10px" },
           h("span", {}, h("b", {}, `Go back from ${r.current} to ${r.version}? `),
-            `MyVault first copies your vault to ${r.backup} in your vault folder, then downloads ${r.version}, checks its signature, installs it and opens again. ` +
+            `MyVault first copies your vault to ${r.backup} in your vault folder, then downloads ${r.version}, checks its signature, installs it and opens again. `,
             `Updates are never installed without asking, so you can choose Later if it offers ${r.current} again.`),
           h("div", { class: "inp-row", style: "flex-wrap:wrap" },
             btn(`Go back to ${r.version}`, async () => {
@@ -1005,6 +1062,7 @@
     const msg = h("div");
     sheet(h("section", { class: "page" },
       toolHead("gear", "Settings", `MyVault ${S.version}`),
+      languagePanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Change master password"),
         h("div", { style: "max-width:340px" }, cur),

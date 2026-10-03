@@ -1,4 +1,4 @@
-; Inno Setup script for the MyVault installer. Built by packaging/build_windows.py.
+﻿; Inno Setup script for the MyVault installer. Built by packaging/build_windows.py.
 ;
 ; Installs like any normal app: per-user into %LOCALAPPDATA%\Programs\MyVault by
 ; default (no admin prompt), or into Program Files when "install for all users"
@@ -11,6 +11,7 @@
 #endif
 
 [Setup]
+ShowLanguageDialog=auto
 AppId={{6F1A2C3E-9B4D-4E8A-A7C2-5D3B8E1F0A94}
 AppName=MyVault
 AppVersion={#AppVersion}
@@ -36,9 +37,18 @@ SolidCompression=yes
 CloseApplications=yes
 RestartApplications=no
 
+[Languages]
+; Setup picks the one matching Windows' display language (no language prompt).
+Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "ar"; MessagesFile: "compiler:Languages\Arabic.isl"
+
+[CustomMessages]
+en.StartupTask=Start MyVault when I sign in to Windows (it waits by the clock, locked)
+ar.StartupTask=شغّل MyVault عند تسجيل دخولي إلى Windows (ينتظر بجانب الساعة، مقفلًا)
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-Name: "startup"; Description: "Start MyVault when I sign in to Windows (it waits by the clock, locked)"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "startup"; Description: "{cm:StartupTask}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Registry]
 ; Same per-user Run entry the in-app switch (Settings > Start with Windows) manages.

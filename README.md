@@ -278,6 +278,24 @@ a while.
   self-review only. Read the code, and report anything you find (see
   [SECURITY.md](SECURITY.md)).
 
+## Languages
+
+MyVault speaks **English** and **Arabic (العربية)**, right to left in Arabic. Each part
+follows your language by default:
+
+- **Windows app:** Windows' display language, or choose in **Settings › Language**.
+- **Phone app:** the phone's language, or choose in **menu › Language**.
+- **Browser extension:** the browser's language.
+- **Installer:** Windows' display language.
+
+Your own entries are never translated, and passwords, keys and addresses always read
+left to right. The printed paper backup stays in English (its built-in PDF font has no
+Arabic letters), and so do the README and the policies.
+
+Translations live in `myvault/ui/ar.json` (Windows), `android_app/lib/l10n_ar.dart`
+(phone) and `browser-extension/i18n.js` (extension): each maps the English text to
+Arabic. To add a language, add a file like these and a choice in the settings.
+
 ## Licence
 
 MyVault is free software under the [GNU General Public License v3.0](LICENSE).
