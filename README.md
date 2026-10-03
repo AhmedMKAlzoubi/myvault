@@ -22,6 +22,17 @@ keys, and private notes. Nothing goes to a cloud or a company.
 > open the vault, not even you. That's what keeps it safe. Write the master
 > password down and keep it somewhere physical.
 
+## Screenshots
+
+![The unlock screen: one master password opens the vault](docs/screenshots/unlock.webp)
+
+| | |
+|---|---|
+| ![Choosing what to add: login, API key, SSH key or secure note](docs/screenshots/new-entry.png) | ![A new login with the password generator open](docs/screenshots/new-login-generator.png) |
+| **New entry:** logins, API keys, SSH keys and secure notes | **Password generator:** length slider and character toggles |
+| ![Sync with phone: show a one-time QR code](docs/screenshots/sync.png) | ![Paper backup: an encrypted PDF you can print](docs/screenshots/paper-backup.png) |
+| **Sync with phone** over your own WiFi, by QR code | **Paper backup:** a PDF where nothing is readable |
+
 ---
 
 ## Windows app

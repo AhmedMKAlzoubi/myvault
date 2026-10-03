@@ -367,3 +367,6 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0s !important; animation: none !important; }
 }
+
+[hidden] { display: none !important; }
+.inp[readonly] { color: var(--ink-2); cursor: default; }
