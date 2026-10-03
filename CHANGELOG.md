@@ -9,6 +9,7 @@
 - **Android:** Paste buttons next to secret fields.
 - Secure notes no longer show their first line in the list, and their text isn't searchable.
 - Added a privacy policy, terms of use, security policy and a troubleshooting guide.
+- MyVault is now licensed under GPL-3.0.
 
 ## 0.5.1 (3 October 2026)
 

@@ -976,7 +976,7 @@
           h("li", {}, icon("wifi"), h("span", {}, h("b", {}, "No cloud. "), "Your vault is never sent to the internet. Sync happens only over your WiFi, after you scan a one-time code.")))),
       h("div", { class: "panel" },
         h("h3", {}, "About MyVault"),
-        h("p", { class: "hint" }, "Made by Ahmed Mohammed. No account, no cloud, no tracking. Contact: ahmedmohammedkhear@gmail.com"),
+        h("p", { class: "hint" }, "Made by Ahmed Mohammed. Free software under the GPL-3.0 licence. No account, no cloud, no tracking. Contact: ahmedmohammedkhear@gmail.com"),
         h("div", { class: "inp-row", style: "flex-wrap:wrap;gap:8px;margin-top:10px" },
           ...[["Privacy policy", "PRIVACY.md"], ["Terms of use", "TERMS.md"], ["Security", "SECURITY.md"], ["What's new", "CHANGELOG.md"]]
             .map(([t, f]) => btn(t, () => call("open_doc", f), "sm"))))));

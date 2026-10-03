@@ -2,7 +2,9 @@
 
 **Last updated:** 3 October 2026
 
-These terms apply when you download or use MyVault: the Windows app, the Android app and the browser extension. By using MyVault you agree to them. The licence in [LICENSE](LICENSE) also applies to the source code. If the two ever disagree about the code, the licence wins.
+These terms apply when you download or use MyVault: the Windows app, the Android app and the browser extension. By using MyVault you agree to them.
+
+MyVault is free software under the [GNU General Public License v3.0](LICENSE) (GPL-3.0). You may use, study, change and share it. If you share a changed version, you must share its source code under the same licence. These terms don't take away any right the GPL gives you; if the two ever disagree, the GPL wins.
 
 ## 1. What MyVault is
 

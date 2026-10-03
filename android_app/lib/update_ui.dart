@@ -307,7 +307,7 @@ class AboutPage extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.all(18),
             child: Text(
-              'MyVault $appVersion\n\nMade by Ahmed Mohammed. Your vault stays on your '
+              'MyVault $appVersion\n\nMade by Ahmed Mohammed. Free software under the GPL-3.0 licence. Your vault stays on your '
               'devices: no account, no cloud, no tracking.',
               style: TextStyle(color: e.ink2, height: 1.45),
             ),

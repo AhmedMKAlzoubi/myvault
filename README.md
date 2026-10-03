@@ -254,6 +254,12 @@ a while.
   self-review only. Read the code, and report anything you find (see
   [SECURITY.md](SECURITY.md)).
 
+## Licence
+
+MyVault is free software under the [GNU General Public License v3.0](LICENSE).
+You may use, study, change and share it. If you share a changed version, you
+must also share its source under GPL-3.0. Copyright (C) 2026 Ahmed Mohammed.
+
 ## Privacy, terms and security
 
 - [Privacy policy](PRIVACY.md): MyVault collects nothing; your vault stays on your devices.
