@@ -177,8 +177,9 @@
           button { background: #1A202A; color: #E6EAF2; border-color: #384256; } button:hover { background: #222B3B; }
           button.primary { background: #E6EAF2; color: #12161E; border-color: #E6EAF2; }
         }
+        .pw { direction: ltr; }
       </style>
-      <div id="mount"></div>`;
+      <div id="mount" dir="${mvRTL ? "rtl" : "ltr"}"></div>`;
     mount = root.getElementById("mount");
     return mount;
   }
@@ -192,7 +193,7 @@
   function head(text) {
     const h = el("div", "head");
     h.insertAdjacentHTML("afterbegin", MARK);   // constant markup only
-    h.append(el("span", "", text));
+    h.append(el("span", "", mvT(text)));
     return h;
   }
   function place(card, anchor) {
@@ -227,7 +228,7 @@
     matches.forEach((cred) => {
       const it = el("div", "item");
       it.tabIndex = 0;
-      it.append(el("div", "", cred.title || DOMAIN), el("div", "sub", cred.username || cred.email || "(no username)"));
+      it.append(el("div", "", cred.title || DOMAIN), el("div", "sub", cred.username || cred.email || mvT("(no username)")));
       const go = (e) => { e.preventDefault(); if (e.isTrusted && canFill()) fillWith(cred); };
       it.addEventListener("mousedown", go);
       it.addEventListener("keydown", (e) => { if (e.key === "Enter") go(e); });
@@ -246,10 +247,10 @@
       card.append(head("MyVault: suggested password"));
       const box = el("div", "pw");
       [...pw].forEach((c) => box.append(/[0-9]/.test(c) ? el("span", "d", c) : document.createTextNode(c)));
-      card.append(box, el("div", "note", "Strong and random. MyVault offers to save it when you submit the form."));
+      card.append(box, el("div", "note", mvT("Strong and random. MyVault offers to save it when you submit the form.")));
       const row = el("div", "row");
-      const use = el("button", "primary", "Use this password");
-      const no = el("button", "", "Not now");
+      const use = el("button", "primary", mvT("Use this password"));
+      const no = el("button", "", mvT("Not now"));
       use.addEventListener("mousedown", (e) => {
         e.preventDefault();
         targets.forEach((t) => setValue(t, pw));
@@ -270,14 +271,14 @@
   function showSaveBar(cred, isNew) {
     const m = ui();
     const bar = el("div", "card bar");
-    const who = cred.email || cred.username || "this login";
+    const who = cred.email || cred.username || mvT("this login");
     const text = el("span");
-    text.append(isNew ? "Save your new account " : "Save ", el("b", "", who), ` for ${DOMAIN} to MyVault?`);
-    const save = el("button", "primary", "Save");
-    const no = el("button", "", "Not now");
+    text.append(mvT(isNew ? "Save your new account " : "Save "), el("b", "", who), mvT(` for ${DOMAIN} to MyVault?`));
+    const save = el("button", "primary", mvT("Save"));
+    const no = el("button", "", mvT("Not now"));
     const x = el("button", "x");
     x.insertAdjacentHTML("afterbegin", '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>');
-    x.setAttribute("aria-label", "Close");
+    x.setAttribute("aria-label", mvT("Close"));
     const close = () => m.replaceChildren();
     no.onclick = close;
     x.onclick = close;
@@ -297,7 +298,7 @@
   function toast(text) {
     const m = ui();
     const bar = el("div", "card bar");
-    bar.append(el("span", "", text));
+    bar.append(el("span", "", mvT(text)));
     m.replaceChildren(bar);
     setTimeout(() => { if (m.contains(bar)) m.replaceChildren(); }, 3500);
   }

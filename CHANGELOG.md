@@ -2,8 +2,12 @@
 
 ## 0.5.4 (3 October 2026)
 
+- **Arabic (العربية).** The Windows app, the phone app, the browser extension and the installer now come in English and Arabic, right to left in Arabic. They follow your system language, or you can choose in Settings (Windows) or the menu (phone). Your entries are never translated, and passwords always read left to right.
 - **A saved password can't be replaced by accident** (Windows and Android). When you edit a login, its password is read-only, and Generate (and Paste on the phone) only appear while the box is empty. **Change password** first warns you, then lets you type a new one or generate one, and **Keep the old password** puts the saved one back until you save.
 - Windows: the Sync page no longer shows a stray "undefined" above the button.
+- **Go back to the previous version** (Windows, Settings › Updates): reinstalls the stable release before yours, after checking its signature and copying your vault. The phone's Updates page explains how to go back on Android.
+- Windows: installing an update now really closes MyVault first. Since 0.5.3, closing only hid it in the tray, which could leave its files in use.
+- Windows: the installer now removes phone APKs bundled by earlier versions, so the MyVault program's `packages` folder holds only the APK that matches the PC app.
 - README: screenshots.
 
 ## 0.5.3 (3 October 2026)

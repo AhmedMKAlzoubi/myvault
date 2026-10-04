@@ -17,6 +17,8 @@ class Tray:
         from System.Windows.Forms import (Application, ContextMenuStrip, MouseButtons, NotifyIcon,
                                           ToolStripSeparator)
 
+        from .i18n import tr
+
         ready = threading.Event()
 
         def safe(fn):
@@ -36,7 +38,7 @@ class Tray:
                 if text is None:
                     menu.Items.Add(ToolStripSeparator())
                 else:
-                    menu.Items.Add(text).Click += safe(fn)
+                    menu.Items.Add(tr(text)).Click += safe(fn)
             n.ContextMenuStrip = menu
             opener = safe(on_open)
             n.MouseClick += lambda s, e: opener() if e.Button == MouseButtons.Left else None

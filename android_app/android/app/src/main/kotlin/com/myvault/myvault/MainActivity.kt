@@ -108,11 +108,13 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/update").setMethodCallHandler { call, result ->
             if (call.method == "openDoc") {
                 // Only MyVault's own published documents, never an arbitrary URL.
-                val name = setOf("PRIVACY.md", "TERMS.md", "SECURITY.md", "CHANGELOG.md")
-                    .firstOrNull { it == call.arguments }
-                    ?: return@setMethodCallHandler result.error("bad_doc", "Unknown document.", null)
-                startActivity(Intent(Intent.ACTION_VIEW,
-                    Uri.parse("https://github.com/AhmedMKAlzoubi/myvault/blob/main/$name")))
+                val repo = "https://github.com/AhmedMKAlzoubi/myvault"
+                val url = mapOf(
+                    "PRIVACY.md" to "$repo/blob/main/PRIVACY.md", "TERMS.md" to "$repo/blob/main/TERMS.md",
+                    "SECURITY.md" to "$repo/blob/main/SECURITY.md", "CHANGELOG.md" to "$repo/blob/main/CHANGELOG.md",
+                    "RELEASES" to "$repo/releases",
+                )[call.arguments] ?: return@setMethodCallHandler result.error("bad_doc", "Unknown document.", null)
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                 return@setMethodCallHandler result.success(true)
             }
             if (call.method != "installApk") return@setMethodCallHandler result.notImplemented()

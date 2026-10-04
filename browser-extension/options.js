@@ -18,7 +18,7 @@ async function save() {
 
 function msg(cls, text) {
   $("msg").className = cls;
-  $("msg").textContent = text;
+  $("msg").textContent = mvT(text);
 }
 
 async function test() {
@@ -38,4 +38,5 @@ async function test() {
 
 $("save").onclick = async () => { await save(); msg("", "Saved. Testing…"); test(); };
 $("test").onclick = test;
+mvPage();   // i18n.js: this page's text in the browser's language
 load();

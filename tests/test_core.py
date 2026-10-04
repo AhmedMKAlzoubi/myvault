@@ -6,7 +6,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
 
 from myvault import crypto, paper, sync, webmatch
 from myvault.generator import PasswordPolicy, generate
@@ -260,6 +261,56 @@ class _UpdatingProvider(_Provider):
         from myvault import update
         self.stored = update.store(manifest, sig, plat, tmp)
         return self.stored.version
+
+
+def test_arabic_translations_keep_placeholders():
+    import json, re
+    for f in [ROOT / "myvault" / "ui" / "ar.json", ROOT / "browser-extension" / "_locales" / "ar" / "messages.json"]:
+        if not f.exists():
+            continue
+        table = json.loads(f.read_text("utf-8"))
+        for en, ar in table.items():
+            if isinstance(ar, dict):          # extension format: {"message": ...}
+                continue
+            assert ar.strip(), f"empty translation for {en!r}"
+            assert sorted(re.findall(r"\{t?\d\}", en)) == sorted(re.findall(r"\{t?\d\}", ar)), (en, ar)
+
+
+def test_rollback_picks_previous_stable_signed_release():
+    import json
+    import urllib.error
+    from myvault import update
+    saved_key, saved_get = update.UPDATE_PUBKEY, update._get
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            tmp = Path(d)
+            bad = _signed_release(tmp, "0.5.2", {"windows": ("MyVault-Setup-0.5.2.exe", b"a")})  # key replaced below
+            good = _signed_release(tmp, "0.5.1", {"windows": ("MyVault-Setup-0.5.1.exe", b"b")})
+            assets = {"0.5.2": bad, "0.5.1": good}
+            listing = [{"tag_name": "v0.6.0"}, {"tag_name": "v0.5.4"}, {"tag_name": "v0.5.3", "prerelease": True},
+                       {"tag_name": "v0.5.2"}, {"tag_name": "v0.5.1"}, {"tag_name": "v0.4.1"}]
+
+            def fake_get(url, limit):
+                if url == update.RELEASES_API:
+                    return json.dumps(listing).encode()
+                for v, (raw, sig) in assets.items():
+                    if url.endswith(f"/v{v}/latest.json"):
+                        return raw
+                    if url.endswith(f"/v{v}/latest.json.sig"):
+                        return sig.encode()
+                raise urllib.error.HTTPError(url, 404, "Not Found", None, None)   # v0.4.1: no manifest
+
+            update._get = fake_get
+            m, _, _ = update.previous_release("0.5.4")
+            # newer and pre-release skipped, 0.5.2's signature fails, so 0.5.1
+            assert m["version"] == "0.5.1", m
+            try:
+                update.previous_release("0.5.1")      # only 0.4.1 is older, and it isn't signed
+                raise AssertionError("an unsigned release was offered")
+            except update.UpdateError:
+                pass
+    finally:
+        update.UPDATE_PUBKEY, update._get = saved_key, saved_get
 
 
 def test_update_handover_over_sync_and_tamper_rejected():

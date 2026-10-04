@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'kinds.dart';
+import 'l10n.dart';
 import 'theme.dart';
 import 'vault.dart';
 
@@ -169,7 +170,7 @@ class _AutofillPickPageState extends State<AutofillPickPage> {
       },
       child: Scaffold(
         appBar: AppBar(
-          title: Text('Fill ${r.label}'),
+          title: Text(tr('Fill ${r.label}')),
           leading: IconButton(
             icon: const Icon(Icons.close),
             onPressed: () => _fill.invokeMethod('cancel'),
@@ -182,9 +183,9 @@ class _AutofillPickPageState extends State<AutofillPickPage> {
               child: TextField(
                 controller: _q,
                 onChanged: (_) => setState(() {}),
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   prefixIcon: Icon(Icons.search, size: 20),
-                  hintText: 'Search your logins',
+                  hintText: tr('Search your logins'),
                 ),
               ),
             ),
@@ -192,7 +193,7 @@ class _AutofillPickPageState extends State<AutofillPickPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
                 child: Text(
-                  'Saved for ${r.label}',
+                  tr('Saved for ${r.label}'),
                   style: TextStyle(
                     color: env.ink2,
                     fontWeight: FontWeight.w600,
@@ -205,16 +206,16 @@ class _AutofillPickPageState extends State<AutofillPickPage> {
               padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: Text(
                 matches.isEmpty
-                    ? 'Nothing saved for ${r.label} yet. Pick a login:'
-                    : 'Other logins',
+                    ? tr('Nothing saved for ${r.label} yet. Pick a login:')
+                    : tr('Other logins'),
                 style: TextStyle(color: env.ink2, fontWeight: FontWeight.w600),
               ),
             ),
             for (final e in others) tile(e),
             if (logins.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('No logins match that search.'),
+                child: Text(tr('No logins match that search.')),
               ),
           ],
         ),
@@ -282,7 +283,7 @@ class _AutofillSetupPageState extends State<AutofillSetupPage>
     final e = Envelope.of(context);
     final on = _s['enabled'] == true;
     return Scaffold(
-      appBar: AppBar(title: const Text('Autofill in other apps')),
+      appBar: AppBar(title: Text(tr('Autofill in other apps'))),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
@@ -296,8 +297,8 @@ class _AutofillSetupPageState extends State<AutofillSetupPage>
               Expanded(
                 child: Text(
                   on
-                      ? 'MyVault is your autofill service.'
-                      : 'MyVault is not your autofill service yet.',
+                      ? tr('MyVault is your autofill service.')
+                      : tr('MyVault is not your autofill service yet.'),
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -308,31 +309,37 @@ class _AutofillSetupPageState extends State<AutofillSetupPage>
           ),
           const SizedBox(height: 14),
           Text(
-            'With this on, MyVault can fill and save logins in other apps and in Chrome:\n\n'
-            '• Tap a login box, then "Fill with MyVault". MyVault asks for your master '
-            'password, then you pick the account.\n'
-            '• When you sign in or sign up somewhere new, Android asks "Save to MyVault?". '
-            'Saved logins are kept encrypted on this phone and added to your vault the next '
-            'time you unlock.',
+            tr(
+              'With this on, MyVault can fill and save logins in other apps and in Chrome:\n\n'
+              '• Tap a login box, then "Fill with MyVault". MyVault asks for your master '
+              'password, then you pick the account.\n'
+              '• When you sign in or sign up somewhere new, Android asks "Save to MyVault?". '
+              'Saved logins are kept encrypted on this phone and added to your vault the next '
+              'time you unlock.',
+            ),
             style: TextStyle(color: e.ink2, height: 1.45),
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _s['supported'] == false ? null : openAutofillSettings,
             icon: const Icon(Icons.settings_outlined),
-            label: Text(on ? 'Change autofill service' : 'Turn on'),
+            label: Text(tr(on ? 'Change autofill service' : 'Turn on')),
           ),
           const SizedBox(height: 10),
           Text(
-            'In Chrome, also open Chrome › Settings › Autofill services and choose '
-            '"Autofill using another service".',
+            tr(
+              'In Chrome, also open Chrome › Settings › Autofill services and choose '
+              '"Autofill using another service".',
+            ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
           ),
           if (_s['supported'] == false)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
-                "This phone's Android version doesn't support autofill services.",
+                tr(
+                  "This phone's Android version doesn't support autofill services.",
+                ),
                 style: TextStyle(color: e.red),
               ),
             ),

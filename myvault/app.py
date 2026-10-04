@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import ctypes
 import ipaddress
+import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -26,7 +28,7 @@ from pathlib import Path
 import segno
 import webview
 
-from . import __version__, autostart, autotype, clipboard, config, crypto, paper, paths, server, sync, update, webmatch
+from . import __version__, autostart, autotype, clipboard, config, crypto, i18n, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault
 
@@ -85,6 +87,8 @@ class Api:
         self._pairing: sync.PairingSession | None = None
         self._upd = {"checking": False, "available": "", "notes": "", "progress": 0, "busy": False, "error": ""}
         self._upd_release = None     # (manifest, raw, sig) of a newer release found online
+        self._rollback = None        # (manifest, raw, sig) of the release before this one
+        self._quit = None            # really exit (set by the tray, whose X only hides)
         self._autotype_hwnd = 0      # the window "Type into app" will type into
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
@@ -114,6 +118,18 @@ class Api:
     def boot(self) -> dict:
         return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
                 "version": __version__, "autolock": _autolock_minutes()}
+
+    def language_state(self) -> dict:
+        return {"pick": i18n.choice(), "lang": i18n.language()}
+
+    def set_language(self, pick: str) -> dict:
+        if pick in i18n.CHOICES:
+            cfg = config.load()
+            cfg["language"] = pick
+            config.save(cfg)
+            if self._window is not None:
+                self._window.load_html(_page())    # the vault stays as it is (open or locked)
+        return self.language_state()
 
     def autolock_state(self) -> dict:
         return {"minutes": _autolock_minutes(), "choices": list(AUTO_LOCK_CHOICES)}
@@ -429,12 +445,44 @@ class Api:
         pkg = update.ready_installer()
         if pkg is None:
             return {"ok": False, "error": "No verified update is waiting."}
+        return self._run_installer(pkg)
+
+    # ---- going back to the previous release ----------------------------------
+    def rollback_info(self) -> dict:
+        try:
+            self._rollback = update.previous_release()
+        except update.UpdateError as exc:
+            return {"ok": False, "error": str(exc)}
+        except (OSError, ValueError):
+            return {"ok": False, "error": "Couldn't reach GitHub. Check your internet connection and try again."}
+        return {"ok": True, "version": self._rollback[0]["version"], "current": __version__,
+                "backup": f"vault-before-rollback-{__version__}.dat"}
+
+    def rollback(self) -> dict:
+        """Copy the vault, then download, verify and run the earlier installer."""
+        if self._rollback is None:
+            return {"ok": False, "error": "Look for the previous version first."}
+        m, raw, sig = self._rollback
+        try:
+            pkg = update.download(m, raw, sig, update.PLATFORM)     # signature + fingerprint checked
+        except update.UpdateError as exc:
+            return {"ok": False, "error": str(exc)}
+        except OSError:
+            return {"ok": False, "error": "The download failed. Check your internet connection and try again."}
+        vault = paths.vault_path()
+        if vault.exists():
+            shutil.copy2(vault, paths.data_dir() / f"vault-before-rollback-{__version__}.dat")
+        return self._run_installer(pkg)
+
+    def _run_installer(self, pkg) -> dict:
         # The installer replaces the program files, keeps the vault, and
         # starts MyVault again when it's done.
         subprocess.Popen([str(pkg.path), "/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
                          creationflags=getattr(subprocess, "DETACHED_PROCESS", 0))
         self.lock()
-        if self._window is not None:
+        if self._quit is not None:
+            self._quit()             # the tray's Quit: the X would only hide MyVault, leaving its files in use
+        elif self._window is not None:
             self._window.destroy()
         return {"ok": True}
 
@@ -648,7 +696,10 @@ def _page() -> str:
     html = (UI_DIR / "index.html").read_text("utf-8")
     css = (UI_DIR / "app.css").read_text("utf-8")
     js = (UI_DIR / "app.js").read_text("utf-8")
-    return html.replace("/*__CSS__*/", css).replace("//__JS__", js)
+    lang = i18n.language()
+    html = html.replace('<html lang="en">', f'<html lang="{lang}" dir="{"rtl" if lang == "ar" else "ltr"}">')
+    words = json.dumps(i18n.arabic() if lang == "ar" else {}, ensure_ascii=False).replace("</", "<\\/")
+    return html.replace("/*__CSS__*/", css).replace("//__JS__", f"window.I18N = {words};\n{js}")
 
 
 _mutex = None
@@ -704,6 +755,7 @@ def _run_in_tray(window, api: Api) -> None:
         window.destroy()
 
     icon = tray.Tray(str(ICON), window.show, lock, quit_)
+    api._quit = quit_
 
     def closing(sender, args):
         if args.CloseReason != CloseReason.UserClosing or state["quitting"]:
@@ -714,8 +766,8 @@ def _run_in_tray(window, api: Api) -> None:
         sender.Hide()
         if not state["told"]:
             state["told"] = True
-            icon.tell("MyVault is still running", "It's by the clock, so browser fill keeps working. "
-                      "Right-click the icon to lock or quit.")
+            icon.tell(i18n.tr("MyVault is still running"),
+                      i18n.tr("It's by the clock, so browser fill keeps working. Right-click the icon to lock or quit."))
 
     form.FormClosing += closing
     window.events.closed += icon.remove

@@ -47,7 +47,7 @@ class MyVaultAutofillService : AutofillService() {
         val pending = PendingIntent.getActivity(
             this, (System.nanoTime() and 0xffffff).toInt(), auth,
             PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_MUTABLE)
-        val dataset = Dataset.Builder(presentation(this, "Fill with MyVault"))
+        val dataset = Dataset.Builder(presentation(this, getString(R.string.fill_with_myvault)))
         listOfNotNull(f.username, f.password).forEach { dataset.setValue(it, null) }
         dataset.setAuthentication(pending.intentSender)
 

@@ -137,6 +137,17 @@ MyVault may use the network: allow it on **private** networks.
   ever sent. Updates are only installed if they carry the maintainer's
   signature, and Android also checks that the APK is signed with MyVault's
   release key.
+- **Installing an update replaces the old version.** Only the program is
+  replaced; your vault is never touched.
+- **Going back (Windows):** Settings › Updates › **Go back to the previous
+  version**. MyVault finds the newest stable (not pre-release) release before
+  yours, checks its signature, copies your vault to
+  `vault-before-rollback-<version>.dat`, then installs it. Do it again to go
+  further back, as far as 0.5.0 (older releases aren't signed).
+- **Going back (Android):** Android won't install an older version over a newer
+  one, and uninstalling removes the phone's copy of the vault. So sync with the
+  PC first, uninstall, install the older APK from Releases, then sync back.
+  The phone's Updates page has the steps.
 
 Making a release (maintainer):
 
@@ -144,7 +155,8 @@ Making a release (maintainer):
 .venv\Scripts\python packaging\release.py --notes "What changed" --publish
 ```
 
-That builds the signed phone APK, the Windows installer with the APK inside,
+Add `--prerelease` for a test build: it's never offered as an update or as a
+version to go back to. That builds the signed phone APK, the Windows installer with the APK inside,
 and the signed `latest.json`, then uploads them to a GitHub release. The keys
 live in `%USERPROFILE%\.myvault-release` (created once by
 `tools\make_release_keys.py`) and are never committed.
@@ -265,6 +277,24 @@ a while.
 - No independent security audit has been done; MyVault has had an automated and
   self-review only. Read the code, and report anything you find (see
   [SECURITY.md](SECURITY.md)).
+
+## Languages
+
+MyVault speaks **English** and **Arabic (العربية)**, right to left in Arabic. Each part
+follows your language by default:
+
+- **Windows app:** Windows' display language, or choose in **Settings › Language**.
+- **Phone app:** the phone's language, or choose in **menu › Language**.
+- **Browser extension:** the browser's language.
+- **Installer:** Windows' display language.
+
+Your own entries are never translated, and passwords, keys and addresses always read
+left to right. The printed paper backup stays in English (its built-in PDF font has no
+Arabic letters), and so do the README and the policies.
+
+Translations live in `myvault/ui/ar.json` (Windows), `android_app/lib/l10n_ar.dart`
+(phone) and `browser-extension/i18n.js` (extension): each maps the English text to
+Arabic. To add a language, add a file like these and a choice in the settings.
 
 ## Licence
 

@@ -5,13 +5,14 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'l10n.dart';
 import 'theme.dart';
 import 'update.dart' as upd;
 import 'version.dart';
 
 void _snack(BuildContext c, String msg) => ScaffoldMessenger.of(c)
   ..hideCurrentSnackBar()
-  ..showSnackBar(SnackBar(content: Text(msg)));
+  ..showSnackBar(SnackBar(content: Text(tr(msg))));
 
 bool isNewerVersion(String a, String b) => upd.isNewer(a, b);
 
@@ -29,20 +30,22 @@ Future<void> startupUpdateFlow(BuildContext context) async {
       context: context,
       barrierDismissible: false,
       builder: (c) => AlertDialog(
-        title: const Text('Check for updates online?'),
-        content: const Text(
-          'New versions of MyVault come out every now and then. To find out when, '
-          'MyVault can look at a small version file on GitHub (at most once a day). '
-          'Nothing from your vault is sent. You can change this later under Updates.',
+        title: Text(tr('Check for updates online?')),
+        content: Text(
+          tr(
+            'New versions of MyVault come out every now and then. To find out when, '
+            'MyVault can look at a small version file on GitHub (at most once a day). '
+            'Nothing from your vault is sent. You can change this later under Updates.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
-            child: const Text('No thanks'),
+            child: Text(tr('No thanks')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: const Text('Yes, let me know'),
+            child: Text(tr('Yes, let me know')),
           ),
         ],
       ),
@@ -74,20 +77,22 @@ Future<void> checkNow(BuildContext context, {bool quiet = false}) async {
     final go = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        title: Text('MyVault ${r.version} is available'),
+        title: Text(tr('MyVault ${r.version} is available')),
         content: Text(
-          'You have $appVersion. Updating keeps your vault exactly as it is.\n\n'
-          'Downloads ${_mb(size)}: the phone update, plus the PC update so you can '
-          'pass it to your PC the next time you sync. Best on WiFi.',
+          tr(
+            'You have $appVersion. Updating keeps your vault exactly as it is.\n\n'
+            'Downloads ${_mb(size)}: the phone update, plus the PC update so you can '
+            'pass it to your PC the next time you sync. Best on WiFi.',
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(c, false),
-            child: const Text('Later'),
+            child: Text(tr('Later')),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(c, true),
-            child: const Text('Update now'),
+            child: Text(tr('Update now')),
           ),
         ],
       ),
@@ -97,7 +102,7 @@ Future<void> checkNow(BuildContext context, {bool quiet = false}) async {
     if (!quiet && context.mounted) _snack(context, e.message);
   } catch (e) {
     if (!quiet && context.mounted) {
-      _snack(context, "Couldn't check for updates: $e");
+      _snack(context, tr("Couldn't check for updates: $e"));
     }
   }
 }
@@ -108,7 +113,7 @@ Future<void> _download(BuildContext context, upd.Release r) async {
     context: context,
     barrierDismissible: false,
     builder: (c) => AlertDialog(
-      title: const Text('Downloading the update'),
+      title: Text(tr('Downloading the update')),
       content: ValueListenableBuilder<double>(
         valueListenable: progress,
         builder: (_, v, _) => Column(
@@ -116,7 +121,7 @@ Future<void> _download(BuildContext context, upd.Release r) async {
           children: [
             LinearProgressIndicator(value: v == 0 ? null : v),
             const SizedBox(height: 10),
-            Text(v == 0 ? 'Starting…' : '${(v * 100).round()}%'),
+            Text(v == 0 ? tr('Starting…') : '${(v * 100).round()}%'),
           ],
         ),
       ),
@@ -142,7 +147,7 @@ Future<void> _download(BuildContext context, upd.Release r) async {
       Navigator.of(context).pop();
       _snack(
         context,
-        e is upd.UpdateException ? e.message : 'The download failed: $e',
+        e is upd.UpdateException ? e.message : tr('The download failed: $e'),
       );
     }
   }
@@ -157,19 +162,21 @@ Future<void> offerInstall(
   final go = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
-      title: Text('Install MyVault ${p.version}?'),
+      title: Text(tr('Install MyVault ${p.version}?')),
       content: Text(
-        '${from.isEmpty ? '' : '$from\n\n'}You have $appVersion. Your vault stays exactly as it is. '
-        "Android will show its install screen; MyVault closes while it updates.",
+        tr(
+          '${from.isEmpty ? '' : '$from\n\n'}You have $appVersion. Your vault stays exactly as it is. '
+          "Android will show its install screen; MyVault closes while it updates.",
+        ),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(c, false),
-          child: const Text('Later'),
+          child: Text(tr('Later')),
         ),
         FilledButton(
           onPressed: () => Navigator.pop(c, true),
-          child: const Text('Install'),
+          child: Text(tr('Install')),
         ),
       ],
     ),
@@ -185,7 +192,9 @@ Future<void> offerInstall(
   if (!started && context.mounted) {
     _snack(
       context,
-      'Allow "Install unknown apps" for MyVault, then come back and tap Install again.',
+      tr(
+        'Allow "Install unknown apps" for MyVault, then come back and tap Install again.',
+      ),
     );
   }
 }
@@ -229,25 +238,29 @@ class _UpdatesPageState extends State<UpdatesPage> {
             (last * 1000).round(),
           ).toString().substring(0, 16);
     return Scaffold(
-      appBar: AppBar(title: const Text('Updates')),
+      appBar: AppBar(title: Text(tr('Updates'))),
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
           Text(
-            'This is MyVault $appVersion.',
+            tr('This is MyVault $appVersion.'),
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 6),
           Text(
-            'Updates also arrive offline: when you sync, a newer PC hands its phone update over.',
+            tr(
+              'Updates also arrive offline: when you sync, a newer PC hands its phone update over.',
+            ),
             style: TextStyle(color: e.ink2, height: 1.4),
           ),
           const SizedBox(height: 10),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
-            title: const Text('Let me know when a new version is out'),
-            subtitle: const Text(
-              'MyVault looks at a small version file on GitHub, at most once a day. Nothing from your vault is sent.',
+            title: Text(tr('Let me know when a new version is out')),
+            subtitle: Text(
+              tr(
+                'MyVault looks at a small version file on GitHub, at most once a day. Nothing from your vault is sent.',
+              ),
             ),
             value: on,
             onChanged: (v) async {
@@ -257,7 +270,7 @@ class _UpdatesPageState extends State<UpdatesPage> {
             },
           ),
           Text(
-            'Last checked: $when',
+            tr('Last checked: $when'),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
           ),
           const SizedBox(height: 16),
@@ -265,7 +278,7 @@ class _UpdatesPageState extends State<UpdatesPage> {
             FilledButton.icon(
               onPressed: () => offerInstall(context, _ready!),
               icon: const Icon(Icons.system_update),
-              label: Text('Install MyVault ${_ready!.version}'),
+              label: Text(tr('Install MyVault ${_ready!.version}')),
             )
           else
             OutlinedButton.icon(
@@ -278,8 +291,36 @@ class _UpdatesPageState extends State<UpdatesPage> {
                       _load();
                     },
               icon: const Icon(Icons.refresh),
-              label: Text(_busy ? 'Checking…' : 'Check now'),
+              label: Text(tr(_busy ? 'Checking…' : 'Check now')),
             ),
+          const SizedBox(height: 26),
+          Text(
+            tr('Go back to the previous version'),
+            style: TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            tr(
+              "Android doesn't let an app install an older version of itself over a newer one. "
+              'Going back means removing MyVault, which also removes its copy of your vault, so:\n\n'
+              '1. Sync with your PC first, so the PC has everything.\n'
+              '2. Uninstall MyVault on this phone.\n'
+              '3. Install the older MyVault APK from the releases page.\n'
+              '4. Create a master password, then sync with your PC again.',
+            ),
+            style: TextStyle(color: e.ink2, height: 1.45),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () => const MethodChannel(
+                'myvault/update',
+              ).invokeMethod('openDoc', 'RELEASES'),
+              icon: const Icon(Icons.open_in_new, size: 18),
+              label: Text(tr('Open the releases page')),
+            ),
+          ),
         ],
       ),
     );
@@ -295,31 +336,33 @@ class AboutPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final e = Envelope.of(context);
     Widget doc(String title, String file) => ListTile(
-      title: Text(title),
+      title: Text(tr(title)),
       trailing: const Icon(Icons.open_in_new, size: 18),
       onTap: () =>
           const MethodChannel('myvault/update').invokeMethod('openDoc', file),
     );
     return Scaffold(
-      appBar: AppBar(title: const Text('About MyVault')),
+      appBar: AppBar(title: Text(tr('About MyVault'))),
       body: ListView(
         children: [
           Padding(
             padding: const EdgeInsets.all(18),
             child: Text(
-              'MyVault $appVersion\n\nMade by Ahmed Mohammed. Free software under the GPL-3.0 licence. Your vault stays on your '
-              'devices: no account, no cloud, no tracking.',
+              tr(
+                'MyVault $appVersion\n\nMade by Ahmed Mohammed. Free software under the GPL-3.0 licence. Your vault stays on your '
+                'devices: no account, no cloud, no tracking.',
+              ),
               style: TextStyle(color: e.ink2, height: 1.45),
             ),
           ),
-          doc('Privacy policy', 'PRIVACY.md'),
-          doc('Terms of use', 'TERMS.md'),
-          doc('Security & reporting a problem', 'SECURITY.md'),
-          doc("What's new", 'CHANGELOG.md'),
+          doc(tr('Privacy policy'), 'PRIVACY.md'),
+          doc(tr('Terms of use'), 'TERMS.md'),
+          doc(tr('Security & reporting a problem'), 'SECURITY.md'),
+          doc(tr("What's new"), 'CHANGELOG.md'),
           Padding(
             padding: const EdgeInsets.all(18),
             child: Text(
-              'Contact: ahmedmohammedkhear@gmail.com',
+              tr('Contact: ahmedmohammedkhear@gmail.com'),
               style: TextStyle(color: e.ink3, fontSize: 12.5),
             ),
           ),
