@@ -54,6 +54,10 @@ Name: "startup"; Description: "{cm:StartupTask}"; GroupDescription: "{cm:Additio
 ; Same per-user Run entry the in-app switch (Settings > Start with Windows) manages.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyVault"; ValueData: """{app}\MyVault.exe"" --minimized"; Flags: uninsdeletevalue; Tasks: startup
 
+[InstallDelete]
+; Phone APKs from earlier versions: keep only the one that matches this PC app.
+Type: filesandordirs; Name: "{app}\packages"
+
 [Files]
 Source: "..\dist\MyVault\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
