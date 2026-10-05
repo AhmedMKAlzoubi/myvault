@@ -62,4 +62,7 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")   // FileProvider, for installing updates
+    // Reading document text on the phone: Google ML Kit with the model bundled
+    // in the app, so it works offline and nothing is downloaded or sent.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 }

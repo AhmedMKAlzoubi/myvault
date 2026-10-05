@@ -12,7 +12,7 @@ import 'crypto.dart';
 
 double _now() => DateTime.now().millisecondsSinceEpoch / 1000.0;
 
-const kinds = ['login', 'api', 'ssh', 'note'];
+const kinds = ['login', 'api', 'ssh', 'note', 'document'];
 const searchableFields = [
   'service',
   'client_id',
@@ -188,7 +188,11 @@ class Vault {
     tmp.writeAsBytesSync(blob, flush: true);
     if (File(path).existsSync()) File(path).deleteSync();
     tmp.renameSync(path);
+    onSave?.call();
   }
+
+  /// Called after every save (the app hands reminders to Android).
+  void Function()? onSave;
 
   /// Restore from a paper backup. Unlike sync, a backup copy beats a local
   /// deletion even when the deletion is newer (restoring means "bring these

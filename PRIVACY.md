@@ -1,6 +1,6 @@
 # MyVault Privacy Policy
 
-**Last updated:** 3 October 2026 · Applies to MyVault 0.5.2 and later (Windows app, Android app, browser extension)
+**Last updated:** 5 October 2026 · Applies to MyVault 0.6.0 and later (Windows app, Android app, browser extension)
 
 MyVault is a password manager that runs only on your own devices. It is made by Ahmed Mohammed as a personal open project. There is no MyVault company, server, account or cloud.
 
@@ -17,7 +17,10 @@ MyVault is a password manager that runs only on your own devices. It is made by 
 | Your vault (logins, notes, API keys, SSH keys, secrets) | Windows: `%LOCALAPPDATA%\MyVault\`; Android: the app's private storage | Your master password (scrypt + AES-256-GCM) |
 | Settings (auto-lock time, update-check choice, start with Windows) | Same folder, a small file; on Android the app's private storage | Not secret; contains no vault data |
 | Logins Android captured for you ("Save to MyVault?") before you unlocked | The app's private storage on the phone, until you next unlock | AES-256-GCM with a key held by the Android Keystore |
-| Paper backup PDF | Wherever you save or print it | Your master password (scrypt, stronger settings) |
+| Personal document files (photos and PDFs of passports, IDs, contracts…) | Next to the vault, in a `files` folder, one encrypted file each | AES-256-GCM, each with its own random key kept inside the encrypted vault |
+| Document reminder schedule | Next to the vault (`reminders.json`); on Android the app's private storage | Not encrypted, so reminders work while MyVault is locked. It holds only, for each reminder, the date, the expiry date and a short text such as "Passport expires in 1 month" (the type, or the name you chose for reminders). Never numbers, holders' names or anything else from the document |
+| Copies of documents you choose to save | Wherever you save them | **Not encrypted.** MyVault warns you before saving one |
+| Paper backup PDF | Wherever you save or print it | Your master password (scrypt, stronger settings). It includes document details, not the photos or PDFs |
 
 ## When MyVault uses the network
 
@@ -29,9 +32,15 @@ MyVault makes only these connections:
 
 ## Permissions (Android)
 
-- **Camera:** used only to scan the sync QR code. No pictures are saved.
+- **Camera:** used to scan the sync QR code and, when you choose "Take a photo", to photograph a document. The photo goes straight into MyVault's encrypted storage; the camera app's temporary copy is deleted at once.
+- **Notifications:** used only for document reminders you set. Each says only the document type (or the name you chose) and the time left, e.g. "Passport expires in 1 month". On a locked screen Android hides even that.
+- **Run at startup:** so document reminders keep working after the phone restarts. Nothing else runs.
 - **Install other apps:** used only when you choose to install a MyVault update. Before installing, MyVault checks the file is signed by the same key as the app you already have.
 - **Autofill service (optional, you switch it on):** lets MyVault offer to fill and save logins in other apps. MyVault reads a login screen only when Android asks it to fill or save, keeps only the app name or website and the username and password, and fills only after you unlock and pick an account.
+
+## Reading documents
+
+When you ask MyVault to read a document's details, the text is read **on your device**: on Windows by its built-in text reader, on Android by Google's on-device text recognizer, which is built into the MyVault app. No image or text is sent anywhere. The details are only suggestions; you check them before saving.
 
 ## Clipboard and screen
 

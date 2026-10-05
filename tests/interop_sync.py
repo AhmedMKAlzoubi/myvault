@@ -38,7 +38,7 @@ def release(folder: Path, key, platform: str, name: str, data: bytes) -> None:
 with tempfile.TemporaryDirectory() as d:
     d = Path(d)
     os.environ["LOCALAPPDATA"] = str(d / "pc")              # PC data dir (and its package cache)
-    from myvault import sync, update                      # noqa: E402
+    from myvault import docs, sync, update                # noqa: E402
     from myvault.vault import Entry, Vault               # noqa: E402
 
     key = Ed25519PrivateKey.generate()                  # stands in for the real update key
@@ -56,19 +56,31 @@ with tempfile.TemporaryDirectory() as d:
             self.v.entries = [Entry.from_dict(x) for x in merged]
             self.v.save()
             return len(merged)
-        def app_version(self): return "0.5.0"
+        def app_version(self): return "0.6.0"
         def platform(self): return "windows"
         def offers(self): return update.offers()
         def package_for(self, plat): return update.packages().get(plat)
         def receive_package(self, plat, manifest, sig, tmp): return update.store(manifest, sig, plat, tmp).version
+        # document files
+        def file_sync(self): return True
+        def file_refs(self):
+            return {r["id"]: r for e in self.v.entries if e.kind == "document" and not e.deleted for r in docs.refs(e.fields)}
+        def has_file(self, i): return docs.have(i)
+        def read_file(self, i): return docs.read_blob(i)
+        def store_file(self, i, blob): docs.store_blob(self.file_refs()[i], blob)
 
     v = Vault.create(d / "pc.dat", "pc-pass-123")
+    pc_scan = b"%PDF-1.4 PC lease " + os.urandom(1_500_000)           # more than one sync chunk
+    pc_ref = docs.seal(pc_scan, "lease.pdf")
     v.entries = [Entry(id="from-pc", kind="api", title="PC API", fields={"api_key": "PC-KEY"}, updated_at=400),
-                 Entry(id="shared", title="Shared", password="pc-older", updated_at=100)]
+                 Entry(id="shared", title="Shared", password="pc-older", updated_at=100),
+                 Entry(id="pc-doc", kind="document", title="Lease", updated_at=400,
+                       fields={"doc_type": "rental", "expires": "2027-02-28", "files": json.dumps([pc_ref])})]
     s = sync.PairingSession(Provider(v), port=0, ttl=120)
     uri = s.uri.replace(s.uri.split("h=")[1].split("&")[0], "127.0.0.1")
     env = dict(os.environ, MYVAULT_SYNC_URI=uri, MYVAULT_PHONE_DIR=str(d / "phone"),
-               MYVAULT_PC_VERSION="0.5.0", MYVAULT_PKG_VERSION=PKG, MYVAULT_APK_SIZE=str(len(apk)),
+               MYVAULT_PC_VERSION="0.6.0", MYVAULT_PKG_VERSION=PKG, MYVAULT_APK_SIZE=str(len(apk)),
+               MYVAULT_PC_FILE=pc_ref["id"], MYVAULT_PC_FILE_SIZE=str(len(pc_scan)),
                MYVAULT_UPDATE_PUBKEY=update.UPDATE_PUBKEY.hex())
     flutter = "flutter.bat" if os.name == "nt" else "flutter"
     rc = subprocess.call([flutter, "test", "test/interop_sync_test.dart"], cwd=ROOT / "android_app", env=env)
@@ -84,4 +96,7 @@ with tempfile.TemporaryDirectory() as d:
     assert s.result.received == PKG and got.path.read_bytes() == installer, (s.result, got)
     phone_version = re.search(r"appVersion = '([0-9.]+)'", (ROOT / "android_app" / "lib" / "version.dart").read_text()).group(1)
     assert s.result.sent == PKG and s.result.peer_version == phone_version, s.result
-    print("INTEROP OK: entries converged; APK went PC -> phone and the installer phone -> PC, both verified")
+    phone_ref = docs.refs(ids["phone-doc"].fields)[0]
+    assert docs.open_sealed(phone_ref)[:12] == b"\xff\xd8\xff phone ID" and s.result.files_received == 1, s.result
+    print("INTEROP OK: entries converged; APK went PC -> phone and the installer phone -> PC, both verified;")
+    print("            document files went both ways and open with their keys")

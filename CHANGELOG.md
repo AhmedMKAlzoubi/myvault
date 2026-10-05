@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.0 (5 October 2026)
+
+- **Personal documents** (Windows and Android): passports, ID cards, residence permits, visas, driving licences, car registrations, rental contracts, insurance and more.
+  - Keep the details (type, name on the document, number, issued by, issue and expiry dates) and photos or PDFs of it, all encrypted. Each file has its own key, kept inside the vault.
+  - **Reads the details for you, on your device:** from the machine-readable zone of passports and ID cards (checked with its check digits), or from dates labelled "expiry", "valid until", "تاريخ الانتهاء"… Windows uses its built-in text reader; the phone uses Google's on-device one, built into the app. Nothing is sent anywhere. You check the details before saving, and can always type them yourself.
+  - **Reminders before a document expires:** choose any mix of 1 day, 3 days, 1 week, 2 weeks, 1 month, 2, 3 or 6 months, 1 year or your own number of days, plus the day itself. Notifications say only the type or a name you choose ("Passport expires in 1 month"), never numbers or names. They work while MyVault is locked or closed, and on the phone after a restart.
+  - **Expiring soon** on the home screen, and each document's expiry in the list.
+  - **Save a copy** of a file, after a warning that the copy isn't encrypted.
+  - **Sync:** document details always sync. The files sync too unless you switch that off on a device (Settings › Documents on Windows, menu › Documents on the phone). Both devices need 0.6.0 for files to sync.
+- Arabic for everything new.
+
 ## 0.5.4 (3 October 2026)
 
 - **Arabic (العربية).** The Windows app, the phone app, the browser extension and the installer now come in English and Arabic, right to left in Arabic. They follow your system language, or you can choose in Settings (Windows) or the menu (phone). Your entries are never translated, and passwords always read left to right.

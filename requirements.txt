@@ -2,3 +2,12 @@
 cryptography>=50      # scrypt + AES-256-GCM + Ed25519 (50+: CVE-2026-69247 fix)
 pywebview>=6.2        # native window around the HTML UI (Edge WebView2 on Windows)
 segno>=1.6            # QR codes for phone sync and the paper backup (pure Python)
+# Reading personal documents with Windows' built-in, offline text reader (OCR)
+winrt-runtime>=3.2; sys_platform == "win32"
+winrt-Windows.Foundation>=3.2; sys_platform == "win32"
+winrt-Windows.Foundation.Collections>=3.2; sys_platform == "win32"
+winrt-Windows.Globalization>=3.2; sys_platform == "win32"
+winrt-Windows.Graphics.Imaging>=3.2; sys_platform == "win32"
+winrt-Windows.Media.Ocr>=3.2; sys_platform == "win32"
+winrt-Windows.Storage.Streams>=3.2; sys_platform == "win32"
+winrt-Windows.Data.Pdf>=3.2; sys_platform == "win32"

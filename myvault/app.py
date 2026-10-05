@@ -13,6 +13,7 @@ only while the "Sync with phone" sheet is open.
 
 from __future__ import annotations
 
+import base64
 import ctypes
 import ipaddress
 import json
@@ -28,7 +29,7 @@ from pathlib import Path
 import segno
 import webview
 
-from . import __version__, autostart, autotype, clipboard, config, crypto, i18n, paper, paths, server, sync, update, webmatch
+from . import __version__, autostart, autotype, clipboard, config, crypto, docs, i18n, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault
 
@@ -71,7 +72,8 @@ def _summary(e: Entry) -> dict:
     else:
         sub = ""      # a secure note's text is secret: never show it in the list
     return {"id": e.id, "kind": e.kind, "title": e.display_name(), "subtitle": sub,
-            "website": e.website, "updated_at": e.updated_at}
+            "website": e.website, "updated_at": e.updated_at,
+            "expires": e.fields.get("expires", "") if e.kind == "document" else ""}
 
 
 class Api:
@@ -89,6 +91,8 @@ class Api:
         self._upd_release = None     # (manifest, raw, sig) of a newer release found online
         self._rollback = None        # (manifest, raw, sig) of the release before this one
         self._quit = None            # really exit (set by the tray, whose X only hides)
+        self._tell = None            # show a notification (set by the tray)
+        threading.Thread(target=self._reminder_loop, daemon=True).start()
         self._autotype_hwnd = 0      # the window "Type into app" will type into
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
@@ -156,6 +160,12 @@ class Api:
         except crypto.VaultFormatError as exc:
             return {"ok": False, "error": str(exc)}
         self._last_activity = time.time()
+        self._vault.on_save = self._documents_changed
+        self._documents_changed()
+        try:
+            docs.cleanup(self._vault.entries)
+        except OSError:
+            pass
         self._start_connector()
         self.check_updates()
         return {"ok": True}
@@ -230,6 +240,103 @@ class Api:
             return {"ok": True, "name": p.name, "text": p.read_text("utf-8").strip()}
         except (OSError, UnicodeDecodeError):
             return {"ok": False, "error": "That isn't a text key file."}
+
+    # ---- documents ---------------------------------------------------------------
+    def doc_add_files(self) -> dict:
+        """Pick photos or PDFs. Each is encrypted the moment it's picked; the
+        entry keeps the reference (with its key) when you save."""
+        self._need()
+        picked = self._window.create_file_dialog(
+            webview.OPEN_DIALOG, allow_multiple=True,
+            file_types=("Photos and PDFs (*.jpg;*.jpeg;*.png;*.webp;*.pdf)", "All files (*.*)"))
+        added = []
+        for name in picked or ():
+            p = Path(name)
+            try:
+                if p.stat().st_size > docs.MAX_FILE:
+                    raise ValueError(f"That file is over {docs.MAX_FILE // (1024 * 1024)} MB.")
+                added.append(docs.seal(p.read_bytes(), p.name))
+            except (OSError, ValueError) as exc:
+                return {"ok": bool(added), "files": added, "error": f"{p.name}: {exc}"}
+        return {"ok": bool(added), "files": added}
+
+    def doc_read(self, ref: dict) -> dict:
+        """Read a document's details from its scan (on this PC, offline)."""
+        self._need()
+        try:
+            found = docs.read_details(docs.ocr(docs.open_sealed(ref)))
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "found": found}
+
+    def doc_preview(self, ref: dict) -> dict:
+        """The file as an image the page can show (a PDF's first page)."""
+        self._need()
+        try:
+            data = docs.open_sealed(ref)
+            if docs.sniff_mime(data) == "application/pdf":
+                data, mime = docs.preview_png(data), "image/png"
+            else:
+                mime = docs.sniff_mime(data)
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "src": f"data:{mime};base64," + base64.b64encode(data).decode()}
+
+    def doc_save_copy(self, ref: dict) -> dict:
+        """Save the file, decrypted, wherever you choose."""
+        self._need()
+        try:
+            data = docs.open_sealed(ref)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        picked = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=str(ref.get("name") or "document"))
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        target.write_bytes(data)
+        return {"ok": True, "path": str(target)}
+
+    def doc_settings(self) -> dict:
+        cfg = config.load()
+        return {"sync_files": cfg.get("sync_files", True), "presets": list(docs.REMIND_PRESETS)}
+
+    def set_doc_sync(self, on: bool) -> dict:
+        cfg = config.load()
+        cfg["sync_files"] = bool(on)
+        config.save(cfg)
+        return self.doc_settings()
+
+    def _documents_changed(self) -> None:
+        try:
+            if self._vault is not None:
+                docs.save_schedule(self._vault.entries)
+        except OSError:
+            pass
+
+    def _reminder_loop(self) -> None:
+        """Every half hour (and soon after start): notify about documents that are
+        due. Works while locked, from the schedule file (type + your label only)."""
+        time.sleep(20)
+        while True:
+            try:
+                self._check_reminders()
+            except Exception:      # never let a bad file stop reminders for good
+                pass
+            time.sleep(1800)
+
+    def _check_reminders(self) -> None:
+        import datetime as dt
+        plan = docs.load_schedule()
+        cfg = config.load()
+        shown = set(cfg.get("reminders_shown", []))
+        if self._tell is None:
+            return
+        for r in docs.due(plan, dt.date.today(), shown):
+            self._tell("MyVault", docs.reminder_text(r, i18n.tr))
+            shown.add(r["key"])
+        keys = {r["key"] for r in plan}
+        cfg["reminders_shown"] = sorted(shown & keys)          # forget reminders that no longer exist
+        config.save(cfg)
 
     # ---- clipboard / generator --------------------------------------------
     def copy(self, text: str) -> dict:
@@ -361,7 +468,7 @@ class Api:
                "rejected": s.failed_attempts, "error": s.last_error, "version": __version__}
         if r:
             out.update(peer_version=r.peer_version, received=r.received, sent=r.sent,
-                       update_error=r.update_error)
+                       update_error=r.update_error, files_received=r.files_received, files_error=r.files_error)
         return out
 
     def sync_cancel(self) -> dict:
@@ -572,6 +679,23 @@ class _SyncProvider:
         with self.api._lock:
             return [e.to_dict() for e in self.api._need().entries]
 
+    # -- document files --
+    def file_sync(self) -> bool:
+        return bool(config.load().get("sync_files", True))
+
+    def file_refs(self) -> dict:
+        v = self.api._need()
+        return {r["id"]: r for e in v.active_entries() if e.kind == "document" for r in docs.refs(e.fields)}
+
+    def has_file(self, file_id: str) -> bool:
+        return docs.have(file_id)
+
+    def read_file(self, file_id: str) -> bytes:
+        return docs.read_blob(file_id)
+
+    def store_file(self, file_id: str, blob: bytes) -> None:
+        docs.store_blob(self.file_refs()[file_id], blob)
+
     def apply_merged(self, merged: list[dict]) -> int:
         with self.api._lock:
             v = self.api._need()
@@ -756,6 +880,7 @@ def _run_in_tray(window, api: Api) -> None:
 
     icon = tray.Tray(str(ICON), window.show, lock, quit_)
     api._quit = quit_
+    api._tell = icon.tell
 
     def closing(sender, args):
         if args.CloseReason != CloseReason.UserClosing or state["quitting"]:

@@ -13,6 +13,8 @@
     api: P('<path d="M8 6l-6 6 6 6M16 6l6 6-6 6M13.5 4l-3 16"/>'),
     ssh: P('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 10l3 2.5L7 15M12.5 15H17"/>'),
     note: P('<path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/>'),
+    document: P('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="11" r="2.4"/><path d="M5.6 16.4c.7-1.5 1.9-2.3 3.4-2.3s2.7.8 3.4 2.3M14.5 10h4M14.5 13.5h3"/>'),
+    bell: P('<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>'),
     search: P('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/>'),
     plus: P('<path d="M12 5v14M5 12h14"/>'),
     lock: P('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/>'),
@@ -142,6 +144,16 @@
 
   // ---- entry kinds ------------------------------------------------------------
   const F = (key, label, o = {}) => ({ key, label, ...o });
+  const DOC_TYPES = [["", "Choose a type"], ["passport", "Passport"], ["id_card", "ID card"], ["residence", "Residence permit"],
+    ["visa", "Visa"], ["driving_license", "Driving licence"], ["car_registration", "Car registration"],
+    ["rental", "Rental contract"], ["insurance", "Insurance"], ["other", "Document"]];
+  const typeLabel = (k) => (DOC_TYPES.find(([v]) => v === k && v) || [0, "Document"])[1];
+  const LEADS = [[1, "1 day"], [3, "3 days"], [7, "1 week"], [14, "2 weeks"], [30, "1 month"], [60, "2 months"],
+    [90, "3 months"], [180, "6 months"], [365, "1 year"]];
+  const leadLabel = (d) => (LEADS.find(([n]) => n === d) || [0, `${d} days`])[1];
+  const fileRefs = (e) => { try { return JSON.parse((e.fields || {}).files || "[]"); } catch { return []; } };
+  const remindList = (e) => [...new Set(String((e.fields || {}).remind || "").split(",").map(Number).filter((n) => n > 0))].sort((a, b) => b - a);
+  const daysLeft = (iso) => Math.round((new Date(iso + "T00:00") - new Date(new Date().toDateString())) / 86400000);
   const KINDS = {
     login: {
       label: "Login", plural: "Logins", desc: "A website or app sign-in.",
@@ -165,6 +177,12 @@
     note: {
       label: "Secure note", plural: "Notes", desc: "Recovery codes, PINs, anything private.",
       fields: [F("notes", "Note", { top: 1, secret: 1, multi: 1 })],
+    },
+    document: {
+      label: "Document", plural: "Documents", desc: "Passport, ID, visa, licence or contract, with a reminder before it expires.",
+      fields: [F("doc_type", "Type", { options: DOC_TYPES }), F("holder", "Name on the document"),
+        F("number", "Document number", { secret: 1 }), F("country", "Issued by", { ph: "e.g. Jordan" }),
+        F("issued", "Issue date", { type: "date" }), F("expires", "Expiry date", { type: "date" })],
     },
   };
   const getVal = (e, f) => (f.top ? e[f.key] : (e.fields || {})[f.key]) || "";
@@ -341,7 +359,14 @@
     ul.replaceChildren(...items.map((e) => h("li", { class: "item", role: "option", "data-id": e.id,
       "aria-selected": String(S.selected === e.id), onclick: () => guard(() => openEntry(e.id)) },
     h("span", { class: "glyph" }, icon(e.kind)),
-    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)), e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
+    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)),
+      e.kind === "document" && e.expires ? expiryLine(e.expires)
+        : e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
+  }
+  function expiryLine(iso) {
+    const n = daysLeft(iso);
+    return h("div", { class: "sub" + (n < 0 ? " bad" : n <= 30 ? " warn" : "") },
+      n < 0 ? `Expired ${fmtDay(iso)}` : n === 0 ? "Expires today" : `Expires ${fmtDay(iso)}`);
   }
 
   function moveSel(d) {
@@ -390,6 +415,7 @@
           ? "Start with the account you use most. MyVault keeps logins, API keys, SSH keys and private notes, all encrypted on this computer."
           : "Pick one on the left, or search. Secret values stay covered until you reveal them."),
         empty ? btn("Add your first entry", () => showNew(), "primary", "plus") : null,
+        expiringSoon(),
         h("div", { class: "keys" },
           h("span", {}, h("kbd", { class: "k" }, "Ctrl"), " ", h("kbd", { class: "k" }, "F"), " search"),
           h("span", {}, h("kbd", { class: "k" }, "Ctrl"), " ", h("kbd", { class: "k" }, "N"), " new login"),
@@ -492,7 +518,8 @@
   function renderView(e) {
     const typeBox = h("div", { "aria-live": "polite" });
     const K = KINDS[e.kind] || KINDS.login;
-    const rows = [...K.fields, ...(K.more || [])].map((f) => [f, getVal(e, f)]).filter(([, v]) => v);
+    const rows = [...K.fields, ...(K.more || [])].map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
+      .map(([f, v]) => [f, f.options ? t(typeLabel(v)) : f.type === "date" ? fmtDay(v) : v]);
     const custom = Object.entries(e.custom || {});
     const where = e.kind === "login" ? e.website : e.fields?.service;
     sheet(h("article", { class: "page" },
@@ -505,11 +532,155 @@
       rows.length || e.notes ? h("dl", { class: "fields" }, rows.map(([f, v]) => fieldRow(f, v)),
         e.kind !== "note" && !!e.notes && fieldRow(F("notes", "Notes", { multi: 1, prose: 1 }), e.notes))
         : h("p", { class: "prose" }, "Nothing stored here yet. Choose Edit to add details."),
+      e.kind === "document" && documentView(e),
       custom.length > 0 && [h("p", { class: "section-t" }, "Extra fields"),
         h("dl", { class: "fields", style: "margin-top:8px" }, custom.map(([k, v]) => fieldRow(F(k, k), v)))],
       h("p", { class: "meta" }, `Last changed ${fmtDate(e.updated_at)} · Created ${fmtDate(e.created_at)}`)));
   }
   const fmtDate = (t) => new Date(t * 1000).toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
+  const fmtDay = (iso) => new Date(iso + "T00:00").toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
+
+  // ---- documents: files, reminders ----------------------------------------------
+  function documentView(e) {
+    const days = remindList(e);
+    const files = fileRefs(e);
+    const name = (e.fields.remind_name || "").trim() || t(typeLabel(e.fields.doc_type));
+    return [
+      h("p", { class: "section-t" }, "Reminders"),
+      h("p", { class: "prose", style: "margin:6px 0 0" }, icon("bell"), " ",
+        !e.fields.expires ? "Add the expiry date to get reminders."
+          : !days.length ? "No reminders set. Choose Edit to add some."
+          : [days.map((d) => t(leadLabel(d))).join(t(", ")), t(" before it expires, and on the day.")]),
+      days.length > 0 && e.fields.expires && h("p", { class: "hint" }, "A notification will say: ",
+        raw(`“${t(`${name} expires in ${leadLabel(days[0])}.`)}”`)),
+      files.length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(files, null)],
+    ];
+  }
+
+  // Thumbnails of a document's files. With onRemove (editing), each tile can be
+  // removed or read; otherwise clicking opens the file.
+  function fileGrid(files, edit) {
+    const grid = h("div", { class: "files" });
+    for (const ref of files) {
+      const img = h("img", { alt: "", loading: "lazy" });
+      const tile = h("div", { class: "file-tile" },
+        h("button", { type: "button", class: "thumb", title: ref.name, "aria-label": `Open ${ref.name}`, onclick: () => openFile(ref) },
+          img, ref.mime === "application/pdf" && h("span", { class: "pdf" }, "PDF")),
+        h("span", { class: "fname" }, raw(ref.name)),
+        edit && h("div", { class: "file-acts" },
+          btn("Read details", () => edit.read(ref), "sm", "search"),
+          iconBtn("x", "Remove file", () => { edit.remove(ref); tile.remove(); })));
+      call("doc_preview", ref).then((r) => { if (r.ok) img.src = r.src; else tile.classList.add("missing"); });
+      grid.append(tile);
+    }
+    return grid;
+  }
+
+  function openFile(ref) {
+    const big = h("img", { alt: ref.name });
+    const msg = h("div", { "aria-live": "polite" });
+    const close = () => box.remove();
+    const save = () => msg.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px" },
+      h("span", {}, h("b", {}, "Save an unprotected copy? "), "The copy isn't encrypted: anyone who can open the folder you choose can see it."),
+      h("div", { class: "inp-row" }, btn("Save a copy", async () => {
+        const r = await call("doc_save_copy", ref);
+        if (r.ok) { msg.replaceChildren(); toast(`Saved to ${r.path}.`); } else if (r.error) toast(r.error, true);
+      }, "primary sm"), btn("Cancel", () => msg.replaceChildren(), "sm"))));
+    const box = h("div", { class: "viewer", role: "dialog", "aria-label": ref.name, onclick: (ev) => { if (ev.target === box) close(); } },
+      h("div", { class: "viewer-card" },
+        h("div", { class: "viewer-head" }, h("b", {}, raw(ref.name)), h("span", { class: "spacer" }),
+          btn("Save a copy…", save, "sm", "file"), iconBtn("x", "Close", close)),
+        msg, h("div", { class: "viewer-body" }, big)));
+    box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
+    document.body.append(box);
+    box.querySelector("button").focus();
+    call("doc_preview", ref).then((r) => { if (r.ok) big.src = r.src; else msg.replaceChildren(h("p", { class: "err" }, r.error)); });
+  }
+
+  // The edit form's document part: files, reading details, reminders.
+  function documentEditor(e, inputs, dirty) {
+    let files = fileRefs(e);
+    const isNew = !e.id;
+    const days = new Set(isNew ? [30, 7] : remindList(e));
+    const note = h("div", { "aria-live": "polite" });
+    const value = (key) => (inputs.find(([f]) => f.key === key) || [])[1];
+
+    async function read(ref) {
+      note.replaceChildren(h("p", { class: "hint" }, "Reading the document…"));
+      const r = await call("doc_read", ref);
+      if (!r.ok) return note.replaceChildren(h("p", { class: "err" }, r.error));
+      const f = r.found, filled = [], kept = [];
+      for (const [key, label] of [["doc_type", "Type"], ["holder", "Name on the document"], ["number", "Document number"],
+        ["country", "Issued by"], ["issued", "Issue date"], ["expires", "Expiry date"]]) {
+        const el = value(key);
+        if (!el || !f[key]) continue;
+        if (!el.value) { el.value = f[key]; el.dispatchEvent(new Event("change")); filled.push(t(label)); }
+        else if (el.value !== f[key]) kept.push(t(label));
+      }
+      if (filled.length) dirty();
+      note.replaceChildren(h("div", { class: "result" + (filled.length ? "" : " bad") },
+        !filled.length && !kept.length ? "Couldn't find the details in this file. Type them in instead."
+          : [f.how === "mrz" ? "Read from the machine-readable zone (the <<< lines) and checked. " : "Read from the document's text. ",
+            filled.length ? `Filled in: ${filled.join(t(", "))}. ` : "",
+            kept.length ? `Kept what you'd typed for: ${kept.join(t(", "))}. ` : "",
+            f.guessed ? "The expiry date is a guess (it wasn't labelled). " : "",
+            "Check the details before saving."]));
+    }
+    const edit = { read, remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); } };
+    const grid = h("div");
+    const paint = () => grid.replaceChildren(files.length ? fileGrid(files, edit) : h("p", { class: "hint", style: "margin:0" }, "No files yet."));
+    paint();
+    const add = btn("Add photos or PDFs…", async () => {
+      const r = await call("doc_add_files");
+      if (r.error) toast(r.error, true);
+      if (!r.files?.length) return;
+      files = [...files, ...r.files];
+      dirty();
+      paint();
+      if (r.files.length === 1 && !value("expires").value) read(r.files[0]);     // the obvious next step
+    }, "sm", "plus");
+
+    const chips = h("div", { class: "chips", role: "group", "aria-label": "Remind me before it expires" });
+    const paintChips = () => chips.replaceChildren(
+      ...[...new Set([...LEADS.map(([n]) => n), ...days])].sort((a, b) => a - b).map((d) => {
+        const on = days.has(d);
+        return h("button", { type: "button", class: "chip", "aria-pressed": String(on), onclick: () => {
+          on ? days.delete(d) : days.add(d); dirty(); paintChips(); } }, leadLabel(d));
+      }));
+    paintChips();
+    const custom = h("input", { class: "inp", type: "number", min: 1, max: 3650, placeholder: "Days", "aria-label": "Days before it expires", style: "width:90px" });
+    const remindName = h("input", { class: "inp", value: (e.fields || {}).remind_name || "", oninput: dirty, maxlength: 40,
+      "aria-label": "Name in reminders", placeholder: t(typeLabel((e.fields || {}).doc_type)) });
+    value("doc_type")?.addEventListener("change", (ev) => { remindName.placeholder = t(typeLabel(ev.target.value)); });
+
+    const el = h("div", { class: "form", style: "margin:0" },
+      h("div", { class: "field" }, h("span", { class: "lbl" }, "Files"),
+        h("p", { class: "hint" }, "Photos or PDFs of the document. They're encrypted the moment you add them. MyVault can read the details from them, on this PC."),
+        grid, note, h("div", {}, add)),
+      h("div", { class: "field" }, h("span", { class: "lbl" }, "Remind me before it expires"),
+        chips,
+        h("div", { class: "inp-row", style: "margin-top:8px" }, custom, btn("Add days", () => {
+          const n = parseInt(custom.value, 10);
+          if (n > 0 && n <= 3650) { days.add(n); custom.value = ""; dirty(); paintChips(); }
+        }, "sm", "plus")),
+        h("p", { class: "hint" }, "Choose as many as you like. You're also reminded on the day it expires.")),
+      h("div", { class: "field" }, h("label", {}, "Name in reminders"), remindName,
+        h("p", { class: "hint" }, "What notifications call this document, e.g. “Passport” or “Sara's visa”. Keep numbers and private details out: notifications can be seen on a locked screen.")));
+    el.collect = (fields) => {
+      fields.files = files.length ? JSON.stringify(files) : "";
+      fields.remind = [...days].sort((a, b) => b - a).join(",");
+      fields.remind_name = remindName.value.trim();
+    };
+    return el;
+  }
+
+  function expiringSoon() {
+    const soon = S.list.filter((e) => e.kind === "document" && e.expires && daysLeft(e.expires) <= 90)
+      .sort((a, b) => a.expires.localeCompare(b.expires));
+    return soon.length > 0 && h("div", { class: "soon" }, h("p", { class: "section-t" }, icon("bell"), " ", "Expiring soon"),
+      soon.map((e) => h("button", { type: "button", class: "soon-row", onclick: () => openEntry(e.id) },
+        h("span", { class: "glyph" }, icon("document")), h("span", {}, h("b", {}, raw(e.title)), expiryLine(e.expires)))));
+  }
 
   // ---- new / edit --------------------------------------------------------------
   function showNew() {
@@ -568,7 +739,8 @@
     let policy = { ...(e.password_policy || {}) };
 
     const title = h("input", { class: "inp", value: e.title || "", oninput: dirty, "aria-label": "Name",
-      placeholder: e.kind === "login" ? "e.g. Netflix" : e.kind === "api" ? "e.g. Weather app production key" : e.kind === "ssh" ? "e.g. Home server" : "e.g. Bank recovery codes" });
+      placeholder: e.kind === "login" ? "e.g. Netflix" : e.kind === "api" ? "e.g. Weather app production key" : e.kind === "ssh" ? "e.g. Home server"
+        : e.kind === "document" ? "e.g. My passport" : "e.g. Bank recovery codes" });
 
     function control(f) {
       const value = getVal(e, f);
@@ -626,6 +798,12 @@
           h("div", { class: "inp-row", style: f.multi ? "align-items:start" : "" }, parts), meter);
         return wrap;
       }
+      if (f.options) {
+        const sel = h("select", { class: "inp", "aria-label": f.label, onchange: dirty },
+          f.options.map(([v, label]) => h("option", { value: v, selected: v === value || null }, label)));
+        inputs.push([f, sel]);
+        return h("div", { class: "field" }, h("label", {}, f.label), sel);
+      }
       const inp = f.multi
         ? h("textarea", { class: "inp mono", rows: 4, spellcheck: "false", oninput: dirty, "aria-label": f.label })
         : h("input", { class: "inp" + (f.mono ? " mono" : ""), type: f.type || "text", placeholder: f.ph || "", oninput: dirty,
@@ -656,12 +834,14 @@
     if (notes) notes.value = e.notes || "";
     const moreFilled = (K.more || []).some((f) => getVal(e, f));
     const err = h("p", { class: "err", role: "alert" });
+    let docPart = null;          // made after the fields, which it fills in
 
     async function save() {
       const out = { id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy };
       for (const [f, el] of inputs) {
         if (f.top) out[f.key] = el.value; else out.fields[f.key] = el.value;
       }
+      docPart?.collect(out.fields);
       for (const k of Object.keys(out.fields)) if (!out.fields[k]) delete out.fields[k];
       if (notes) out.notes = notes.value;
       extraBox.querySelectorAll(".extra-row").forEach((r) => {
@@ -697,6 +877,7 @@
       h("div", { class: "form" },
         h("div", { class: "field" }, h("label", {}, "Name"), title),
         K.fields.map(control),
+        e.kind === "document" && (docPart = documentEditor(e, inputs, dirty)),
         K.more && h("details", { class: "more", open: moreFilled || null },
           h("summary", {}, icon("chev"), "Profile details (app, phone, region, age, gender)"),
           h("div", { class: "form two" }, K.more.map(control))),
@@ -851,6 +1032,8 @@
         if (s.state === "done") {
           await refresh();
           idle([`Synced. ${s.changed} ${s.changed === 1 ? "entry" : "entries"} updated on this PC. Your phone has the rest.`,
+            s.files_received ? ` Document files received: ${s.files_received}.` : "",
+            s.files_error ? ` Document files couldn't be synced: ${s.files_error}` : "",
             versionNote(s)]);
           refreshUpdates();
         } else {
@@ -989,6 +1172,22 @@
     return panel;
   }
 
+  function documentsPanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Documents"));
+    (async () => {
+      const d = await call("doc_settings");
+      const sw = h("input", { type: "checkbox", role: "switch", checked: d.sync_files });
+      sw.addEventListener("change", async () => {
+        await call("set_doc_sync", sw.checked);
+        toast(sw.checked ? "Document files will sync with your phone." : "Only document details will sync. Files stay on this PC.");
+      });
+      panel.append(h("label", { class: "switch" }, sw, h("span", { class: "sw-text" },
+        h("span", {}, "Sync document files with your phone"),
+        h("span", { class: "sw-sub" }, "Photos and PDFs travel encrypted over your WiFi when you sync. Turn off to keep them on this PC only; names, numbers and dates always sync."))));
+    })();
+    return panel;
+  }
+
   function startupPanel() {
     const panel = h("div", { class: "panel" }, h("h3", {}, "Start with Windows"));
     (async () => {
@@ -1077,6 +1276,7 @@
           else msg.append(h("p", { class: "err" }, r.error));
         }, "primary"))),
       autolockPanel(),
+      documentsPanel(),
       startupPanel(),
       updatesPanel(),
       h("div", { class: "panel" },

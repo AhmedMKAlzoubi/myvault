@@ -263,6 +263,149 @@ class _UpdatingProvider(_Provider):
         return self.stored.version
 
 
+def test_documents_read_mrz_and_labelled_dates():
+    import datetime as dt
+    from myvault import docs
+    # ICAO 9303 specimen passport (TD3), with a typical OCR slip (O for 0) in the birth date
+    td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO74O8122F1204159ZE184226B<<<<<10"
+    got = docs.read_details(td3)
+    assert got["how"] == "mrz" and got["doc_type"] == "passport" and got["country"] == "UTO", got
+    assert got["number"] == "L898902C3" and got["expires"] == "2012-04-15" and got["holder"] == "Anna Maria Eriksson", got
+    # ID card (TD1), spaces and « as an OCR reader might give them
+    td1 = "I<UTOD231458907<<<<<<<<<<<<<<<\n7408122F1204159UTO<<<<<<<<<<<6\nERIKSSON«ANNA<MARIA<<<<<<<<<<"
+    got = docs.read_details(td1.replace("«", "<<"))
+    assert got["doc_type"] == "id_card" and got["number"] == "D23145890" and got["expires"] == "2012-04-15", got
+    # a broken check digit is not trusted
+    assert "expires" not in docs.read_mrz(td3.replace("1204159", "1204158"))
+    # no MRZ: labelled dates, a number, the type
+    text = "DRIVING LICENCE\nLicence No: 12345678\nDate of issue 01/02/2020   Date of expiry 01/02/2030\nDate of birth 05/06/1990"
+    got = docs.read_details(text, today=dt.date(2026, 10, 5))
+    assert got == {"how": "text", "doc_type": "driving_license", "issued": "2020-02-01", "expires": "2030-02-01",
+                   "number": "12345678"}, got
+    # Arabic labels and Arabic-Indic digits
+    got = docs.read_details("رخصة مركبة\nتاريخ الانتهاء: ٠١/٠٣/٢٠٢٧", today=dt.date(2026, 10, 5))
+    assert got["doc_type"] == "car_registration" and got["expires"] == "2027-03-01", got
+    # no label at all: the latest future date, marked as a guess
+    got = docs.read_details("Lease agreement 1 March 2026 until 28 Feb 2027", today=dt.date(2026, 10, 5))
+    assert got["expires"] == "2027-02-28" and got["guessed"] and got["doc_type"] == "rental", got
+
+
+def test_documents_reminders_and_sealed_files():
+    import json
+    import datetime as dt
+    import tempfile as tf
+    from pathlib import Path as P
+    from myvault import docs
+    e = Entry(kind="document", title="My passport", fields={"doc_type": "passport", "expires": "2027-03-01",
+                                                             "remind": "30,7,abc,7", "number": "P123"})
+    plan = docs.schedule([e])
+    assert [(r["on"], r["days"]) for r in plan] == [("2027-01-30", 30), ("2027-02-22", 7), ("2027-03-01", 0)]
+    assert all("P123" not in str(r) and "My passport" not in str(r) for r in plan)   # nothing private outside the vault
+    assert docs.due(plan, dt.date(2027, 1, 29), set()) == []
+    first = docs.due(plan, dt.date(2027, 2, 1), set())
+    assert [r["days"] for r in first] == [30] and docs.reminder_text(first[0]) == "Passport expires in 1 month."
+    late = docs.due(plan, dt.date(2027, 2, 25), {first[0]["key"]})       # MyVault was off for a while: one notice
+    assert [r["days"] for r in late] == [7]
+    assert docs.due(plan, dt.date(2027, 3, 2), set()) == []               # expired: no more reminders
+    e.fields["remind_name"] = "Ahmed's passport"
+    assert docs.reminder_text(docs.schedule([e])[-1]) == "Ahmed's passport expires today."
+
+    with tf.TemporaryDirectory() as d:
+        saved = docs.files_dir
+        docs.files_dir = lambda: P(d)
+        try:
+            jpg = b"\xff\xd8\xff\xe0" + os.urandom(2000)
+            ref = docs.seal(jpg, r"C:\scans\passport.jpg")
+            assert ref["mime"] == "image/jpeg" and ref["name"] == "passport.jpg" and docs.open_sealed(ref) == jpg
+            assert jpg[100:200] not in (P(d) / f"{ref['id']}.bin").read_bytes()      # stored encrypted
+            blob = docs.read_blob(ref["id"])
+            try:
+                docs.store_blob({**ref, "key": docs.seal(jpg, "x.jpg")["key"]}, blob)   # wrong key: refused
+                raise AssertionError("accepted a file that doesn't match its key")
+            except ValueError:
+                pass
+            try:
+                docs.seal(b"MZ\x90\x00 not a document", "virus.exe")
+                raise AssertionError("accepted a non-document file")
+            except ValueError:
+                pass
+            e.fields["files"] = json.dumps([ref])
+            assert docs.cleanup([e]) == 1 and docs.have(ref["id"])               # the stray one went, ours stayed
+            e.deleted = True
+            assert docs.cleanup([e]) == 1 and not docs.have(ref["id"])
+        finally:
+            docs.files_dir = saved
+
+
+def test_pc_reminders_notify_once_while_locked():
+    import datetime as dt
+    from myvault import app, config, docs
+    memory = {}
+    saved = config.load, config.save, docs.load_schedule
+    config.load, config.save = (lambda: dict(memory)), memory.update
+    soon = (dt.date.today() + dt.timedelta(days=7)).isoformat()
+    docs.load_schedule = lambda: docs.schedule([Entry(id="p", kind="document", fields={
+        "doc_type": "visa", "expires": soon, "remind": "30,7", "remind_name": "Sara's visa"})])
+    try:
+        api = app.Api()                    # locked: no vault, just the schedule file
+        told = []
+        api._tell = lambda title, text: told.append(text)
+        api._check_reminders()
+        api._check_reminders()             # the next check doesn't repeat it
+        assert told == ["Sara's visa expires in 1 week."], told
+        assert len(memory["reminders_shown"]) == 1
+    finally:
+        config.load, config.save, docs.load_schedule = saved
+
+
+class _DocProvider(_Provider):
+    """A 0.6 device with its own store of (encrypted) document files."""
+    def __init__(self, vault, files=None, sync_files=True):
+        super().__init__(vault)
+        self.files, self.on = dict(files or {}), sync_files
+    def app_version(self): return "0.6.0"
+    def platform(self): return "test"
+    def file_sync(self): return self.on
+    def file_refs(self):
+        from myvault import docs
+        return {r["id"]: r for e in self.vault.active_entries() if e.kind == "document" for r in docs.refs(e.fields)}
+    def has_file(self, i): return i in self.files
+    def read_file(self, i): return self.files[i]
+    def store_file(self, i, blob):
+        from myvault import docs
+        docs.open_sealed(self.file_refs()[i], blob)        # must open with the vault's key
+        self.files[i] = blob
+
+
+def test_sync_swaps_document_files_and_respects_the_switch():
+    import json
+    import tempfile as tf
+    from pathlib import Path as P
+    from myvault import docs
+    with tf.TemporaryDirectory() as d:
+        saved = docs.files_dir
+        docs.files_dir = lambda: P(d)
+        try:
+            ref = docs.seal(b"%PDF-1.4 tenancy " + os.urandom(3 * 1024 * 1024), "lease.pdf")   # spans chunks
+            blob = docs.read_blob(ref["id"])
+        finally:
+            docs.files_dir = saved
+        for b_on, expect in ((True, 1), (False, 0)):
+            va = Vault.create(P(d) / f"a{b_on}.dat", "pw-aaaaaaaa")
+            vb = Vault.create(P(d) / f"b{b_on}.dat", "pw-bbbbbbbb")
+            va.device_id, vb.device_id = "A", "B"
+            va.entries = [Entry(id="doc", kind="document", title="Lease", fields={"files": json.dumps([ref])})]
+            pa, pb = _DocProvider(va, {ref["id"]: blob}), _DocProvider(vb, sync_files=b_on)
+            session = sync.PairingSession(pa, port=0, ttl=10)
+            uri = session.uri.replace(session.uri.split("h=")[1].split("&")[0], "127.0.0.1")
+            r = sync.connect_and_sync(uri, pb)
+            _wait_done(session)
+            assert r.ok and not r.files_error, (r.error, r.files_error)
+            assert [e.id for e in vb.entries] == ["doc"]                # the details always sync
+            assert r.files_received == expect and (ref["id"] in pb.files) == bool(expect), (b_on, r)
+            assert pb.files.get(ref["id"], blob) == blob
+
+
 def test_arabic_translations_keep_placeholders():
     import json, re
     for f in [ROOT / "myvault" / "ui" / "ar.json", ROOT / "browser-extension" / "_locales" / "ar" / "messages.json"]:

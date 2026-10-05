@@ -3,6 +3,8 @@
 # The browser extension is copied next to MyVault.exe by build_windows.py, not bundled here.
 from pathlib import Path
 
+from PyInstaller.utils.hooks import collect_submodules
+
 ROOT = Path(SPECPATH).parent
 
 a = Analysis(
@@ -12,7 +14,8 @@ a = Analysis(
         (str(ROOT / "myvault" / "ui"), "myvault/ui"),
         (str(ROOT / "assets" / "myvault.ico"), "assets"),
     ],
-    hiddenimports=["webview.platforms.winforms", "clr_loader"],
+    # winrt: Windows' built-in text reader for documents (imported only when reading one)
+    hiddenimports=["webview.platforms.winforms", "clr_loader", *collect_submodules("winrt")],
     excludes=["tkinter", "unittest", "pydoc", "PIL", "PyInstaller"],
 )
 pyz = PYZ(a.pure)

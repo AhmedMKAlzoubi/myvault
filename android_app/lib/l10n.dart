@@ -4,7 +4,9 @@
 /// group is translated as well. Vault data is never passed through [tr].
 library;
 
-import 'package:flutter/widgets.dart';
+import 'dart:ui' show PlatformDispatcher;
+
+import 'package:flutter/foundation.dart' show ValueNotifier;
 
 import 'l10n_ar.dart';
 
@@ -15,7 +17,7 @@ const languageChoices = ['auto', 'en', 'ar'];
 bool get isArabic =>
     language.value == 'ar' ||
     (language.value == 'auto' &&
-        WidgetsBinding.instance.platformDispatcher.locale.languageCode == 'ar');
+        PlatformDispatcher.instance.locale.languageCode == 'ar');
 
 class _Pattern {
   final RegExp rx;

@@ -161,6 +161,37 @@ and the signed `latest.json`, then uploads them to a GitHub release. The keys
 live in `%USERPROFILE%\.myvault-release` (created once by
 `tools\make_release_keys.py`) and are never committed.
 
+## Personal documents
+
+Keep passports, ID cards, residence permits, visas, driving licences, car
+registrations, rental contracts and insurance in MyVault, with a reminder before
+each one expires.
+
+- **New entry › Document.** Add photos or PDFs of it (on the phone: take a photo
+  or choose files). Each file is encrypted the moment it's added, with its own
+  key kept inside the vault.
+- **Reading the details:** MyVault reads the type, name, number, issuing country
+  and dates for you, **on your device**. Passports and many ID cards have a
+  machine-readable zone (the `<<<` lines), which MyVault reads and checks with its
+  check digits. For other documents it looks for dates labelled "expiry",
+  "valid until", "تاريخ الانتهاء" and so on. Windows uses its built-in text reader;
+  the phone uses Google's on-device one, built into the app. You check the details
+  before saving, and can always type them in yourself. (The phone's reader handles
+  Latin letters and numbers, not Arabic script; on Windows, Arabic works when
+  Windows' Arabic language is installed.)
+- **Reminders:** pick any mix of 1 day, 3 days, 1 week, 2 weeks, 1 month, 2, 3 or
+  6 months, 1 year, or your own number of days, and you're also reminded on the
+  day. A notification says only the type, or a short name you choose ("Sara's
+  visa"), and the time left. Phone: Android notifications, even when MyVault is
+  closed or after a restart. PC: a Windows notification while MyVault runs by the
+  clock.
+- **Save a copy** opens a file and saves it, decrypted, where you choose (after a
+  warning).
+- **Sync:** the details always sync. The files sync too, unless you switch that
+  off on a device (Settings › Documents on Windows, menu › Documents on the
+  phone). Both devices need 0.6.0 for files to sync.
+- The paper backup holds documents' details, not their photos or PDFs.
+
 ## Paper backup
 
 **Paper backup → Save PDF…** asks for a backup password (it can be your master

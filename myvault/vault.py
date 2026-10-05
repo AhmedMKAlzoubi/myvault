@@ -30,10 +30,10 @@ from .generator import PasswordPolicy
 
 VAULT_CONTENT_VERSION = 2
 
-KINDS = ("login", "api", "ssh", "note")
+KINDS = ("login", "api", "ssh", "note", "document")
 
 # Values in `fields` that are safe to search on (never a secret).
-SEARCHABLE_FIELDS = ("service", "client_id", "endpoint", "host", "ssh_user", "fingerprint")
+SEARCHABLE_FIELDS = ("service", "client_id", "endpoint", "host", "ssh_user", "fingerprint", "holder", "country")
 
 
 def _now() -> float:
@@ -43,7 +43,7 @@ def _now() -> float:
 @dataclass
 class Entry:
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
-    kind: str = "login"        # login | api | ssh | note
+    kind: str = "login"        # login | api | ssh | note | document
     title: str = ""            # what you call it, e.g. "Netflix"
     website: str = ""          # e.g. netflix.com
     app: str = ""              # app name, if it's an app rather than a website
@@ -104,6 +104,7 @@ class Vault:
         self.entries: list[Entry] = []
         self.device_id: str = str(uuid.uuid4())
         self.updated_at: float = _now()
+        self.on_save = None       # called after every save (the app refreshes reminders)
 
     # ---- persistence -----------------------------------------------------
     @classmethod
@@ -140,6 +141,8 @@ class Vault:
         tmp = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp.write_bytes(file_bytes)
         tmp.replace(self.path)
+        if self.on_save:
+            self.on_save()
 
     def change_password(self, new_password: str) -> None:
         self._password = new_password

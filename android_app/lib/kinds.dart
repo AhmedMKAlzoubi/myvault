@@ -3,12 +3,19 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'docs.dart' show docTypes;
 import 'vault.dart';
 
 class FieldDef {
   final String key, label;
   final bool top, secret, multi, mono, gen;
   final TextInputType? type;
+
+  /// A choice from a list (value, label), e.g. a document's type.
+  final List<(String, String)>? options;
+
+  /// A day, kept as YYYY-MM-DD and picked from a calendar.
+  final bool date;
   const FieldDef(
     this.key,
     this.label, {
@@ -18,6 +25,8 @@ class FieldDef {
     this.mono = false,
     this.gen = false,
     this.type,
+    this.options,
+    this.date = false,
   });
 
   String read(Entry e) => (top ? _top(e)[key] : e.fields[key]) ?? '';
@@ -139,6 +148,20 @@ const kindDefs = <String, KindDef>{
     Icons.description_outlined,
     [FieldDef('notes', 'Note', top: true, secret: true, multi: true)],
   ),
+  'document': KindDef(
+    'Document',
+    'Documents',
+    'Passport, ID, visa, licence or contract, with a reminder before it expires.',
+    Icons.badge_outlined,
+    [
+      FieldDef('doc_type', 'Type', options: docTypes),
+      FieldDef('holder', 'Name on the document'),
+      FieldDef('number', 'Document number', secret: true),
+      FieldDef('country', 'Issued by'),
+      FieldDef('issued', 'Issue date', date: true),
+      FieldDef('expires', 'Expiry date', date: true),
+    ],
+  ),
 };
 
 KindDef kindOf(Entry e) => kindDefs[e.kind] ?? kindDefs['login']!;
@@ -151,6 +174,7 @@ String subtitleOf(Entry e) {
       final u = e.fields['ssh_user'] ?? '', h = e.fields['host'] ?? '';
       return u.isNotEmpty && h.isNotEmpty ? '$u@$h' : (h.isNotEmpty ? h : u);
     case 'note':
+    case 'document': // the list shows when it expires instead
       return '';
     default:
       return [

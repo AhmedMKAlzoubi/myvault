@@ -17,6 +17,7 @@ import 'dart:typed_data';
 
 import 'package:pointycastle/export.dart';
 
+import 'docs.dart' as docs;
 import 'update.dart' as upd;
 import 'vault.dart';
 import 'version.dart';
@@ -33,6 +34,8 @@ class SyncResult {
   upd.Package? received; // a newer phone update the PC handed over
   String sent = ''; // version of a PC update this phone handed over
   String updateError = '';
+  int filesReceived = 0; // document files (photos/PDFs)
+  String filesError = '';
   SyncResult.success(this.changed) : ok = true, error = '';
   SyncResult.failure(this.error) : ok = false, changed = 0;
 }
@@ -248,6 +251,61 @@ Future<String> _sendPackage(_Chan ch, String platform) async {
   return p.version;
 }
 
+/// Document files, after the entries (both sides 0.6+): the same steps as
+/// _exchange_files in myvault/sync.py. Files travel as stored (encrypted with
+/// their own keys); one is kept only if it opens with the key in the vault.
+Future<void> _exchangeFiles(_Chan ch, Vault vault, SyncResult r) async {
+  final on = (await upd.loadPrefs())['sync_files'] != false;
+  final refs = docs.liveRefs(vault);
+  final mine = on
+      ? {
+          for (final id in refs.keys)
+            if (docs.haveFile(vault, id)) id,
+        }
+      : <String>{};
+  ch.send({'type': 'files', 'have': mine.toList()..sort()});
+  final peerHas = ((await ch.recv())['have'] as List? ?? []).cast<String>();
+  final want = on
+      ? [
+          for (final id in peerHas)
+            if (refs.containsKey(id) && !mine.contains(id)) id,
+        ]
+      : <String>[];
+  ch.send({'type': 'files_want', 'ids': want});
+  final peerWants = [
+    for (final id in ((await ch.recv())['ids'] as List? ?? []).cast<String>())
+      if (mine.contains(id)) id,
+  ];
+  // The PC sends first, then the phone.
+  for (;;) {
+    final head = await ch.recv();
+    final id = '${head['id'] ?? ''}';
+    if (id.isEmpty) break;
+    final size = head['size'] as int;
+    if (size <= 0 || size > 21 * 1024 * 1024) {
+      throw const FormatException('document file too large');
+    }
+    final blob = BytesBuilder(copy: false);
+    while (blob.length < size) {
+      blob.add(await ch.recvBytes());
+    }
+    if (want.contains(id) && blob.length == size) {
+      await docs.storeBlob(vault, refs[id]!, blob.takeBytes());
+      r.filesReceived++;
+    }
+  }
+  for (final id in peerWants) {
+    final blob = docs.readBlob(vault, id);
+    ch.send({'type': 'file', 'id': id, 'size': blob.length});
+    for (var i = 0; i < blob.length; i += 1 << 20) {
+      final end = i + (1 << 20) < blob.length ? i + (1 << 20) : blob.length;
+      ch.sendBytes(Uint8List.sublistView(blob, i, end));
+      await ch.sock.flush();
+    }
+  }
+  ch.send({'type': 'file', 'id': ''});
+}
+
 /// Connect with a scanned code and sync [vault]. The phone is always the client.
 Future<SyncResult> syncWithCode(String raw, Vault vault) async {
   final SyncCode code;
@@ -305,6 +363,14 @@ Future<SyncResult> syncWithCode(String raw, Vault vault) async {
           if (peerWant.isNotEmpty) r.sent = await _sendPackage(ch, peerWant);
         } catch (e) {
           r.updateError = '$e';
+        }
+        if (!upd.isNewer('0.6.0', r.peerVersion) &&
+            !upd.isNewer('0.6.0', appVersion)) {
+          try {
+            await _exchangeFiles(ch, vault, r);
+          } catch (e) {
+            r.filesError = '$e'; // the entries are synced already
+          }
         }
       }
       await socket.flush();

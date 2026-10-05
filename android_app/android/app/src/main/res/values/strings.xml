@@ -2,4 +2,5 @@
 <resources>
     <!-- The suggestion Android shows in other apps' login boxes. -->
     <string name="fill_with_myvault">Fill with MyVault</string>
+    <string name="reminders_channel">Document reminders</string>
 </resources>
