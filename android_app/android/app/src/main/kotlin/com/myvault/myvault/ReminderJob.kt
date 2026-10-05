@@ -48,6 +48,31 @@ class ReminderJob : JobService() {
                 .build())
         }
 
+        /** Post one notification; false if Android doesn't allow MyVault to. */
+        fun notifyNow(c: Context, tag: String, text: String): Boolean {
+            val nm = c.getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
+                nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.reminders_channel), NotificationManager.IMPORTANCE_DEFAULT))
+            }
+            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
+            val n = (if (Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(c, CHANNEL)
+                else @Suppress("DEPRECATION") android.app.Notification.Builder(c))
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle("MyVault")
+                .setContentText(text)
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setVisibility(android.app.Notification.VISIBILITY_PRIVATE)
+                .build()
+            return try {
+                nm.notify(tag.hashCode(), n)
+                true
+            } catch (e: SecurityException) {
+                false
+            }
+        }
+
         fun check(c: Context) {
             val f = File(c.filesDir, "reminders.json")
             if (!f.exists()) return
@@ -72,28 +97,9 @@ class ReminderJob : JobService() {
             }
             // an earlier reminder never comes after a later one has been shown
             best.entries.removeAll { (entry, r) -> r.getInt("days") >= (done[entry] ?: 99999) }
-            val nm = c.getSystemService(NotificationManager::class.java)
-            if (Build.VERSION.SDK_INT >= 26 && nm.getNotificationChannel(CHANNEL) == null) {
-                nm.createNotificationChannel(NotificationChannel(CHANNEL, c.getString(R.string.reminders_channel), NotificationManager.IMPORTANCE_DEFAULT))
-            }
-            val open = PendingIntent.getActivity(c, 0, Intent(c, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), PendingIntent.FLAG_IMMUTABLE)
             for (r in best.values) {
-                val n = (if (Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(c, CHANNEL)
-                    else @Suppress("DEPRECATION") android.app.Notification.Builder(c))
-                    .setSmallIcon(R.mipmap.ic_launcher)
-                    .setContentTitle("MyVault")
-                    .setContentText(r.getString("text"))
-                    .setContentIntent(open)
-                    .setAutoCancel(true)
-                    .setVisibility(android.app.Notification.VISIBILITY_PRIVATE)
-                    .build()
-                try {
-                    nm.notify(r.getString("entry").hashCode(), n)
-                    shown.add(r.getString("key"))
-                } catch (e: SecurityException) {
-                    return          // notifications not allowed (yet): try again next time
-                }
+                if (!notifyNow(c, r.getString("entry"), r.getString("text"))) return   // not allowed (yet): next time
+                shown.add(r.getString("key"))
             }
             prefs.edit().putStringSet("shown", shown.intersect(keys)).apply()
         }

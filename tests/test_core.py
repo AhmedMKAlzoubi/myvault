@@ -263,31 +263,28 @@ class _UpdatingProvider(_Provider):
         return self.stored.version
 
 
-def test_documents_read_mrz_and_labelled_dates():
+def test_documents_read_like_the_phone():
+    """The shared cases (also run by the phone's tests), plus a broken check digit."""
     import datetime as dt
+    import json
     from myvault import docs
-    # ICAO 9303 specimen passport (TD3), with a typical OCR slip (O for 0) in the birth date
-    td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO74O8122F1204159ZE184226B<<<<<10"
-    got = docs.read_details(td3)
-    assert got["how"] == "mrz" and got["doc_type"] == "passport" and got["country"] == "UTO", got
-    assert got["number"] == "L898902C3" and got["expires"] == "2012-04-15" and got["holder"] == "Anna Maria Eriksson", got
-    # ID card (TD1), spaces and « as an OCR reader might give them
-    td1 = "I<UTOD231458907<<<<<<<<<<<<<<<\n7408122F1204159UTO<<<<<<<<<<<6\nERIKSSON«ANNA<MARIA<<<<<<<<<<"
-    got = docs.read_details(td1.replace("«", "<<"))
-    assert got["doc_type"] == "id_card" and got["number"] == "D23145890" and got["expires"] == "2012-04-15", got
-    # a broken check digit is not trusted
+    c = json.loads((ROOT / "android_app" / "test_fixtures" / "read_cases.json").read_text("utf-8"))
+    today = dt.date.fromisoformat(c["today"])
+    for case in c["cases"]:
+        got = docs.read_details(case["text"], today=today)
+        assert got == case["want"], (case["name"], got)
+    td3 = "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10"
     assert "expires" not in docs.read_mrz(td3.replace("1204159", "1204158"))
-    # no MRZ: labelled dates, a number, the type
-    text = "DRIVING LICENCE\nLicence No: 12345678\nDate of issue 01/02/2020   Date of expiry 01/02/2030\nDate of birth 05/06/1990"
-    got = docs.read_details(text, today=dt.date(2026, 10, 5))
-    assert got == {"how": "text", "doc_type": "driving_license", "issued": "2020-02-01", "expires": "2030-02-01",
-                   "number": "12345678"}, got
-    # Arabic labels and Arabic-Indic digits
-    got = docs.read_details("رخصة مركبة\nتاريخ الانتهاء: ٠١/٠٣/٢٠٢٧", today=dt.date(2026, 10, 5))
-    assert got["doc_type"] == "car_registration" and got["expires"] == "2027-03-01", got
-    # no label at all: the latest future date, marked as a guess
-    got = docs.read_details("Lease agreement 1 March 2026 until 28 Feb 2027", today=dt.date(2026, 10, 5))
-    assert got["expires"] == "2027-02-28" and got["guessed"] and got["doc_type"] == "rental", got
+
+
+def test_document_types_are_the_same_on_pc_and_phone():
+    import json
+    pc = json.loads((ROOT / "myvault" / "ui" / "doc_types.json").read_text("utf-8"))
+    phone = json.loads((ROOT / "android_app" / "assets" / "doc_types.json").read_text("utf-8"))
+    assert pc == phone, "copy myvault/ui/doc_types.json to android_app/assets/doc_types.json"
+    for name, t in pc["types"].items():
+        assert set(t["fields"]) <= set(pc["fields"]) and "expires" in t["fields"], name
+        assert set(t.get("labels", {})) <= set(t["fields"]), name
 
 
 def test_documents_reminders_and_sealed_files():

@@ -144,10 +144,22 @@
 
   // ---- entry kinds ------------------------------------------------------------
   const F = (key, label, o = {}) => ({ key, label, ...o });
-  const DOC_TYPES = [["", "Choose a type"], ["passport", "Passport"], ["id_card", "ID card"], ["residence", "Residence permit"],
-    ["visa", "Visa"], ["driving_license", "Driving licence"], ["car_registration", "Car registration"],
-    ["rental", "Rental contract"], ["insurance", "Insurance"], ["other", "Document"]];
+  // Document types and their fields: myvault/ui/doc_types.json, shared with the phone.
+  const SCHEMA = window.DOC_SCHEMA || { fields: {}, types: {} };
+  const DOC_TYPES = [["", "Choose a type"], ...Object.entries(SCHEMA.types).map(([k, v]) => [k, v.label])];
   const typeLabel = (k) => (DOC_TYPES.find(([v]) => v === k && v) || [0, "Document"])[1];
+  const typeOf = (fields) => SCHEMA.types[(fields || {}).doc_type] || SCHEMA.types.other || { fields: [] };
+  const docLabel = (key, fields) => key === "doc_type" ? "Type" : (typeOf(fields).labels || {})[key] || SCHEMA.fields[key]?.label || key;
+  // A document's fields: its type's, then any other detail it has, so nothing is ever hidden.
+  function docFields(e) {
+    const f = e.fields || {};
+    const own = typeOf(f).fields;
+    const keys = [...own, ...Object.keys(SCHEMA.fields).filter((k) => !own.includes(k) && f[k])];
+    return [F("doc_type", "Type", { options: DOC_TYPES }), ...keys.map((k) => {
+      const d = SCHEMA.fields[k];
+      return F(k, docLabel(k, f), { secret: d.secret, multi: d.multi, mono: d.mono, ph: d.ph, type: d.date ? "date" : d.type });
+    })];
+  }
   const LEADS = [[1, "1 day"], [3, "3 days"], [7, "1 week"], [14, "2 weeks"], [30, "1 month"], [60, "2 months"],
     [90, "3 months"], [180, "6 months"], [365, "1 year"]];
   const leadLabel = (d) => (LEADS.find(([n]) => n === d) || [0, `${d} days`])[1];
@@ -180,9 +192,7 @@
     },
     document: {
       label: "Document", plural: "Documents", desc: "Passport, ID, visa, licence or contract, with a reminder before it expires.",
-      fields: [F("doc_type", "Type", { options: DOC_TYPES }), F("holder", "Name on the document"),
-        F("number", "Document number", { secret: 1 }), F("country", "Issued by", { ph: "e.g. Jordan" }),
-        F("issued", "Issue date", { type: "date" }), F("expires", "Expiry date", { type: "date" })],
+      fields: [],          // depend on the document's type: docFields()
     },
   };
   const getVal = (e, f) => (f.top ? e[f.key] : (e.fields || {})[f.key]) || "";
@@ -518,7 +528,7 @@
   function renderView(e) {
     const typeBox = h("div", { "aria-live": "polite" });
     const K = KINDS[e.kind] || KINDS.login;
-    const rows = [...K.fields, ...(K.more || [])].map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
+    const rows = (e.kind === "document" ? docFields(e) : [...K.fields, ...(K.more || [])]).map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
       .map(([f, v]) => [f, f.options ? t(typeLabel(v)) : f.type === "date" ? fmtDay(v) : v]);
     const custom = Object.entries(e.custom || {});
     const where = e.kind === "login" ? e.website : e.fields?.service;
@@ -568,8 +578,7 @@
           img, ref.mime === "application/pdf" && h("span", { class: "pdf" }, "PDF")),
         h("span", { class: "fname" }, raw(ref.name)),
         edit && h("div", { class: "file-acts" },
-          btn("Read details", () => edit.read(ref), "sm", "search"),
-          iconBtn("x", "Remove file", () => { edit.remove(ref); tile.remove(); })));
+          iconBtn("x", "Remove file", () => edit.remove(ref))));
       call("doc_preview", ref).then((r) => { if (r.ok) img.src = r.src; else tile.classList.add("missing"); });
       grid.append(tile);
     }
@@ -598,35 +607,36 @@
   }
 
   // The edit form's document part: files, reading details, reminders.
-  function documentEditor(e, inputs, dirty) {
+  function documentEditor(e, dirty, form) {
     let files = fileRefs(e);
-    const isNew = !e.id;
-    const days = new Set(isNew ? [30, 7] : remindList(e));
-    const note = h("div", { "aria-live": "polite" });
-    const value = (key) => (inputs.find(([f]) => f.key === key) || [])[1];
+    const f0 = e.fields || {};
+    const days = new Set("remind" in f0 ? remindList(e) : !e.id ? [30, 7] : []);
+    const note = h("div", { "aria-live": "polite" }, form.note || null);
 
-    async function read(ref) {
+    // Read all the files together (an ID's front and back), fill in what's still
+    // empty, and redraw the form for the type that was found.
+    async function read() {
+      if (!files.length) return note.replaceChildren(h("p", { class: "hint" }, "Add a photo or PDF of the document first."));
       note.replaceChildren(h("p", { class: "hint" }, "Reading the document…"));
-      const r = await call("doc_read", ref);
+      const r = await call("doc_read", files);
       if (!r.ok) return note.replaceChildren(h("p", { class: "err" }, r.error));
-      const f = r.found, filled = [], kept = [];
-      for (const [key, label] of [["doc_type", "Type"], ["holder", "Name on the document"], ["number", "Document number"],
-        ["country", "Issued by"], ["issued", "Issue date"], ["expires", "Expiry date"]]) {
-        const el = value(key);
-        if (!el || !f[key]) continue;
-        if (!el.value) { el.value = f[key]; el.dispatchEvent(new Event("change")); filled.push(t(label)); }
-        else if (el.value !== f[key]) kept.push(t(label));
+      const found = r.found, d = form.draft(), filled = [], kept = [];
+      for (const [key, v] of Object.entries(found)) {
+        if (key === "how" || key === "guessed") continue;
+        const cur = d.fields[key] || "";
+        if (!cur) { d.fields[key] = v; filled.push(key); } else if (cur !== v) kept.push(key);
       }
-      if (filled.length) dirty();
-      note.replaceChildren(h("div", { class: "result" + (filled.length ? "" : " bad") },
-        !filled.length && !kept.length ? "Couldn't find the details in this file. Type them in instead."
-          : [f.how === "mrz" ? "Read from the machine-readable zone (the <<< lines) and checked. " : "Read from the document's text. ",
-            filled.length ? `Filled in: ${filled.join(t(", "))}. ` : "",
-            kept.length ? `Kept what you'd typed for: ${kept.join(t(", "))}. ` : "",
-            f.guessed ? "The expiry date is a guess (it wasn't labelled). " : "",
-            "Check the details before saving."]));
+      const names = (keys) => keys.map((k) => t(docLabel(k, d.fields))).join(t(", "));
+      const msg = h("div", { class: "result" + (filled.length ? "" : " bad") },
+        !filled.length && !kept.length ? "Couldn't find the details in these files. Type them in instead."
+          : [found.how === "mrz" ? "Read from the machine-readable zone (the <<< lines) and checked. " : "Read from the document's text. ",
+            filled.length ? `Filled in: ${names(filled)}. ` : "",
+            kept.length ? `Kept what you'd typed for: ${names(kept)}. ` : "",
+            found.guessed && filled.includes("expires") ? "The expiry date is a guess (it wasn't labelled). " : "",
+            "Check the details before saving."]);
+      if (filled.length) form.redraw(d, msg); else note.replaceChildren(msg);
     }
-    const edit = { read, remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); } };
+    const edit = { remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); paint(); } };
     const grid = h("div");
     const paint = () => grid.replaceChildren(files.length ? fileGrid(files, edit) : h("p", { class: "hint", style: "margin:0" }, "No files yet."));
     paint();
@@ -637,8 +647,9 @@
       files = [...files, ...r.files];
       dirty();
       paint();
-      if (r.files.length === 1 && !value("expires").value) read(r.files[0]);     // the obvious next step
+      if (!form.draft().fields.expires) read();     // the obvious next step
     }, "sm", "plus");
+    const readAll = btn("Read details", read, "sm", "search");
 
     const chips = h("div", { class: "chips", role: "group", "aria-label": "Remind me before it expires" });
     const paintChips = () => chips.replaceChildren(
@@ -649,14 +660,13 @@
       }));
     paintChips();
     const custom = h("input", { class: "inp", type: "number", min: 1, max: 3650, placeholder: "Days", "aria-label": "Days before it expires", style: "width:90px" });
-    const remindName = h("input", { class: "inp", value: (e.fields || {}).remind_name || "", oninput: dirty, maxlength: 40,
-      "aria-label": "Name in reminders", placeholder: t(typeLabel((e.fields || {}).doc_type)) });
-    value("doc_type")?.addEventListener("change", (ev) => { remindName.placeholder = t(typeLabel(ev.target.value)); });
+    const remindName = h("input", { class: "inp", value: f0.remind_name || "", oninput: dirty, maxlength: 40,
+      "aria-label": "Name in reminders", placeholder: t(typeLabel(f0.doc_type)) });
 
     const el = h("div", { class: "form", style: "margin:0" },
       h("div", { class: "field" }, h("span", { class: "lbl" }, "Files"),
-        h("p", { class: "hint" }, "Photos or PDFs of the document. They're encrypted the moment you add them. MyVault can read the details from them, on this PC."),
-        grid, note, h("div", {}, add)),
+        h("p", { class: "hint" }, "Photos or PDFs of the document: add both sides of a card. They're encrypted the moment you add them, and MyVault reads the details from all of them together, on this PC."),
+        grid, note, h("div", { class: "inp-row", style: "flex-wrap:wrap" }, add, readAll)),
       h("div", { class: "field" }, h("span", { class: "lbl" }, "Remind me before it expires"),
         chips,
         h("div", { class: "inp-row", style: "margin-top:8px" }, custom, btn("Add days", () => {
@@ -729,7 +739,7 @@
     return { inp, eye };
   }
 
-  function renderEdit(e) {
+  function renderEdit(e, opts = {}) {
     const isNew = !e.id;
     const K = KINDS[e.kind] || KINDS.login;
     S.view = "edit";
@@ -799,7 +809,10 @@
         return wrap;
       }
       if (f.options) {
-        const sel = h("select", { class: "inp", "aria-label": f.label, onchange: dirty },
+        const sel = h("select", { class: "inp", "aria-label": f.label, onchange: () => {
+          dirty();
+          if (e.kind === "document") redraw(draft());     // its fields follow the type
+        } },
           f.options.map(([v, label]) => h("option", { value: v, selected: v === value || null }, label)));
         inputs.push([f, sel]);
         return h("div", { class: "field" }, h("label", {}, f.label), sel);
@@ -836,18 +849,27 @@
     const err = h("p", { class: "err", role: "alert" });
     let docPart = null;          // made after the fields, which it fills in
 
-    async function save() {
-      const out = { id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy };
+    // Everything on the form, as an entry (saving it, or redrawing the form).
+    function draft() {
+      const out = { ...e, id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy };
       for (const [f, el] of inputs) {
         if (f.top) out[f.key] = el.value; else out.fields[f.key] = el.value;
       }
       docPart?.collect(out.fields);
-      for (const k of Object.keys(out.fields)) if (!out.fields[k]) delete out.fields[k];
       if (notes) out.notes = notes.value;
       extraBox.querySelectorAll(".extra-row").forEach((r) => {
         const [k, v] = r.querySelectorAll("input");
         if (k.value.trim()) out.custom[k.value.trim()] = v.value;
       });
+      return out;
+    }
+    function redraw(d, note) {
+      renderEdit(d, { note });
+      S.dirty = true;
+    }
+    async function save() {
+      const out = draft();
+      for (const k of Object.keys(out.fields)) if (!out.fields[k]) delete out.fields[k];
       const r = await call("save_entry", out);
       if (!r.ok) { err.textContent = t(r.error); return; }
       S.dirty = false;
@@ -876,8 +898,8 @@
           h("p", { class: "byline" }, K.desc))),
       h("div", { class: "form" },
         h("div", { class: "field" }, h("label", {}, "Name"), title),
-        K.fields.map(control),
-        e.kind === "document" && (docPart = documentEditor(e, inputs, dirty)),
+        (e.kind === "document" ? docFields(e) : K.fields).map(control),
+        e.kind === "document" && (docPart = documentEditor(e, dirty, { draft, redraw, note: opts.note })),
         K.more && h("details", { class: "more", open: moreFilled || null },
           h("summary", {}, icon("chev"), "Profile details (app, phone, region, age, gender)"),
           h("div", { class: "form two" }, K.more.map(control))),
@@ -1183,7 +1205,12 @@
       });
       panel.append(h("label", { class: "switch" }, sw, h("span", { class: "sw-text" },
         h("span", {}, "Sync document files with your phone"),
-        h("span", { class: "sw-sub" }, "Photos and PDFs travel encrypted over your WiFi when you sync. Turn off to keep them on this PC only; names, numbers and dates always sync."))));
+        h("span", { class: "sw-sub" }, "Photos and PDFs travel encrypted over your WiFi when you sync. Turn off to keep them on this PC only; names, numbers and dates always sync."))),
+        h("p", { class: "hint", style: "margin:14px 0 6px" }, "Reminders show as Windows notifications while MyVault runs by the clock. Check they get through (Windows' Do not disturb can hide them):"),
+        h("div", {}, btn("Send a test notification", async () => {
+          const r = await call("doc_test_notification");
+          if (!r.ok) toast(r.error, true);
+        }, "sm", "bell")));
     })();
     return panel;
   }

@@ -92,6 +92,7 @@ class Api:
         self._rollback = None        # (manifest, raw, sig) of the release before this one
         self._quit = None            # really exit (set by the tray, whose X only hides)
         self._tell = None            # show a notification (set by the tray)
+        self._reminder_lock = threading.Lock()
         threading.Thread(target=self._reminder_loop, daemon=True).start()
         self._autotype_hwnd = 0      # the window "Type into app" will type into
         threading.Thread(target=self._autolock_loop, daemon=True).start()
@@ -260,14 +261,19 @@ class Api:
                 return {"ok": bool(added), "files": added, "error": f"{p.name}: {exc}"}
         return {"ok": bool(added), "files": added}
 
-    def doc_read(self, ref: dict) -> dict:
-        """Read a document's details from its scan (on this PC, offline)."""
+    def doc_read(self, refs) -> dict:
+        """Read a document's details from all its files together (an ID card's
+        front and back), on this PC, offline."""
         self._need()
-        try:
-            found = docs.read_details(docs.ocr(docs.open_sealed(ref)))
-        except (ValueError, RuntimeError) as exc:
-            return {"ok": False, "error": str(exc)}
-        return {"ok": True, "found": found}
+        texts, error = [], ""
+        for ref in refs if isinstance(refs, list) else [refs]:
+            try:
+                texts.append(docs.ocr(docs.open_sealed(ref)))
+            except (ValueError, RuntimeError) as exc:
+                error = str(exc)          # read what we can; say why one failed
+        if not texts:
+            return {"ok": False, "error": error or "Add a photo or PDF of the document first."}
+        return {"ok": True, "found": docs.read_details(texts)}
 
     def doc_preview(self, ref: dict) -> dict:
         """The file as an image the page can show (a PDF's first page)."""
@@ -306,23 +312,36 @@ class Api:
         config.save(cfg)
         return self.doc_settings()
 
+    def doc_test_notification(self) -> dict:
+        """Show a sample reminder, so you can check Windows lets MyVault notify you."""
+        if self._tell is None:
+            return {"ok": False, "error": "Notifications come from the installed MyVault while it runs by the clock."}
+        self._tell("MyVault", i18n.tr("This is how a document reminder looks."))
+        return {"ok": True}
+
     def _documents_changed(self) -> None:
         try:
             if self._vault is not None:
                 docs.save_schedule(self._vault.entries)
         except OSError:
+            return
+        # A document due today (or overdue) is announced now, not at the next check.
+        threading.Thread(target=self._safe_check, daemon=True).start()
+
+    def _safe_check(self) -> None:
+        try:
+            with self._reminder_lock:
+                self._check_reminders()
+        except Exception:
             pass
 
     def _reminder_loop(self) -> None:
-        """Every half hour (and soon after start): notify about documents that are
+        """Every 5 minutes (soon after start, and right after each save): notify about documents that are
         due. Works while locked, from the schedule file (type + your label only)."""
         time.sleep(20)
         while True:
-            try:
-                self._check_reminders()
-            except Exception:      # never let a bad file stop reminders for good
-                pass
-            time.sleep(1800)
+            self._safe_check()      # (it never lets a bad file stop reminders for good)
+            time.sleep(300)
 
     def _check_reminders(self) -> None:
         import datetime as dt
@@ -823,7 +842,9 @@ def _page() -> str:
     lang = i18n.language()
     html = html.replace('<html lang="en">', f'<html lang="{lang}" dir="{"rtl" if lang == "ar" else "ltr"}">')
     words = json.dumps(i18n.arabic() if lang == "ar" else {}, ensure_ascii=False).replace("</", "<\\/")
-    return html.replace("/*__CSS__*/", css).replace("//__JS__", f"window.I18N = {words};\n{js}")
+    types = (UI_DIR / "doc_types.json").read_text("utf-8").replace("</", "<\\/")
+    return html.replace("/*__CSS__*/", css).replace(
+        "//__JS__", f"window.I18N = {words};\nwindow.DOC_SCHEMA = {types};\n{js}")
 
 
 _mutex = None

@@ -16,6 +16,9 @@ import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import io.flutter.plugin.common.MethodCall
@@ -41,6 +44,7 @@ class DocsBridge(private val activity: Activity) {
         const val CAMERA = 7102
         const val SAVE = 7103
         const val NOTIFY = 7104
+        const val SCAN = 7105
         const val MAX_SIDE = 2400        // photos are scaled down to this: sharp enough to read, small to sync
     }
 
@@ -52,6 +56,33 @@ class DocsBridge(private val activity: Activity) {
                 putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("image/jpeg", "image/png", "image/webp", "application/pdf"))
                 putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
             })
+            // Google's document scanner: finds the page's edges live, lets you drag
+            // the corners, straightens and cleans it up, and takes several pages
+            // (a card's front and back). It runs on the phone, from Google Play services.
+            "scan" -> {
+                val options = GmsDocumentScannerOptions.Builder()
+                    .setGalleryImportAllowed(true)
+                    .setPageLimit(6)
+                    .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                    .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+                    .build()
+                GmsDocumentScanning.getClient(options).getStartScanIntent(activity)
+                    .addOnSuccessListener { sender ->
+                        pending?.success(null)
+                        pending = result
+                        try {
+                            activity.startIntentSenderForResult(sender, SCAN, null, 0, 0, 0)
+                        } catch (e: Exception) {
+                            pending = null
+                            result.error("no_scanner", "The document scanner isn't available.", null)
+                        }
+                    }
+                    .addOnFailureListener { result.error("no_scanner", "The document scanner isn't available.", null) }
+            }
+            "testNotify" -> {
+                ReminderJob.notifyNow(activity, "test", call.arguments as String)
+                result.success(notifyAllowed())
+            }
             "camera" -> {
                 val dir = File(activity.cacheDir, "camera").apply { mkdirs() }
                 val f = File(dir, "scan-${System.currentTimeMillis()}.jpg")
@@ -133,7 +164,7 @@ class DocsBridge(private val activity: Activity) {
     }
 
     fun onActivityResult(code: Int, resultCode: Int, data: Intent?): Boolean {
-        if (code !in listOf(PICK, CAMERA, SAVE)) return false
+        if (code !in listOf(PICK, CAMERA, SAVE, SCAN)) return false
         val result = pending ?: return true
         pending = null
         if (resultCode != Activity.RESULT_OK) {
@@ -148,6 +179,11 @@ class DocsBridge(private val activity: Activity) {
                             ?: listOfNotNull(data?.data)
                         uris.map { mapOf("name" to nameOf(it), "bytes" to shrink(read(it))) }
                     }
+                    SCAN -> GmsDocumentScanningResult.fromActivityResultIntent(data)?.pages.orEmpty()
+                        .mapIndexed { i, page ->
+                            mapOf("name" to "scan-${System.currentTimeMillis() / 1000}-${i + 1}.jpg",
+                                "bytes" to shrink(read(page.imageUri)))
+                        }
                     CAMERA -> photo?.let { f ->
                         val bytes = shrink(f.readBytes())
                         f.delete()

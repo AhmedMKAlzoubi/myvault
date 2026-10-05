@@ -462,6 +462,39 @@ const arabic = <String, String>{
   'That file isn\'t on this device yet. Sync with the device that has it.':
       'هذا الملف ليس على هذا الجهاز بعد. زامِن مع الجهاز الذي يحويه.',
   'That file is damaged.': 'هذا الملف تالف.',
+  // ---- document fields and scanning ----
+  'Date of birth': 'تاريخ الميلاد',
+  'Place of birth': 'مكان الولادة',
+  'Sex': 'الجنس',
+  'Address': 'العنوان',
+  'Nationality': 'الجنسية',
+  'Licence class': 'فئة الرخصة',
+  'Visa type': 'نوع التأشيرة',
+  'Sponsor or employer': 'الكفيل أو صاحب العمل',
+  'Plate number': 'رقم اللوحة',
+  'Make and model': 'الصنع والطراز',
+  'Chassis number (VIN)': 'رقم الشاصي (VIN)',
+  'Landlord': 'المؤجر',
+  'Rent': 'الأجرة',
+  'Insurer': 'شركة التأمين',
+  'Owner': 'المالك',
+  'Registration number': 'رقم التسجيل',
+  'Tenant': 'المستأجر',
+  'Contract number': 'رقم العقد',
+  'Start date': 'تاريخ البدء',
+  'End date': 'تاريخ الانتهاء',
+  'Insured': 'المؤمَّن عليه',
+  'Policy number': 'رقم الوثيقة',
+  'Add a photo or PDF of the document first.':
+      'أضف صورة أو ملف PDF للمستند أولًا.',
+  'Send a test notification': 'إرسال إشعار تجريبي',
+  'This is how a document reminder looks.': 'هكذا يبدو تذكير المستند.',
+  'Couldn\'t find new details in these files. Type them in instead.':
+      'لم أجد تفاصيل جديدة في هذه الملفات. اكتبها بنفسك.',
+  'Scan document': 'مسح المستند ضوئيًا',
+  'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.':
+      'امسح وجهي البطاقة. يجد الماسح الحواف تلقائيًا، ويمكنك سحب الزوايا لضبطها. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
+  'The document scanner isn\'t available.': 'الماسح الضوئي للمستندات غير متاح.',
 };
 
 const arabicMonths = [

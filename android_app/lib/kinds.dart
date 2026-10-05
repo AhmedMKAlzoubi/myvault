@@ -3,7 +3,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'docs.dart' show docTypes;
+import 'docs.dart';
 import 'vault.dart';
 
 class FieldDef {
@@ -153,14 +153,7 @@ const kindDefs = <String, KindDef>{
     'Documents',
     'Passport, ID, visa, licence or contract, with a reminder before it expires.',
     Icons.badge_outlined,
-    [
-      FieldDef('doc_type', 'Type', options: docTypes),
-      FieldDef('holder', 'Name on the document'),
-      FieldDef('number', 'Document number', secret: true),
-      FieldDef('country', 'Issued by'),
-      FieldDef('issued', 'Issue date', date: true),
-      FieldDef('expires', 'Expiry date', date: true),
-    ],
+    [], // depend on the document's type: docFieldDefs()
   ),
 };
 
@@ -182,4 +175,39 @@ String subtitleOf(Entry e) {
         e.email,
       ].firstWhere((s) => s.isNotEmpty, orElse: () => e.website);
   }
+}
+
+/// A document's fields: its type's, then any other detail it has, so nothing
+/// is ever hidden. [has] says whether a field holds something.
+List<FieldDef> docFieldDefs(String type, bool Function(String key) has) {
+  final own = typeFieldKeys(type);
+  final keys = [
+    ...own,
+    for (final k in docSchemaFields.keys)
+      if (!own.contains(k) && has(k)) k,
+  ];
+  return [
+    FieldDef('doc_type', 'Type', options: docTypes),
+    for (final k in keys) _docField(k, type),
+  ];
+}
+
+/// Every field a document can have (the edit page keeps a box for each).
+List<FieldDef> allDocFieldDefs() => docFieldDefs('', (_) => true);
+
+FieldDef _docField(String key, String type) {
+  final d = docSchemaFields[key] as Map;
+  return FieldDef(
+    key,
+    docLabel(key, type),
+    secret: d['secret'] == true,
+    multi: d['multi'] == true,
+    mono: d['mono'] == true,
+    date: d['date'] == true,
+    type: switch (d['type']) {
+      'tel' => TextInputType.phone,
+      'email' => TextInputType.emailAddress,
+      _ => null,
+    },
+  );
 }

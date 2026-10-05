@@ -77,11 +77,12 @@ Future<List<(String, Uint8List)>> _getFiles(String how) async {
   ];
 }
 
-Future<Map<String, dynamic>> readFromFile(Vault v, FileRef r) async {
+/// The text in one file (the phone's own reader, on the phone).
+Future<String> textOf(Vault v, FileRef r) async {
   final text = await _ch.invokeMethod<String>('ocr', {
     'bytes': await openFile(v, r),
   });
-  return readDetails(text ?? '');
+  return text ?? '';
 }
 
 /// A picture of the file: the photo itself, or a PDF's first page.
@@ -316,6 +317,7 @@ class DocumentEditor extends StatefulWidget {
   final bool isNew;
   final bool Function(String key, String value) fill;
   final bool Function(String key) isEmpty;
+  final String Function() type; // the type chosen right now
   final DocumentDraft draft;
   const DocumentEditor({
     super.key,
@@ -324,6 +326,7 @@ class DocumentEditor extends StatefulWidget {
     required this.isNew,
     required this.fill,
     required this.isEmpty,
+    required this.type,
     required this.draft,
   });
   @override
@@ -360,16 +363,21 @@ class _DocumentEditorState extends State<DocumentEditor> {
 
   Future<void> _add(String how) async {
     try {
-      final got = await _getFiles(how);
+      List<(String, Uint8List)> got;
+      try {
+        got = await _getFiles(how);
+      } on PlatformException catch (e) {
+        // No Google document scanner on this phone: the plain camera instead.
+        if (how != 'scan' || e.code != 'no_scanner') rethrow;
+        got = await _getFiles('camera');
+      }
       final added = <FileRef>[];
       for (final (name, bytes) in got) {
         added.add(await seal(widget.vault, bytes, name));
       }
       if (added.isEmpty) return;
       setState(() => d.files = [...d.files, ...added]);
-      if (added.length == 1 && widget.isEmpty('expires')) {
-        await _read(added.first);
-      }
+      if (widget.isEmpty('expires')) await _read();
     } on FormatException catch (e) {
       if (mounted) _snack(context, e.message);
     } on PlatformException catch (e) {
@@ -379,36 +387,43 @@ class _DocumentEditorState extends State<DocumentEditor> {
     }
   }
 
-  Future<void> _read(FileRef f) async {
+  /// Read every file together (an ID's front and back) and fill in what's
+  /// still empty; the page then shows the fields for the type that was found.
+  Future<void> _read() async {
+    if (d.files.isEmpty) {
+      setState(() => _note = tr('Add a photo or PDF of the document first.'));
+      return;
+    }
     setState(() {
       _busy = true;
       _note = tr('Reading the document…');
     });
     try {
-      final got = await readFromFile(widget.vault, f);
-      final filled = <String>[];
-      for (final (key, label) in const [
-        ('doc_type', 'Type'),
-        ('holder', 'Name on the document'),
-        ('number', 'Document number'),
-        ('country', 'Issued by'),
-        ('issued', 'Issue date'),
-        ('expires', 'Expiry date'),
-      ]) {
-        if (got[key] != null && widget.fill(key, '${got[key]}')) {
-          filled.add(tr(label));
-        }
+      final texts = <String>[];
+      for (final f in d.files) {
+        texts.add(await textOf(widget.vault, f));
       }
+      final got = readDetails(texts);
+      final filled = <String>[];
+      for (final MapEntry(:key, :value) in got.entries) {
+        if (key == 'how' || key == 'guessed') continue;
+        if (widget.fill(key, '$value')) filled.add(key);
+      }
+      final type = widget.type();
       _note = filled.isEmpty
-          ? tr("Couldn't find new details in this file. Type them in instead.")
+          ? tr(
+              "Couldn't find new details in these files. Type them in instead.",
+            )
           : [
               tr(
                 got['how'] == 'mrz'
                     ? 'Read from the machine-readable zone (the <<< lines) and checked.'
                     : "Read from the document's text.",
               ),
-              tr('Filled in: ${filled.join(tr(','))}.'),
-              if (got['guessed'] == true)
+              tr(
+                'Filled in: ${filled.map((k) => tr(docLabel(k, type))).join(tr(', '))}.',
+              ),
+              if (got['guessed'] == true && filled.contains('expires'))
                 tr("The expiry date is a guess (it wasn't labelled)."),
               tr('Check the details before saving.'),
             ].join(' ');
@@ -416,6 +431,8 @@ class _DocumentEditorState extends State<DocumentEditor> {
       _note = tr(e.message);
     } on PlatformException catch (e) {
       _note = tr(e.message ?? "That file couldn't be read.");
+    } catch (_) {
+      _note = tr("That file couldn't be read.");
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -437,7 +454,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
         const SizedBox(height: 4),
         Text(
           tr(
-            'Photos or PDFs of the document. They\'re encrypted the moment you add them. MyVault can read the details from them, on this phone.',
+            'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.',
           ),
           style: TextStyle(color: e.ink3, fontSize: 12.5),
         ),
@@ -451,27 +468,13 @@ class _DocumentEditorState extends State<DocumentEditor> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   FileThumb(vault: widget.vault, file: f),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: tr('Read details'),
-                        icon: const Icon(
-                          Icons.document_scanner_outlined,
-                          size: 20,
-                        ),
-                        onPressed: _busy ? null : () => _read(f),
-                      ),
-                      IconButton(
-                        tooltip: tr('Remove file'),
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => setState(
-                          () => d.files = d.files
-                              .where((x) => x.id != f.id)
-                              .toList(),
-                        ),
-                      ),
-                    ],
+                  IconButton(
+                    tooltip: tr('Remove file'),
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => setState(
+                      () =>
+                          d.files = d.files.where((x) => x.id != f.id).toList(),
+                    ),
                   ),
                 ],
               ),
@@ -486,16 +489,22 @@ class _DocumentEditorState extends State<DocumentEditor> {
         Wrap(
           spacing: 8,
           children: [
-            OutlinedButton.icon(
-              onPressed: () => _add('camera'),
-              icon: const Icon(Icons.photo_camera_outlined, size: 18),
-              label: Text(tr('Take a photo')),
+            FilledButton.icon(
+              onPressed: () => _add('scan'),
+              icon: const Icon(Icons.document_scanner_outlined, size: 18),
+              label: Text(tr('Scan document')),
             ),
             OutlinedButton.icon(
               onPressed: () => _add('pick'),
               icon: const Icon(Icons.attach_file, size: 18),
               label: Text(tr('Choose files')),
             ),
+            if (d.files.isNotEmpty)
+              TextButton.icon(
+                onPressed: _busy ? null : _read,
+                icon: const Icon(Icons.auto_fix_high_outlined, size: 18),
+                label: Text(tr('Read details')),
+              ),
           ],
         ),
         const SizedBox(height: 22),
@@ -705,6 +714,25 @@ class _DocumentsSettingsPageState extends State<DocumentsSettingsPage> {
               ),
             ),
           ),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  await _ch.invokeMethod(
+                    'testNotify',
+                    tr('This is how a document reminder looks.'),
+                  );
+                } on MissingPluginException {
+                  // tests
+                }
+                _load();
+              },
+              icon: const Icon(Icons.notifications_outlined, size: 18),
+              label: Text(tr('Send a test notification')),
+            ),
+          ),
+          const SizedBox(height: 8),
           if (!_notify)
             Align(
               alignment: AlignmentDirectional.centerStart,

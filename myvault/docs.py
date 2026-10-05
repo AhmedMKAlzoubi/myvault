@@ -282,14 +282,15 @@ def read_mrz(text: str) -> dict:
 
 def _td23(b: list[str]) -> dict:
     l1, l2 = b
+    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l1[5:]),
+           "nationality": l2[10:13].strip("<"), "gender": l2[20] if l2[20] in "MF" else ""}
     number = _field(l2[0:9], l2[9], False)
     birth = _field(l2[13:19], l2[19], True)
     expiry = _field(l2[21:27], l2[27], True)
-    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l1[5:])}
     if number:
         out["number"] = number.strip("<")
     if birth:
-        out["birth"] = _yymmdd(birth, False)
+        out["birth_date"] = _yymmdd(birth, False)
     if expiry:
         out["expires"] = _yymmdd(expiry, True)
     return out
@@ -297,14 +298,15 @@ def _td23(b: list[str]) -> dict:
 
 def _td1(b: list[str]) -> dict:
     l1, l2, l3 = b
+    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l3),
+           "nationality": l2[15:18].strip("<"), "gender": l2[7] if l2[7] in "MF" else ""}
     number = _field(l1[5:14], l1[14], False)
     birth = _field(l2[0:6], l2[6], True)
     expiry = _field(l2[8:14], l2[14], True)
-    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l3)}
     if number:
         out["number"] = number.strip("<")
     if birth:
-        out["birth"] = _yymmdd(birth, False)
+        out["birth_date"] = _yymmdd(birth, False)
     if expiry:
         out["expires"] = _yymmdd(expiry, True)
     return out
@@ -314,13 +316,65 @@ _MONTHS = {m: i for i, m in enumerate(
     "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
 _EXPIRY = re.compile(r"expir|valid\s*(until|thru|through|to)|end\s*date|انتهاء|صالح[ةه]?\s*(حتى|لغاية)|ينتهي", re.I)
 _ISSUE = re.compile(r"issue|start\s*date|إصدار|الإصدار|تحرير", re.I)
-_BIRTH = re.compile(r"birth|born|dob|ميلاد|الولادة", re.I)
-_NUMBER = re.compile(r"(?:no\.?|number|num\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})", re.I)
-_TYPES = [("passport", r"passport|جواز"), ("visa", r"\bvisa\b|تأشيرة"),
-          ("driving_license", r"driv\w*\s*licen[cs]e|رخصة\s*(ال)?قيادة|رخصة\s*سوق"),
-          ("car_registration", r"vehicle|registration|رخصة\s*(ال)?مركبة|ترخيص"),
-          ("rental", r"lease|tenan|rent|إيجار|استئجار"), ("residence", r"residen|إقامة"),
-          ("insurance", r"insurance|تأمين"), ("id_card", r"identity|national\s*id|\bid\s*card|هوية|بطاقة\s*شخصية")]
+_BIRTH = re.compile(r"birth|born|\bdob\b|ميلاد|الولادة", re.I)
+_NUMBER = re.compile(r"(?:\bno\b\.?|number|\bnum\b\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})", re.I)
+_NOT_NUMBER = re.compile(r"plate|phone|\btel\b|mobile|chassis|\bvin\b|اللوحة|هاتف", re.I)
+# Most specific first. "Residence" alone is often an ID card's address line, so a
+# residence permit has to say so.
+_TYPES = [("passport", r"\bpassport\b|جواز\s*(ال)?سفر"), ("visa", r"\bvisa\b|تأشيرة"),
+          ("driving_license", r"driv\w*\s*licen[cs]e|driver'?s\s*licen|رخصة\s*(ال)?قيادة|رخصة\s*سوق"),
+          ("car_registration", r"vehicle\s*(registration|licen[cs]e)|registration\s*certificate|\bchassis\b|"
+                               r"رخصة\s*(ال)?مركبة|رخصة\s*سيارة|تسجيل\s*(ال)?مركبة"),
+          ("residence", r"residen(ce|cy|t)\s*(permit|card)|تصريح\s*إقامة|(?<![ء-ي])إقامة(?![ء-ي])"),
+          ("id_card", r"identity|national\s*(id|number|no)|\bid\s*card|personal\s*(id|card|number)|هوية|"
+                      r"بطاقة\s*(ال)?(شخصية|تعريف)|الرقم\s*الوطني"),
+          ("rental", r"\blease\b|tenan|rental\s*(agreement|contract)|إيجار|استئجار|المؤجر|المستأجر"),
+          ("insurance", r"insurance|\bpolicy\b|تأمين")]
+# Details read from "Label: value" lines (the value may also be on the next line).
+_LABELS = {
+    "holder": r"\b(full\s*)?name\b|الاسم",
+    "nationality": r"nationality|الجنسية",
+    "gender": r"\bsex\b|gender|الجنس",
+    "birth_place": r"place\s*of\s*birth|birth\s*place|مكان\s*(ال)?(ولادة|الميلاد)",
+    "address": r"address|place\s*of\s*residence|العنوان|مكان\s*الإقامة",
+    "landlord": r"landlord|lessor|المؤجر",
+    "employer": r"sponsor|employer|الكفيل|صاحب\s*العمل",
+    "insurer": r"insurer|insurance\s*company|شركة\s*التأمين",
+    "licence_class": r"\bclass\b|\bcategory\b|الفئة",
+    "plate": r"plate(\s*(\bno\b\.?|number))?|رقم\s*اللوحة",
+    "vehicle": r"make\s*(and|&)\s*model|\bmodel\b|الطراز",
+    "visa_type": r"visa\s*type|type\s*of\s*visa|نوع\s*التأشيرة",
+    "rent": r"monthly\s*rent|rent\s*amount|قيمة\s*الإيجار|الأجرة",
+    "country": r"issuing\s*(country|authority|state)|issued\s*by|place\s*of\s*issue|جهة\s*الإصدار|مكان\s*الإصدار",
+    "phone": r"phone|mobile|\btel\b|هاتف|موبايل|جوال",
+}
+
+
+def _after(label: str, lines: list[str]) -> str:
+    """The value after a label on its line, or on the next line if it's alone."""
+    rx = re.compile(label, re.I)
+    for i, line in enumerate(lines):
+        m = rx.search(line)
+        if not m:
+            continue
+        rest = re.sub(r"^[\s:：.#\-–]+", "", line[m.end():]).strip()
+        if not rest and i + 1 < len(lines):
+            rest = lines[i + 1].strip()
+        if rest:
+            return rest[:80]
+    return ""
+
+
+def _clean(key: str, v: str) -> str:
+    if key == "gender":
+        g = v.strip().upper()[:1]
+        return "M" if g == "M" or "ذكر" in v else "F" if g == "F" or "أنثى" in v else ""
+    if key == "phone":
+        digits = re.sub(r"[^\d+]", "", v)
+        return digits if 7 <= len(digits.lstrip("+")) <= 15 else ""
+    if key in ("holder", "nationality", "birth_place", "landlord", "employer", "insurer") and re.search(r"\d", v):
+        return ""
+    return v
 
 
 def _dates(text: str):
@@ -343,43 +397,80 @@ def _dates(text: str):
                 continue
 
 
-def read_details(text: str, today: dt.date | None = None) -> dict:
-    """Best guesses from a document's text; the person checks them before saving."""
+def read_details(text: str | list[str], today: dt.date | None = None) -> dict:
+    """Best guesses from a document's text (one string per page or side, e.g. an
+    ID card's front and back). The person checks them before saving.
+
+    Dates follow the order every document has: birth < issue < expiry. A label
+    next to a date is used when it fits that order; when it doesn't (labels and
+    values in separate columns, or labels the reader couldn't read), the order
+    decides. A birth date is never taken for an expiry date."""
     today = today or dt.date.today()
+    text = "\n".join([text] if isinstance(text, str) else text)
     text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    lines = text.splitlines()
     found = read_mrz(text)
-    if found:
-        found.pop("birth", None)
-        found.setdefault("issued", "")
-    else:
+    if not found:
         found = {"how": "text"}
-    for kind, rx in _TYPES:
-        if "doc_type" not in found and re.search(rx, text, re.I):
-            found["doc_type"] = kind
-    labelled = {}
+        for kind, rx in _TYPES:
+            if re.search(rx, text, re.I):
+                found["doc_type"] = kind
+                break
+    elif found["doc_type"] == "id_card" and re.search(_TYPES[4][1], text, re.I):
+        found["doc_type"] = "residence"
+    for key, label in _LABELS.items():
+        if not found.get(key):
+            found[key] = _clean(key, _after(label, lines))
+    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", text)
+    found["email"] = m.group(0) if m else ""
+    m = re.search(r"\b(?=[A-HJ-NPR-Z0-9]*\d)(?=[A-HJ-NPR-Z0-9]*[A-Z])[A-HJ-NPR-Z0-9]{17}\b", text)
+    found["vin"] = m.group(0) if m else ""
+
+    # ---- dates
+    seen = []
     for pos, iso in _dates(text):
-        # The nearest label before the date, on its line or the one above.
+        if not 1900 <= int(iso[:4]) <= today.year + 30:
+            continue
         before = text[max(0, pos - 50):pos]
         hits = [(m.end(), label) for label, rx in (("expires", _EXPIRY), ("issued", _ISSUE), ("birth", _BIRTH))
                 for m in rx.finditer(before)]
-        if hits:
-            labelled.setdefault(max(hits)[1], iso)
+        seen.append((iso, max(hits)[1] if hits else None))
+    first = lambda lab: next((d for d, label in seen if label == lab), None)   # noqa: E731
+    days = sorted({d for d, _ in seen})
+    now = today.isoformat()
+    old = today.replace(year=today.year - 12).isoformat()       # birth dates are at least this old
+    recent = today.replace(year=today.year - 15).isoformat()    # expiry dates aren't older than this
+    birth = found.get("birth_date") or first("birth")
+    if birth and birth > now:
+        birth = None
+    if not birth and days and days[0] <= old:
+        birth = days[0]
+    after_birth = lambda d: d != birth and (not birth or d > birth)          # noqa: E731
+    expires = found.get("expires")
+    if not expires:
+        labelled = first("expires")
+        if labelled and after_birth(labelled):
+            expires = labelled
         else:
-            labelled.setdefault("other", []).append(iso)
-    if not found.get("expires"):
-        if "expires" in labelled:
-            found["expires"] = labelled["expires"]
-        else:                                    # no label: the latest date still to come
-            future = sorted(d for d in labelled.get("other", []) if d > today.isoformat())
-            if future:
-                found["expires"] = future[-1]
-                found["guessed"] = True
-    if not found.get("issued") and "issued" in labelled:
-        found["issued"] = labelled["issued"]
-    if "number" not in found:
-        m = _NUMBER.search(text)
-        if m and re.search(r"\d", m.group(1)):
-            found["number"] = m.group(1)
+            later = [d for d in days if after_birth(d) and d >= recent]
+            if later:
+                expires, found["guessed"] = later[-1], True
+    issued = first("issued")
+    if not (issued and after_birth(issued) and (not expires or issued < expires)):
+        before = [d for d in days if after_birth(d) and d <= now and expires and d < expires]
+        issued = before[-1] if before else None
+    found.update(birth_date=birth, expires=expires, issued=issued)
+
+    # ---- the document's number
+    if not found.get("number"):
+        for m in _NUMBER.finditer(text):
+            if not _NOT_NUMBER.search(text[max(0, m.start() - 14):m.start()]) and re.search(r"\d", m.group(1)):
+                found["number"] = m.group(1)
+                break
+    if not found.get("number"):                  # unlabelled: a national number or a passport-style one
+        m = re.search(r"(?<![\d+])(?:[129]\d{9}|\b[A-Z]{1,2}\d{6,8})(?![\dA-Z])", text)
+        if m:
+            found["number"] = m.group(0)
     return {k: v for k, v in found.items() if v not in ("", None)}
 
 

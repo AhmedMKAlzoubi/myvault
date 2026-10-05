@@ -13,6 +13,8 @@ import 'package:myvault/theme.dart';
 import 'package:myvault/vault.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async => docs.loadDocSchema()); // the shared document types
   testWidgets('pick a scan, details fill in, save keeps files and reminders', (
     t,
   ) async {

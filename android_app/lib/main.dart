@@ -35,6 +35,7 @@ Future<void> main() async {
     // first run: follow the phone's language
   }
   await loadAutofillRequest();
+  await docs.loadDocSchema();
   runApp(const MyVaultApp());
 }
 
@@ -1068,7 +1069,13 @@ class _EntryViewPageState extends State<EntryViewPage> {
   Widget build(BuildContext context) {
     final e = Envelope.of(context);
     final k = kindOf(x);
-    final rows = [...k.fields, ...k.more]
+    final fields = x.kind == 'document'
+        ? docFieldDefs(
+            x.fields['doc_type'] ?? '',
+            (key) => (x.fields[key] ?? '').isNotEmpty,
+          )
+        : [...k.fields, ...k.more];
+    final rows = fields
         .map((f) => (f, f.read(x)))
         .where((r) => r.$2.isNotEmpty)
         .map((r) {
@@ -1222,9 +1229,13 @@ class _EntryEditPageState extends State<EntryEditPage> {
   late final KindDef _k = kindOf(_e);
   late final _title = TextEditingController(text: _e.title);
   late final _notes = TextEditingController(text: _e.notes);
+  // A document keeps a box for every field it could have, so changing its type
+  // never loses what's been typed.
+  late final List<FieldDef> _allFields = _e.kind == 'document'
+      ? allDocFieldDefs()
+      : [..._k.fields, ..._k.more];
   late final Map<String, TextEditingController> _c = {
-    for (final f in [..._k.fields, ..._k.more])
-      f.key: TextEditingController(text: f.read(_e)),
+    for (final f in _allFields) f.key: TextEditingController(text: f.read(_e)),
   };
   final _shown = <String>{};
   // A saved password is never one stray tap from being replaced: it's
@@ -1241,10 +1252,11 @@ class _EntryEditPageState extends State<EntryEditPage> {
   ];
 
   final _doc = DocumentDraft();
+  final _docKey = GlobalKey();
 
   void _save() {
     _e.title = _title.text.trim();
-    for (final f in [..._k.fields, ..._k.more]) {
+    for (final f in _allFields) {
       f.write(_e, _c[f.key]!.text);
     }
     if (_e.kind == 'document') {
@@ -1526,14 +1538,23 @@ class _EntryEditPageState extends State<EntryEditPage> {
             decoration: InputDecoration(labelText: tr('Name')),
           ),
           const SizedBox(height: 14),
-          for (final f in _k.fields) _field(f),
+          for (final f
+              in _e.kind == 'document'
+                  ? docFieldDefs(
+                      _c['doc_type']!.text,
+                      (key) => _c[key]!.text.isNotEmpty,
+                    )
+                  : _k.fields)
+            _field(f),
           if (_e.kind == 'document')
             DocumentEditor(
+              key: _docKey, // keeps its files when fields above it come and go
               vault: Session.vault!,
               entry: _e,
               isNew: widget.isNew,
               draft: _doc,
               isEmpty: (k) => (_c[k]?.text ?? '').isEmpty,
+              type: () => _c['doc_type']!.text,
               fill: (k, v) {
                 final c = _c[k];
                 if (c == null || c.text.isNotEmpty) return false;

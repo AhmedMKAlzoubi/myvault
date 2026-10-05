@@ -7,51 +7,23 @@ import 'package:myvault/docs.dart';
 import 'package:myvault/vault.dart';
 
 void main() {
-  test('reads passport and ID zones, with OCR slips and check digits', () {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async => loadDocSchema()); // the shared document types
+  test('reads documents exactly like the PC (shared cases)', () {
+    final c = jsonDecode(
+      File('test_fixtures/read_cases.json').readAsStringSync(),
+    );
+    final today = DateTime.parse(c['today'] as String);
+    for (final k in c['cases'] as List) {
+      expect(
+        readDetails(k['text'], today: today),
+        k['want'],
+        reason: k['name'] as String,
+      );
+    }
     const td3 =
-        'P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO74O8122F1204159ZE184226B<<<<<10';
-    final p = readDetails(td3);
-    expect(p['how'], 'mrz');
-    expect(p['doc_type'], 'passport');
-    expect(p['number'], 'L898902C3');
-    expect(p['expires'], '2012-04-15');
-    expect(p['holder'], 'Anna Maria Eriksson');
-    expect(p['country'], 'UTO');
-    final id = readDetails(
-      'I<UTOD231458907<<<<<<<<<<<<<<<\n7408122F1204159UTO<<<<<<<<<<<6\nERIKSSON<<ANNA<MARIA<<<<<<<<<<',
-    );
-    expect(id['doc_type'], 'id_card');
-    expect(id['number'], 'D23145890');
+        'P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO7408122F1204159ZE184226B<<<<<10';
     expect(readMrz(td3.replaceAll('1204159', '1204158'))['expires'], isNull);
-  });
-
-  test('reads labelled dates, numbers and types like the PC does', () {
-    final today = DateTime(2026, 10, 5);
-    expect(
-      readDetails(
-        'DRIVING LICENCE\nLicence No: 12345678\nDate of issue 01/02/2020   Date of expiry 01/02/2030\nDate of birth 05/06/1990',
-        today: today,
-      ),
-      {
-        'how': 'text',
-        'doc_type': 'driving_license',
-        'issued': '2020-02-01',
-        'expires': '2030-02-01',
-        'number': '12345678',
-      },
-    );
-    final car = readDetails(
-      'رخصة مركبة\nتاريخ الانتهاء: ٠١/٠٣/٢٠٢٧',
-      today: today,
-    );
-    expect(car['doc_type'], 'car_registration');
-    expect(car['expires'], '2027-03-01');
-    final lease = readDetails(
-      'Lease agreement 1 March 2026 until 28 Feb 2027',
-      today: today,
-    );
-    expect(lease['expires'], '2027-02-28');
-    expect(lease['guessed'], true);
   });
 
   test('reminders say only the type or chosen name', () {

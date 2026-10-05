@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 (6 October 2026)
+
+- **Phone: scan documents like a scanner app.** "Scan document" finds the page's edges live, lets you drag the corners, straightens and cleans it, and takes several pages in one go (a card's front and back). It uses Google's on-device document scanner (from Google Play services); without it, the plain camera is used.
+- **Fields that fit the document.** Each type shows its own fields: a passport has nationality, date of birth, place of birth and sex; a car registration has owner, plate, make and model and chassis number; a rental contract has landlord, tenant, address, rent and start and end dates; and so on. Anything filled in stays visible even if you change the type.
+- **Reads more, and more carefully.** Details are read from all of a document's files together (front and back). Dates follow the order birth → issue → expiry, so a birth date is never taken for an expiry date. It also finds the address, phone, email, nationality, sex, place of birth, plate and chassis number, and an ID's number even when its label is in Arabic. An ID card is no longer mistaken for a residence permit.
+- **Windows reminders** are now checked right after you save (not only every half hour), and Settings › Documents has **Send a test notification**. So does the phone (menu › Documents).
+- The Windows app and the phone read documents by exactly the same rules, checked by shared tests.
+
 ## 0.6.0 (5 October 2026)
 
 - **Personal documents** (Windows and Android): passports, ID cards, residence permits, visas, driving licences, car registrations, rental contracts, insurance and more.

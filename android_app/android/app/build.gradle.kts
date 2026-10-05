@@ -65,4 +65,7 @@ dependencies {
     // Reading document text on the phone: Google ML Kit with the model bundled
     // in the app, so it works offline and nothing is downloaded or sent.
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Scanning documents (edges found live, corners adjustable, several pages):
+    // Google Play services, on the phone.
+    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
 }
