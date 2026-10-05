@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only the folder holding verified update packages is shareable with the installer. -->
+<!-- Shareable: verified update packages (for the installer), and the folder the camera
+     app saves a document photo into (MyVault encrypts it and deletes it at once). -->
 <paths>
     <files-path name="packages" path="packages/"/>
+    <cache-path name="camera" path="camera/"/>
 </paths>

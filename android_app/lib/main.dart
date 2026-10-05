@@ -10,6 +10,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
 import 'crypto.dart';
+import 'docs.dart' as docs;
+import 'documents_ui.dart';
 import 'generator.dart';
 import 'kinds.dart';
 import 'l10n.dart';
@@ -88,6 +90,11 @@ class Session {
 
   static void open(Vault v) {
     vault = v;
+    v.onSave = () => pushReminders(v);
+    pushReminders(v);
+    try {
+      docs.cleanup(v); // files nothing refers to any more
+    } catch (_) {}
     touch();
   }
 
@@ -762,6 +769,10 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const LanguagePage()));
+      case 'documents':
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const DocumentsSettingsPage()),
+        );
       case 'about':
         Navigator.of(
           context,
@@ -820,6 +831,7 @@ class _HomePageState extends State<HomePage> {
                 child: Text(tr('Autofill in other apps')),
               ),
               PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
+              PopupMenuItem(value: 'documents', child: Text(tr('Documents'))),
               PopupMenuItem(value: 'language', child: Text(tr('Language'))),
               PopupMenuItem(value: 'about', child: Text(tr('About & privacy'))),
               PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
@@ -871,6 +883,8 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           const Divider(),
+          if (_search.text.isEmpty && _filter == 'all')
+            ExpiringSoon(docs: v.activeEntries(), onOpen: _open),
           Expanded(
             child: items.isEmpty
                 ? _Empty(
@@ -893,7 +907,11 @@ class _HomePageState extends State<HomePage> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
-                        subtitle: sub.isEmpty
+                        subtitle: x.kind == 'document'
+                            ? (docs.parseDay(x.fields['expires']) == null
+                                  ? null
+                                  : expiryText(context, x.fields['expires']!))
+                            : sub.isEmpty
                             ? null
                             : Text(
                                 sub,
@@ -1050,10 +1068,15 @@ class _EntryViewPageState extends State<EntryViewPage> {
   Widget build(BuildContext context) {
     final e = Envelope.of(context);
     final k = kindOf(x);
-    final rows = [
-      ...k.fields,
-      ...k.more,
-    ].map((f) => (f, f.read(x))).where((r) => r.$2.isNotEmpty).toList();
+    final rows = [...k.fields, ...k.more]
+        .map((f) => (f, f.read(x)))
+        .where((r) => r.$2.isNotEmpty)
+        .map((r) {
+          final f = r.$1;
+          if (f.options != null) return (f, tr(docs.typeLabel(r.$2)));
+          return (f, f.date ? fmtDay(r.$2) : r.$2);
+        })
+        .toList();
     final custom = x.custom.entries.toList();
     final sub = [
       tr(k.label),
@@ -1119,6 +1142,8 @@ class _EntryViewPageState extends State<EntryViewPage> {
           for (final r in rows) _row(r.$1, r.$2),
           if (x.kind != 'note' && x.notes.isNotEmpty)
             _row(const FieldDef('notes', 'Notes', multi: true), x.notes),
+          if (x.kind == 'document')
+            DocumentSection(vault: Session.vault!, entry: x),
           if (custom.isNotEmpty) ...[
             const SizedBox(height: 22),
             Text(
@@ -1215,10 +1240,17 @@ class _EntryEditPageState extends State<EntryEditPage> {
       ],
   ];
 
+  final _doc = DocumentDraft();
+
   void _save() {
     _e.title = _title.text.trim();
     for (final f in [..._k.fields, ..._k.more]) {
       f.write(_e, _c[f.key]!.text);
+    }
+    if (_e.kind == 'document') {
+      _doc.writeTo(_e);
+      // The first reminder: Android needs the person's OK to show notifications.
+      if (docs.remindDays(_e).isNotEmpty) askNotifications();
     }
     if (_e.kind != 'note') _e.notes = _notes.text;
     _e.custom = {
@@ -1320,6 +1352,51 @@ class _EntryEditPageState extends State<EntryEditPage> {
 
   Widget _field(FieldDef f) {
     final c = _c[f.key]!;
+    if (f.options != null) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: DropdownButtonFormField<String>(
+          initialValue: f.options!.any((o) => o.$1 == c.text) ? c.text : '',
+          decoration: InputDecoration(labelText: tr(f.label)),
+          items: [
+            for (final o in f.options!)
+              DropdownMenuItem(value: o.$1, child: Text(tr(o.$2))),
+          ],
+          onChanged: (v) => setState(() => c.text = v ?? ''),
+        ),
+      );
+    }
+    if (f.date) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: InkWell(
+          onTap: () async {
+            final now = DateTime.now();
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: docs.parseDay(c.text) ?? now,
+              firstDate: DateTime(1950),
+              lastDate: DateTime(now.year + 30),
+            );
+            if (picked != null) setState(() => c.text = docs.isoDay(picked));
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: tr(f.label),
+              suffixIcon: c.text.isEmpty
+                  ? const Icon(Icons.calendar_today_outlined, size: 20)
+                  : IconButton(
+                      tooltip: tr('Clear'),
+                      icon: const Icon(Icons.close, size: 20),
+                      onPressed: () => setState(() => c.clear()),
+                    ),
+            ),
+            isEmpty: c.text.isEmpty,
+            child: Text(c.text.isEmpty ? '' : fmtDay(c.text)),
+          ),
+        ),
+      );
+    }
     final filled = f.gen && c.text.isNotEmpty;
     final hidden = f.secret && !_shown.contains(f.key);
     return Padding(
@@ -1450,6 +1527,20 @@ class _EntryEditPageState extends State<EntryEditPage> {
           ),
           const SizedBox(height: 14),
           for (final f in _k.fields) _field(f),
+          if (_e.kind == 'document')
+            DocumentEditor(
+              vault: Session.vault!,
+              entry: _e,
+              isNew: widget.isNew,
+              draft: _doc,
+              isEmpty: (k) => (_c[k]?.text ?? '').isEmpty,
+              fill: (k, v) {
+                final c = _c[k];
+                if (c == null || c.text.isNotEmpty) return false;
+                setState(() => c.text = v);
+                return true;
+              },
+            ),
           if (_k.more.isNotEmpty)
             Theme(
               data: Theme.of(
@@ -1869,7 +1960,7 @@ class _SyncPageState extends State<SyncPage> {
       _state = r.ok ? 'done' : 'error';
       _msg = r.ok
           ? tr(
-              'Synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone. Your PC has the rest.${_versionNote(r)}',
+              'Synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone. Your PC has the rest.${_versionNote(r)}${_filesNote(r)}',
             )
           : r.error;
     });
@@ -1884,6 +1975,13 @@ class _SyncPageState extends State<SyncPage> {
       );
     }
   }
+
+  String _filesNote(qrsync.SyncResult r) => [
+    if (r.filesReceived > 0)
+      tr(' Document files received: ${r.filesReceived}.'),
+    if (r.filesError.isNotEmpty)
+      tr(" Document files couldn't be synced: ${r.filesError}"),
+  ].join();
 
   String _versionNote(qrsync.SyncResult r) {
     final pc = r.peerVersion;

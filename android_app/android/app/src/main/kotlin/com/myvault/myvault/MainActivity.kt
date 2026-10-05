@@ -21,6 +21,8 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val docs by lazy { DocsBridge(this) }
+
     /** Only ever hand Android's installer an APK that is this very app: the same
      *  package name and the same signing certificate as the installed MyVault.
      *  A look-alike with another package name would otherwise install beside it. */
@@ -105,6 +107,10 @@ class MainActivity : FlutterActivity() {
         }
         // Updates: hand a downloaded/received APK to Android's own installer.
         // Android refuses it unless it's signed with the same key as this app.
+        // Personal documents: photos, files, reading text, reminders (see DocsBridge).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/docs").setMethodCallHandler { call, result ->
+            docs.handle(call, result)
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/update").setMethodCallHandler { call, result ->
             if (call.method == "openDoc") {
                 // Only MyVault's own published documents, never an arbitrary URL.
@@ -135,5 +141,14 @@ class MainActivity : FlutterActivity() {
             })
             result.success(true)
         }
+    }
+
+    @Deprecated("FlutterActivity still routes results here")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (!docs.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        if (!docs.onPermissionResult(requestCode)) super.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 }

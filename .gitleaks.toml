@@ -1,0 +1,7 @@
+# Gitleaks: the default rules, plus one test fixture that is not a secret.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixture: the per-file key of a random sample file used by the phone tests (protects nothing real)"
+paths = ['''android_app/test_fixtures/doc_file\.json''']

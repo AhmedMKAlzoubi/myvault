@@ -132,6 +132,8 @@ class SyncResult:
     received: str = ""          # version of an update package we received
     sent: str = ""              # version of an update package we handed over
     update_error: str = ""
+    files_received: int = 0     # document files (photos/PDFs) received
+    files_error: str = ""
 
 
 # ---- pairing URI (what the QR code holds) ------------------------------------
@@ -253,6 +255,51 @@ def _recv_package(ch: _Chan, provider, result: SyncResult) -> None:
         tmp.unlink(missing_ok=True)
 
 
+FILES_FROM = (0, 6, 0)          # both devices must be this new to swap document files
+
+
+def _swap(ch: _Chan, is_server: bool, msg: dict) -> dict:
+    """The client speaks first, the server answers: both end up with the other's message."""
+    if is_server:
+        peer = ch.recv()
+        ch.send(msg)
+        return peer
+    ch.send(msg)
+    return ch.recv()
+
+
+def _exchange_files(ch: _Chan, provider, is_server: bool, r: SyncResult) -> None:
+    """Document files for the documents both sides now share. They travel as
+    stored (already encrypted with each file's own key) inside the sync channel;
+    the receiver keeps one only if it opens with the key in the vault. A device
+    with file sync switched off neither offers nor asks."""
+    on = provider.file_sync()
+    refs = provider.file_refs()                    # id -> reference, for live documents
+    mine = {i for i in refs if provider.has_file(i)} if on else set()
+    peer_has = set(_swap(ch, is_server, {"type": "files", "have": sorted(mine)}).get("have", []))
+    want = sorted(i for i in peer_has if i in refs and i not in mine) if on else []
+    peer_wants = [i for i in _swap(ch, is_server, {"type": "files_want", "ids": want}).get("ids", []) if i in mine]
+    for server_sends in (True, False):             # the server's files first, then the client's
+        if server_sends == is_server:
+            for fid in peer_wants:
+                blob = provider.read_file(fid)
+                ch.send({"type": "file", "id": fid, "size": len(blob)})
+                for i in range(0, len(blob), CHUNK):
+                    ch.send_raw(blob[i:i + CHUNK])
+            ch.send({"type": "file", "id": ""})
+        else:
+            while (head := ch.recv()).get("id"):
+                size = int(head["size"])
+                if not 0 < size <= 21 * 1024 * 1024:
+                    raise ValueError("document file too large")
+                blob = bytearray()
+                while len(blob) < size:
+                    blob += ch.recv_raw()
+                if head["id"] in want and len(blob) == size:
+                    provider.store_file(head["id"], bytes(blob))
+                    r.files_received += 1
+
+
 def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> SyncResult:
     ch = _Chan(sock, key, is_server)
     my_ver = getattr(provider, "app_version", lambda: "")()
@@ -303,6 +350,12 @@ def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> Syn
                 _recv_package(ch, provider, r)
     except Exception as exc:   # a failed hand-over must never undo a good sync
         r.update_error = str(exc) or exc.__class__.__name__
+    from .update import vtuple
+    if vtuple(r.peer_version) >= FILES_FROM and vtuple(my_ver) >= FILES_FROM and hasattr(provider, "file_refs"):
+        try:
+            _exchange_files(ch, provider, is_server, r)
+        except Exception as exc:   # likewise: entries are already synced
+            r.files_error = str(exc) or exc.__class__.__name__
     return r
 
 

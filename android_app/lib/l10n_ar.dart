@@ -361,6 +361,107 @@ const arabic = <String, String>{
       'في Chrome افتح أيضًا Chrome › الإعدادات › خدمات الملء التلقائي واختر «الملء التلقائي باستخدام خدمة أخرى».',
   "This phone's Android version doesn't support autofill services.":
       'إصدار Android على هذا الهاتف لا يدعم خدمات التعبئة التلقائية.',
+  // ---- documents ----
+  'Document': 'مستند',
+  'Documents': 'المستندات',
+  'New document': 'مستند جديد',
+  'Passport, ID, visa, licence or contract, with a reminder before it expires.':
+      'جواز سفر أو هوية أو تأشيرة أو رخصة أو عقد، مع تذكير قبل انتهائه.',
+  'Type': 'النوع',
+  'Name on the document': 'الاسم على المستند',
+  'Document number': 'رقم المستند',
+  'Issued by': 'جهة الإصدار',
+  'Issue date': 'تاريخ الإصدار',
+  'Expiry date': 'تاريخ الانتهاء',
+  'Clear': 'مسح',
+  'Cancel': 'إلغاء',
+  'Choose a type': 'اختر النوع',
+  'Passport': 'جواز السفر',
+  'ID card': 'بطاقة الهوية',
+  'Residence permit': 'تصريح الإقامة',
+  'Visa': 'التأشيرة',
+  'Driving licence': 'رخصة القيادة',
+  'Car registration': 'ترخيص المركبة',
+  'Rental contract': 'عقد الإيجار',
+  'Insurance': 'التأمين',
+  '1 day': 'يوم واحد',
+  '2 days': 'يومين',
+  '3 days': '3 أيام',
+  '10 days': '10 أيام',
+  '1 week': 'أسبوع واحد',
+  '2 weeks': 'أسبوعين',
+  '1 month': 'شهر واحد',
+  '2 months': 'شهرين',
+  '3 months': '3 أشهر',
+  '6 months': '6 أشهر',
+  '1 year': 'سنة واحدة',
+  '{0} days': '{0} يومًا',
+  'Expired {0}': 'انتهى في {0}',
+  'Expires today': 'ينتهي اليوم',
+  'Expires {0}': 'ينتهي في {0}',
+  '{0} expires in {t1}.': 'موعد انتهاء {0} بعد {t1}.',
+  '{0} expires today.': 'اليوم موعد انتهاء {0}.',
+  'Reminders': 'التذكيرات',
+  'Add the expiry date to get reminders.':
+      'أضف تاريخ الانتهاء لتصلك التذكيرات.',
+  'No reminders set. Tap Edit to add some.':
+      'لا توجد تذكيرات. اضغط «تعديل» لإضافتها.',
+  ',': '،',
+  'before it expires, and on the day.': 'قبل انتهائه، وفي يوم الانتهاء نفسه.',
+  'A notification will say:': 'سيقول الإشعار:',
+  'Files': 'الملفات',
+  'Save an unprotected copy?': 'هل تريد حفظ نسخة غير محمية؟',
+  'The copy isn\'t encrypted: any app or person that can open where you save it can see it.':
+      'النسخة غير مشفّرة: يستطيع رؤيتها أي تطبيق أو شخص يستطيع فتح المكان الذي تحفظها فيه.',
+  'Save a copy': 'حفظ نسخة',
+  'Saved.': 'تم الحفظ.',
+  'Reading the document…': 'جارٍ قراءة المستند…',
+  'Couldn\'t find new details in this file. Type them in instead.':
+      'لم أجد تفاصيل جديدة في هذا الملف. اكتبها بنفسك.',
+  'Read from the machine-readable zone (the <<< lines) and checked.':
+      'قُرئت من المنطقة المقروءة آليًا (أسطر <<<) وتم التحقق منها.',
+  'Read from the document\'s text.': 'قُرئت من نص المستند.',
+  'Filled in: {0}.': 'تمت تعبئة: {0}.',
+  'The expiry date is a guess (it wasn\'t labelled).':
+      'تاريخ الانتهاء تخمين (لم يكن موسومًا).',
+  'Check the details before saving.': 'تحقق من التفاصيل قبل الحفظ.',
+  'That file couldn\'t be opened.': 'تعذّر فتح هذا الملف.',
+  'That file couldn\'t be read.': 'تعذّرت قراءة هذا الملف.',
+  'That PDF couldn\'t be shown.': 'تعذّر عرض ملف PDF هذا.',
+  'Your phone has no app for that.': 'لا يوجد على هاتفك تطبيق لذلك.',
+  'Photos or PDFs of the document. They\'re encrypted the moment you add them. MyVault can read the details from them, on this phone.':
+      'صور المستند أو ملفات PDF له. تُشفَّر لحظة إضافتها. ويستطيع MyVault قراءة التفاصيل منها على هذا الهاتف.',
+  'Read details': 'قراءة التفاصيل',
+  'Remove file': 'إزالة الملف',
+  'Take a photo': 'التقاط صورة',
+  'Choose files': 'اختيار ملفات',
+  'Remind me before it expires': 'ذكّرني قبل انتهائه',
+  'Days': 'أيام',
+  'Add days': 'إضافة أيام',
+  'Choose as many as you like. You\'re also reminded on the day it expires.':
+      'اختر ما تشاء منها. وستُذكَّر أيضًا في يوم الانتهاء.',
+  'Name in reminders': 'الاسم في التذكيرات',
+  'Keep numbers and private details out: notifications can be seen on a locked screen.':
+      'لا تكتب فيه أرقامًا أو تفاصيل خاصة: يمكن رؤية الإشعارات على الشاشة المقفلة.',
+  'Expiring soon': 'ينتهي قريبًا',
+  'Sync document files with your PC': 'مزامنة ملفات المستندات مع الكمبيوتر',
+  'Photos and PDFs travel encrypted over your WiFi when you sync. Turn off to keep them on this phone only; names, numbers and dates always sync.':
+      'تنتقل الصور وملفات PDF مشفّرة عبر شبكة Wi‑Fi لديك عند المزامنة. أوقف هذا الخيار لتبقيها على هذا الهاتف فقط؛ أما الأسماء والأرقام والتواريخ فتتزامن دائمًا.',
+  'Reminders can notify you.': 'يمكن للتذكيرات أن تُرسل إليك إشعارات.',
+  'Notifications are off for MyVault, so reminders can\'t show.':
+      'الإشعارات متوقفة لـ MyVault، فلا يمكن عرض التذكيرات.',
+  'Each reminder says only the document type, or the name you chose, and the time left.':
+      'لا يذكر كل تذكير إلا نوع المستند، أو الاسم الذي اخترته، والوقت المتبقي.',
+  'Allow notifications': 'السماح بالإشعارات',
+  'Document files received: {0}.': 'ملفات المستندات المستلمة: {0}.',
+  'Document files couldn\'t be synced: {0}':
+      'تعذّرت مزامنة ملفات المستندات: {0}',
+  'That file is over 20 MB.': 'حجم هذا الملف أكبر من 20 ميغابايت.',
+  'Only photos (JPG, PNG, WebP) and PDFs can be added.':
+      'يمكن إضافة الصور (JPG وPNG وWebP) وملفات PDF فقط.',
+  'That file isn\'t on this device yet. Sync with the device that has it.':
+      'هذا الملف ليس على هذا الجهاز بعد. زامِن مع الجهاز الذي يحويه.',
+  'That file is damaged.': 'هذا الملف تالف.',
 };
 
 const arabicMonths = [

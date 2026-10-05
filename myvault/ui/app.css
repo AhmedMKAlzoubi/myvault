@@ -376,3 +376,33 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 [dir="rtl"] details.more:not([open]) summary .ic { transform: scaleX(-1); }
 [dir="rtl"] .mono, [dir="rtl"] input[type="password"], [dir="rtl"] input[type="email"], [dir="rtl"] .pathline { direction: ltr; text-align: right; }
 [dir="rtl"] .secret-text, [dir="rtl"] .pw { direction: ltr; unicode-bidi: isolate; }
+
+/* Documents: expiry in the list, files, reminders, the viewer */
+.item .sub.warn, .soon-row .sub.warn { color: var(--tint); font-weight: 600; }
+.item .sub.bad, .soon-row .sub.bad { color: var(--red); font-weight: 600; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.files { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+.file-tile { display: grid; gap: 6px; align-content: start; min-width: 0; }
+.file-tile .thumb { position: relative; height: 110px; padding: 0; border: 1px solid var(--rule-2); border-radius: var(--r);
+  background: var(--panel); overflow: hidden; cursor: zoom-in; }
+.file-tile .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.file-tile .thumb .pdf { position: absolute; inset-inline-start: 6px; top: 6px; font-size: 10.5px; font-weight: 700;
+  padding: 1px 5px; border-radius: 4px; background: var(--ink); color: var(--paper); }
+.file-tile.missing .thumb { border-style: dashed; cursor: default; }
+.file-tile .fname { font-size: 12px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-acts { display: flex; gap: 4px; align-items: center; }
+.viewer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px;
+  background: color-mix(in srgb, var(--ink) 55%, transparent); }
+.viewer-card { width: min(980px, 100%); max-height: 100%; display: grid; grid-template-rows: auto auto 1fr; gap: 10px;
+  padding: 14px; border-radius: 10px; background: var(--sheet); box-shadow: var(--shadow); }
+.viewer-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.viewer-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viewer-body { overflow: auto; min-height: 200px; border-radius: var(--r); background: var(--panel); display: grid; place-items: center; }
+.viewer-body img { max-width: 100%; display: block; }
+.soon { margin-top: 18px; text-align: start; display: grid; gap: 6px; }
+.soon .section-t { margin: 0 0 2px; display: flex; align-items: center; gap: 6px; }
+.soon-row { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r);
+  background: var(--sheet); color: var(--ink); text-align: start; cursor: pointer; font: inherit; }
+.soon-row:hover { border-color: var(--ink-3); }
+.soon-row b { display: block; font-weight: 600; }

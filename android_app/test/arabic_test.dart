@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myvault/documents_ui.dart';
 import 'package:myvault/l10n.dart';
 import 'package:myvault/l10n_ar.dart';
 import 'package:myvault/main.dart';
@@ -14,7 +15,7 @@ import 'package:myvault/vault.dart';
 
 // Names and terms that stay in Latin letters in the Arabic interface.
 final _keep = RegExp(
-  r'MyVault|GitHub|Android|Chrome|Wi.Fi|WiFi|API|SSH|QR|PIN|APK|GPL-3\.0|URL|'
+  r'MyVault|GitHub|Android|Chrome|PDF|JPG|PNG|WebP|Wi.Fi|WiFi|API|SSH|QR|PIN|APK|GPL-3\.0|URL|'
   r'ahmedmohammedkhear@gmail\.com|l و1 وO و0 وI|English',
 );
 
@@ -93,8 +94,28 @@ void main() {
       password: 'Pw!2?abc',
     );
     v!.add(login);
+    final passport = Entry(
+      kind: 'document',
+      title: 'Family passport',
+      fields: {
+        'doc_type': 'passport',
+        'holder': 'Ahmed Mohammed',
+        'country': 'Jordan',
+        'expires': '2026-11-20',
+        'remind': '30,7',
+      },
+    );
+    v.add(passport);
     Session.open(v);
-    final data = {'GitHub work', 'github.com', 'ahmed-dev', 'Pw!2?abc'};
+    final data = {
+      'GitHub work',
+      'github.com',
+      'ahmed-dev',
+      'Pw!2?abc',
+      'Family passport',
+      'Ahmed Mohammed',
+      'Jordan',
+    };
 
     final pages = <String, Widget>{
       'home': const HomePage(),
@@ -107,6 +128,13 @@ void main() {
       'language': const LanguagePage(),
       'about': const AboutPage(),
       'restore': const RestorePaperPage(),
+      'document': EntryViewPage(entry: passport),
+      'edit document': EntryEditPage(entry: passport),
+      'new document': EntryEditPage(
+        entry: Entry(kind: 'document'),
+        isNew: true,
+      ),
+      'documents settings': const DocumentsSettingsPage(),
     };
     for (final p in pages.entries) {
       await t.pumpWidget(_app(p.value));

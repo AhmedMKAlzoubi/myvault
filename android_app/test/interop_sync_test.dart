@@ -6,7 +6,10 @@
 // a Windows installer it holds.
 import 'dart:io';
 
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myvault/docs.dart' as docs;
 import 'package:myvault/sync.dart';
 import 'package:myvault/update.dart' as upd;
 import 'package:myvault/vault.dart';
@@ -39,6 +42,26 @@ void main() {
           updatedAt: 300,
         ),
       ];
+      final scan = await docs.seal(
+        v,
+        Uint8List.fromList([
+          0xff,
+          0xd8,
+          0xff,
+          ...' phone ID'.codeUnits,
+          ...List.filled(40000, 9),
+        ]),
+        'id.jpg',
+      );
+      final doc = Entry(
+        id: 'phone-doc',
+        kind: 'document',
+        title: 'ID card',
+        fields: {'doc_type': 'id_card', 'expires': '2030-01-01'},
+        updatedAt: 500,
+      );
+      docs.setFileRefs(doc, [scan]);
+      v.entries.add(doc);
       final r = await syncWithCode(uri!, v);
       expect(r.ok, isTrue, reason: r.error);
       final m = {for (final e in v.entries) e.id: e};
@@ -46,7 +69,16 @@ void main() {
       expect(m['shared']!.password, 'phone-newer');
       expect(
         Vault.open('${dir.path}/phone.dat', 'phone-pass').entries.length,
-        3,
+        5,
+      );
+      // The PC's lease scan came over, and opens with the key in the synced entry.
+      expect(r.filesError, '', reason: r.filesError);
+      expect(r.filesReceived, 1);
+      final lease = docs.fileRefs(m['pc-doc']!).single;
+      expect(lease.id, env['MYVAULT_PC_FILE']);
+      expect(
+        (await docs.openFile(v, lease)).length,
+        int.parse(env['MYVAULT_PC_FILE_SIZE']!),
       );
 
       expect(r.peerVersion, env['MYVAULT_PC_VERSION']);

@@ -5,6 +5,9 @@
     <!-- Updates: lets MyVault open Android's installer for a verified update.
          Android still asks you, and only accepts APKs signed with MyVault's key. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Document reminders: show them, and keep the daily check across restarts. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <application
         android:label="MyVault"
         android:allowBackup="false"
@@ -56,6 +59,10 @@
             android:windowSoftInputMode="adjustResize">
             <meta-data android:name="io.flutter.embedding.android.NormalTheme" android:resource="@style/NormalTheme"/>
         </activity>
+        <service
+            android:name=".ReminderJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE"/>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.updates"
