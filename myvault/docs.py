@@ -127,7 +127,7 @@ def refs(entry_fields: dict) -> list[dict]:
 
 def cleanup(entries) -> int:
     """Delete stored files no live document refers to (removed, or entry deleted)."""
-    keep = {r["id"] for e in entries if not e.deleted and e.kind == "document" for r in refs(e.fields)}
+    keep = {r["id"] for e in entries if not e.deleted for r in refs(e.fields)}   # any entry can have files
     gone = 0
     for p in files_dir().glob("*.bin"):
         if p.stem not in keep:

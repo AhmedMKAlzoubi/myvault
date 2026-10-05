@@ -95,6 +95,21 @@ class Entry:
         return e
 
 
+HISTORY_KEEP = 10
+
+
+def keep_old_password(e: Entry, old: str) -> None:
+    """When a login's password changes, the old one goes into its history
+    (fields["password_history"], newest first). Same as keepOldPassword() on the phone."""
+    if not old or old == e.password:
+        return
+    try:
+        past = json.loads(e.fields.get("password_history") or "[]")
+    except ValueError:
+        past = []
+    e.fields["password_history"] = json.dumps([{"password": old, "until": _now()}, *past][:HISTORY_KEEP])
+
+
 class Vault:
     """In-memory vault plus load/save to an encrypted file."""
 

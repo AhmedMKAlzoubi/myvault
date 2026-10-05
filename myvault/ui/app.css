@@ -413,3 +413,7 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
   background: var(--sheet); color: var(--ink); text-align: start; cursor: pointer; font: inherit; }
 .soon-row:hover { border-color: var(--ink-3); }
 .soon-row b { display: block; font-weight: 600; }
+/* the current 2FA code, counting down */
+.totp { font-size: 18px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.totp-left { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
+.totp-left.soon { color: var(--red); }

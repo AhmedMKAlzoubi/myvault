@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.7.0 (6 October 2026)
+
+- **Read a passport's or ID card's chip** (phone, NFC). After scanning a document (or typing its number, birth date and expiry), **Read the chip** and hold the phone against it: the details come straight from the chip, exactly, with no reading mistakes. Works with e-passports and ID cards that follow the ICAO standard; some cards also accept the 6-digit card access number. Uses JMRTD, on the phone.
+- **Fingerprint unlock** (Android 10+). Offered once after you unlock with the password, and switchable under menu › Auto-lock. The master password is kept encrypted by an Android Keystore key that only a strong fingerprint or face opens; it's switched off when fingerprints change or you change the master password. Also works for "Fill with MyVault" in other apps.
+- **2FA codes** (Windows and Android). A login can keep its two-factor secret (the setup key or `otpauth://` link; on the phone, scan the site's QR code) and shows the current code, counting down, ready to copy.
+- **Password history.** Changing a login's password keeps the old one under **Previous passwords** (the last 10), whether you changed it in MyVault, the browser extension or Android autofill.
+- **Password health** (Settings sidebar on Windows, menu on the phone): weak and reused passwords, and an optional **leaked-password check** with Have I Been Pwned that sends only the first 5 characters of each password's SHA-1 hash. See PRIVACY.md.
+- **Files on any entry,** not only documents: a login's recovery codes, an SSH key's notes and so on, encrypted the same way.
+- Windows: **Import passwords** from a CSV export (Chrome, Edge, Firefox, Bitwarden, LastPass, 1Password, KeePass and others); logins you already have are skipped, and it reminds you to delete the CSV.
+- Windows: **daily backups** of the encrypted vault file, kept for 14 days, with **Restore** to bring back deleted entries (Settings › Automatic backups).
+- Store builds: the phone has a Google Play flavour and the PC a Microsoft Store switch, which leave out the self-updater (the store does the updates).
+- Tests run on GitHub for every push (Windows app and phone app), including the shared document and 2FA cases.
+- Fixed: restoring a paper backup could show a stray "0" in its summary.
+
 ## 0.6.2 (6 October 2026)
 
 - **A box stays empty rather than wrong.** Details read from a document are checked before they're filled in: a name has to look like a name (the label "Name" read next to it is removed), a card's title is never taken for a nationality or an address, and invisible text-direction marks are removed.

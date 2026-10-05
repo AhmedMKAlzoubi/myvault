@@ -8,7 +8,7 @@ import android.view.WindowManager
 import android.view.autofill.AutofillId
 import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -17,7 +17,8 @@ import io.flutter.plugin.common.MethodChannel
  * unlock screen; once you unlock and pick an account, the Dart side calls
  * "fill" and this activity hands Android the values for just those two boxes.
  */
-class AutofillAuthActivity : FlutterActivity() {
+class AutofillAuthActivity : FlutterFragmentActivity() {
+    private val biometric by lazy { BiometricBridge(this) }
     companion object {
         const val EXTRA_TARGET = "mv_target"
         const val EXTRA_IS_WEB = "mv_is_web"
@@ -38,6 +39,9 @@ class AutofillAuthActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/biometric").setMethodCallHandler { call, result ->
+            biometric.handle(call, result)
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/autofill").setMethodCallHandler { call, result ->
             when (call.method) {
                 "request" -> result.success(mapOf(

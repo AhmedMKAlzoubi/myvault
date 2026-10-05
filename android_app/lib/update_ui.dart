@@ -21,6 +21,7 @@ String _mb(int bytes) => '${(bytes / (1024 * 1024)).toStringAsFixed(0)} MB';
 /// Runs once after unlocking: ask the question the first time, offer a waiting
 /// update, then (if allowed, and at most once a day) look on GitHub.
 Future<void> startupUpdateFlow(BuildContext context) async {
+  if (upd.storeBuild) return; // the store updates the app
   final ready = await upd.readyApk();
   if (ready != null && context.mounted) return offerInstall(context, ready);
   final prefs = await upd.loadPrefs();

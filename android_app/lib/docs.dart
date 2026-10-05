@@ -310,12 +310,11 @@ Future<void> storeBlob(Vault v, FileRef r, Uint8List blob) async {
 
 /// Files of live documents, by id.
 Map<String, FileRef> liveRefs(Vault v) => {
-  for (final e in v.activeEntries())
-    if (e.kind == 'document')
-      for (final r in fileRefs(e)) r.id: r,
+  for (final e in v.activeEntries()) // any entry can have files
+    for (final r in fileRefs(e)) r.id: r,
 };
 
-/// Delete stored files no live document refers to.
+/// Delete stored files no live entry refers to.
 int cleanup(Vault v) {
   final keep = liveRefs(v).keys.toSet();
   var gone = 0;

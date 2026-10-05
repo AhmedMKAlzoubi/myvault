@@ -605,6 +605,97 @@ def test_connector_signup_save_and_match():
             conn.stop()
 
 
+def test_totp_codes_match_the_phone():
+    """RFC 6238's test vectors, shared with the phone's tests."""
+    import json
+    from myvault import otp
+    c = json.loads((ROOT / "android_app" / "test_fixtures" / "otp_cases.json").read_text("utf-8"))
+    for case in c["cases"]:
+        code, left = otp.code(case["text"], case["time"])
+        assert code == case["code"] and left == case.get("left", left), case
+    for bad in c["bad"]:
+        try:
+            otp.parse(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"accepted {bad!r}")
+
+
+def test_password_history_health_and_leaks():
+    import hashlib
+    import json
+    from myvault import app, health
+    with tempfile.TemporaryDirectory() as d:
+        api = app.Api()
+        api._vault = Vault.create(Path(d) / "v.dat", "pw-12345678")
+        a = api.save_entry({"kind": "login", "title": "A", "password": "first-Pass-1"})["id"]
+        for pw in ("second-Pass-2", "second-Pass-2", "abc"):
+            api.save_entry({**api.entry(a), "password": pw})
+        hist = json.loads(api.entry(a)["fields"]["password_history"])
+        assert [h["password"] for h in hist] == ["second-Pass-2", "first-Pass-1"], hist
+        b = api.save_entry({"kind": "login", "title": "B", "password": "abc"})["id"]
+        r = api.health()
+        assert r["total"] == 2 and set(r["weak"]) == {a, b} and r["reused"] == [[a, b]], r
+
+        # The leak check sends only the hash's first 5 characters.
+        h = hashlib.sha1(b"abc").hexdigest().upper()
+        asked = []
+        fake = lambda prefix: asked.append(prefix) or f"{h[5:]}:42\nFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:0"
+        assert health.leaks(["abc", "abc"], fetch=fake) == {"abc": 42} and asked == [h[:5]]
+        for _ in range(12):
+            api.save_entry({**api.entry(a), "password": os.urandom(6).hex()})
+        assert len(json.loads(api.entry(a)["fields"]["password_history"])) == 10
+
+
+def test_csv_import_from_other_password_managers():
+    from myvault import importer
+    chrome = "name,url,username,password,note\nGitHub,https://github.com/login,ahmed,Pw-1,\nShop,https://www.shop.com,a@b.c,Pw-2,gift card\n"
+    got, skipped = importer.read_csv(chrome)
+    assert [(e.title, e.website, e.username, e.email, e.password) for e in got] == [
+        ("GitHub", "github.com", "ahmed", "", "Pw-1"), ("Shop", "shop.com", "", "a@b.c", "Pw-2")]
+    assert got[1].notes == "gift card" and skipped == 0
+    again, skipped = importer.read_csv(chrome, got)               # already there: skipped
+    assert again == [] and skipped == 2
+    bitwarden = ("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n"
+                 ",,note,Secret note,text,,0,,,,\n"
+                 ",,login,Mail,,,0,https://mail.example.com,me,Pw-3,JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP\n")
+    got, _ = importer.read_csv(bitwarden)
+    assert [(e.title, e.website, e.fields.get("totp")) for e in got] == [
+        ("Mail", "mail.example.com", "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP")]
+    try:
+        importer.read_csv("a,b\n1,2\n")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("a CSV without passwords was accepted")
+
+
+def test_daily_backups_and_restore():
+    import time as _t
+    from myvault import app, paths
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        api._vault = Vault.create(paths.vault_path(), "pw-12345678")
+        api._vault.on_save = api._saved
+        i = api.save_entry({"kind": "login", "title": "Keep me", "password": "x"})["id"]
+        bk = api.backups()
+        assert [b["date"] for b in bk["list"]] == [_t.strftime("%Y-%m-%d")], bk
+        old = Path(bk["folder"]) / "vault-2000-01-01.dat"          # pruning keeps the newest 14
+        for n in range(20):
+            (Path(bk["folder"]) / f"vault-2000-01-{n + 1:02d}.dat").write_bytes(b"x")
+        api._saved()                                              # today's copy exists: no new one
+        (Path(bk["folder"]) / f"vault-{_t.strftime('%Y-%m-%d')}.dat").unlink()
+        api.save_entry({**api.entry(i), "title": "Keep me"})      # makes today's again, prunes
+        assert len(api.backups()["list"]) == 14 and not old.exists()
+        api.delete_entry(i)
+        today = api.backups()["list"][0]["name"]
+        assert not api.backup_restore(today, "wrong-password")["ok"]
+        r = api.backup_restore(today, "pw-12345678")
+        assert r["ok"] and r["restored"] == 1 and api.entry(i)["title"] == "Keep me", r
+        assert not api.backup_restore("..\\v.dat", "pw-12345678")["ok"]
+
+
 def _run_all():
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

@@ -16,6 +16,9 @@ import 'update.dart' as upd;
 import 'vault.dart';
 
 const _ch = MethodChannel('myvault/docs');
+const _nfc = MethodChannel(
+  'myvault/nfc',
+); // NfcBridge.kt: e-passport / e-ID chips
 
 void _snack(BuildContext c, String msg) => ScaffoldMessenger.of(c)
   ..hideCurrentSnackBar()
@@ -282,27 +285,156 @@ class DocumentSection extends StatelessWidget {
               style: TextStyle(color: e.ink3, fontSize: 12.5),
             ),
           ),
-        if (files.isNotEmpty) ...[
-          const SizedBox(height: 22),
-          Text(tr('Files'), style: head),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final f in files)
-                FileThumb(
-                  vault: vault,
-                  file: f,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => FileViewerPage(vault: vault, file: f),
-                    ),
+        if (files.isNotEmpty) FilesView(vault: vault, entry: entry),
+      ],
+    );
+  }
+}
+
+/// The view page's files, on any entry: tap one to open it.
+class FilesView extends StatelessWidget {
+  final Vault vault;
+  final Entry entry;
+  const FilesView({super.key, required this.vault, required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 22),
+        Text(
+          tr('Files'),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: e.ink2,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in fileRefs(entry))
+              FileThumb(
+                vault: vault,
+                file: f,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FileViewerPage(vault: vault, file: f),
                   ),
                 ),
-            ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The edit page's files on an entry that isn't a document (a login's
+/// recovery codes, say). The page writes [draft]'s files on save.
+class FilesEditor extends StatefulWidget {
+  final Vault vault;
+  final Entry entry;
+  final DocumentDraft draft;
+  const FilesEditor({
+    super.key,
+    required this.vault,
+    required this.entry,
+    required this.draft,
+  });
+  @override
+  State<FilesEditor> createState() => _FilesEditorState();
+}
+
+class _FilesEditorState extends State<FilesEditor> {
+  DocumentDraft get d => widget.draft;
+
+  @override
+  void initState() {
+    super.initState();
+    d.files = fileRefs(widget.entry);
+  }
+
+  Future<void> _add(String how) async {
+    try {
+      final added = [
+        for (final (name, bytes) in await _getFiles(how))
+          await seal(widget.vault, bytes, name),
+      ];
+      if (added.isNotEmpty) setState(() => d.files = [...d.files, ...added]);
+    } on FormatException catch (e) {
+      if (mounted) _snack(context, e.message);
+    } on PlatformException catch (e) {
+      if (mounted) {
+        _snack(context, e.message ?? "That file couldn't be opened.");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Text(
+          tr('Files'),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: e.ink2,
+            fontSize: 13,
           ),
-        ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          tr(
+            "Photos or PDFs that belong with this entry. They're encrypted the moment you add them.",
+          ),
+          style: TextStyle(color: e.ink3, fontSize: 12.5),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in d.files)
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FileThumb(vault: widget.vault, file: f),
+                  IconButton(
+                    tooltip: tr('Remove file'),
+                    icon: const Icon(Icons.close, size: 20),
+                    onPressed: () => setState(
+                      () =>
+                          d.files = d.files.where((x) => x.id != f.id).toList(),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _add('camera'),
+              icon: const Icon(Icons.photo_camera_outlined, size: 18),
+              label: Text(tr('Use the camera')),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _add('pick'),
+              icon: const Icon(Icons.attach_file, size: 18),
+              label: Text(tr('Choose files')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -316,6 +448,10 @@ class DocumentEditor extends StatefulWidget {
   final Entry entry;
   final bool isNew;
   final bool Function(String key, String value) fill;
+
+  /// Sets a field even if it has something (details from the chip are exact).
+  final bool Function(String key, String value) put;
+  final String Function(String key) value;
   final bool Function(String key) isEmpty;
   final String Function() type; // the type chosen right now
   final DocumentDraft draft;
@@ -325,6 +461,8 @@ class DocumentEditor extends StatefulWidget {
     required this.entry,
     required this.isNew,
     required this.fill,
+    required this.put,
+    required this.value,
     required this.isEmpty,
     required this.type,
     required this.draft,
@@ -352,7 +490,155 @@ class _DocumentEditorState extends State<DocumentEditor> {
   String _note = '';
   bool _busy = false;
   bool _check = false; // the note asks to check what was filled in
+  String _nfcState = 'none'; // this phone's NFC: none, off or on
+  bool _reading = false; // waiting for the chip
   DocumentDraft get d => widget.draft;
+
+  Future<void> _nfcStatus() async {
+    try {
+      final s = await _nfc.invokeMethod<String>('status') ?? 'none';
+      if (mounted) setState(() => _nfcState = s);
+    } on MissingPluginException {
+      // tests: no NFC
+    }
+  }
+
+  /// Read the details from the document's chip. It opens only with the
+  /// document number, birth date and expiry (or a card access number).
+  Future<void> _readChip() async {
+    await _nfcStatus();
+    if (!mounted) return;
+    if (_nfcState == 'off') {
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(tr('Turn on NFC')),
+          content: Text(
+            tr("NFC is off. Turn it on in Android's settings, then come back."),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: Text(tr('Cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(tr('Open settings')),
+            ),
+          ],
+        ),
+      );
+      if (open == true) await _nfc.invokeMethod('settings');
+      return;
+    }
+    final cardNo = widget.value('card_number').trim();
+    final docNo = cardNo.isNotEmpty ? cardNo : widget.value('number').trim();
+    final birth = parseDay(widget.value('birth_date'));
+    final expiry = parseDay(widget.value('expires'));
+    String yymmdd(DateTime t) =>
+        '${t.year % 100}'.padLeft(2, '0') +
+        '${t.month}'.padLeft(2, '0') +
+        '${t.day}'.padLeft(2, '0');
+    final can = TextEditingController();
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Read the chip')),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                tr(
+                  "Passports and many ID cards have a chip with the same details as the <<< lines, exact. It opens only with the document's number, date of birth and expiry date, so scan the document or type those first.",
+                ),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: can,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                decoration: InputDecoration(
+                  labelText: tr('Card access number (optional)'),
+                  helperText: tr(
+                    'The 6 digits printed on the front of some ID cards.',
+                  ),
+                  helperMaxLines: 3,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(tr('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(tr('Start')),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    if (can.text.trim().isEmpty &&
+        (docNo.isEmpty || birth == null || expiry == null)) {
+      setState(() {
+        _check = false;
+        _note = tr(
+          'First scan the document, or type its number, date of birth and expiry date: the chip only opens with them.',
+        );
+      });
+      return;
+    }
+    setState(() {
+      _reading = true;
+      _check = false;
+      _note = tr(
+        'Hold the phone flat against the document now and keep it still. Passport: the photo page or the cover. ID card: the middle of the card.',
+      );
+    });
+    try {
+      final mrz = await _nfc.invokeMethod<String>('read', {
+        'number': docNo.replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),
+        'birth': birth == null ? '' : yymmdd(birth),
+        'expiry': expiry == null ? '' : yymmdd(expiry),
+        'can': can.text.trim(),
+      });
+      final got = readDetails([mrz ?? '']);
+      if (got['how'] != 'mrz') throw PlatformException(code: 'failed');
+      final set = <String>[];
+      for (final MapEntry(:key, :value) in got.entries) {
+        if (key == 'how' || key == 'guessed') continue;
+        if (widget.put(key, '$value')) set.add(key);
+      }
+      final type = widget.type();
+      _note = tr(
+        "Read from the chip: ${set.map((k) => tr(docLabel(k, type))).join(tr(', '))}. These come straight from the document's chip, so they're exact.",
+      );
+    } on PlatformException catch (e) {
+      _note = switch (e.code) {
+        'cancelled' => '',
+        'denied' => tr(
+          "The chip didn't open. Check the document number, date of birth and expiry date (or the card access number) against the document, then try again.",
+        ),
+        'lost' => tr(
+          'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.',
+        ),
+        'needs_mrz' => tr(
+          "This chip doesn't take a card access number. Leave that box empty to use the number and dates.",
+        ),
+        'not_chip' => tr("That isn't a passport or ID card chip."),
+        'off' => tr(
+          "NFC is off. Turn it on in Android's settings, then come back.",
+        ),
+        _ => tr("Couldn't read the chip. Try again, holding the phone still."),
+      };
+    }
+    if (mounted) setState(() => _reading = false);
+  }
 
   @override
   void initState() {
@@ -360,6 +646,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
     d.files = fileRefs(widget.entry);
     d.days = widget.isNew ? {30, 7} : remindDays(widget.entry).toSet();
     d.name.text = widget.entry.fields['remind_name'] ?? '';
+    _nfcStatus();
   }
 
   Future<void> _add(String how) async {
@@ -543,6 +830,24 @@ class _DocumentEditorState extends State<DocumentEditor> {
               icon: const Icon(Icons.attach_file, size: 18),
               label: Text(tr('Choose files')),
             ),
+            if (_nfcState != 'none' &&
+                const [
+                  '',
+                  'passport',
+                  'id_card',
+                  'residence',
+                ].contains(widget.type()))
+              _reading
+                  ? TextButton.icon(
+                      onPressed: () => _nfc.invokeMethod('stop'),
+                      icon: const Icon(Icons.close, size: 18),
+                      label: Text(tr('Stop reading')),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: _readChip,
+                      icon: const Icon(Icons.contactless_outlined, size: 18),
+                      label: Text(tr('Read the chip')),
+                    ),
             if (d.files.isNotEmpty)
               TextButton.icon(
                 onPressed: _busy ? null : _read,

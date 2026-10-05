@@ -14,6 +14,7 @@ only while the "Sync with phone" sheet is open.
 from __future__ import annotations
 
 import base64
+import csv
 import ctypes
 import ipaddress
 import json
@@ -29,9 +30,9 @@ from pathlib import Path
 import segno
 import webview
 
-from . import __version__, autostart, autotype, clipboard, config, crypto, docs, i18n, paper, paths, server, sync, update, webmatch
+from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
-from .vault import KINDS, Entry, Vault
+from .vault import KINDS, Entry, Vault, keep_old_password
 
 AUTO_LOCK_CHOICES = (1, 2, 5, 10, 15, 30, 60)   # minutes; Settings > Auto-lock
 CLIPBOARD_CLEAR_SECONDS = 30
@@ -95,6 +96,7 @@ class Api:
         self._reminder_lock = threading.Lock()
         threading.Thread(target=self._reminder_loop, daemon=True).start()
         self._autotype_hwnd = 0      # the window "Type into app" will type into
+        self._import_path: Path | None = None   # the CSV being imported
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
     # ---- plumbing ----------------------------------------------------------
@@ -161,8 +163,8 @@ class Api:
         except crypto.VaultFormatError as exc:
             return {"ok": False, "error": str(exc)}
         self._last_activity = time.time()
-        self._vault.on_save = self._documents_changed
-        self._documents_changed()
+        self._vault.on_save = self._saved
+        self._saved()
         try:
             docs.cleanup(self._vault.entries)
         except OSError:
@@ -205,6 +207,7 @@ class Api:
             is_new = e is None or e.deleted
             if is_new:
                 e = Entry(kind=kind)
+            old_password = e.password
             e.kind = kind
             for key in TEXT_FIELDS:
                 if key in data:
@@ -212,6 +215,7 @@ class Api:
                             else str(data[key] or "").strip())
             e.custom = _str_map(data.get("custom"))
             e.fields = _str_map(data.get("fields"))
+            keep_old_password(e, old_password)
             if isinstance(data.get("password_policy"), dict):
                 e.password_policy = PasswordPolicy.from_dict(data["password_policy"]).to_dict()
             if e.display_name() == "(untitled)":
@@ -445,8 +449,9 @@ class Api:
 
     def open_folder(self, which: str) -> dict:
         """Open one of MyVault's own folders in Explorer (paths found at runtime,
-        so they're right on any machine). Nothing outside these three."""
-        target = {"data": paths.data_dir(), "app": app_dir(), "extension": EXTENSION_DIR}.get(which)
+        so they're right on any machine). Nothing outside these."""
+        target = {"data": paths.data_dir(), "app": app_dir(), "extension": EXTENSION_DIR,
+                  "backups": _backups_dir()}.get(which)
         if target is None or not target.is_dir():
             return {"ok": False, "error": "That folder isn't there."}
         vault = paths.vault_path()
@@ -500,7 +505,7 @@ class Api:
     def update_state(self) -> dict:
         cfg = config.load()
         ready = update.ready_installer()
-        return {"current": __version__, "ask": cfg.get("update_check") is None,
+        return {"current": __version__, "ask": cfg.get("update_check") is None and not STORE, "store": STORE,
                 "enabled": bool(cfg.get("update_check")), "ready": ready.version if ready else "",
                 "last_check": cfg.get("last_update_check", 0), **self._upd}
 
@@ -516,7 +521,7 @@ class Api:
         """Online check, in the background: only if the user said yes, and at
         most once a day unless they press "Check now"."""
         cfg = config.load()
-        if not cfg.get("update_check") or self._upd["checking"]:
+        if STORE or not cfg.get("update_check") or self._upd["checking"]:
             return self.update_state()
         if not force and time.time() - cfg.get("last_update_check", 0) < 24 * 3600:
             return self.update_state()
@@ -575,6 +580,8 @@ class Api:
 
     # ---- going back to the previous release ----------------------------------
     def rollback_info(self) -> dict:
+        if STORE:
+            return {"ok": False, "error": "Updates come from the Microsoft Store."}
         try:
             self._rollback = update.previous_release()
         except update.UpdateError as exc:
@@ -611,6 +618,98 @@ class Api:
         elif self._window is not None:
             self._window.destroy()
         return {"ok": True}
+
+    # ---- automatic backups: a copy of the (encrypted) vault file a day -------
+    def _saved(self) -> None:
+        try:
+            _daily_backup()
+        except OSError:
+            pass       # a full or read-only disk mustn't stop the vault itself
+        self._documents_changed()
+
+    def backups(self) -> dict:
+        self._need()
+        d = _backups_dir()
+        files = sorted(d.glob("vault-*.dat"), reverse=True) if d.exists() else []
+        return {"folder": str(d), "keep": BACKUP_DAYS,
+                "list": [{"name": f.name, "date": f.stem[6:], "size": f.stat().st_size} for f in files]}
+
+    def backup_restore(self, name: str, password: str) -> dict:
+        """Bring back what a daily backup has: deleted entries return, and a
+        backup copy newer than yours replaces it; nothing newer is lost."""
+        v = self._need()
+        path = _backups_dir() / Path(str(name)).name           # only a file in the backups folder
+        if not path.is_file():
+            return {"ok": False, "error": "That backup isn't there any more."}
+        try:
+            old = Vault.open(path, password)
+        except crypto.WrongPasswordError:
+            return {"ok": False, "error": "That isn't the master password this backup was saved with."}
+        except crypto.VaultFormatError as exc:
+            return {"ok": False, "error": str(exc)}
+        with self._lock:
+            merged, counts = sync.restore_entries(
+                [e.to_dict() for e in v.entries], [e.to_dict() for e in old.active_entries()], time.time())
+            v.entries = [Entry.from_dict(d) for d in merged]
+            v.save()
+        self._js("MV.refresh()")
+        return {"ok": True, **counts}
+
+    # ---- password health, 2FA codes, importing -----------------------------
+    def health(self) -> dict:
+        v = self._need()
+        with self._lock:
+            return health.report(v.entries)
+
+    def leak_check(self) -> dict:
+        """Only when asked: see health.py for what is sent (5 characters of a hash)."""
+        v = self._need()
+        with self._lock:
+            logins = [(e.id, e.password) for e in v.active_entries() if e.kind == "login" and e.password]
+        try:
+            found = health.leaks(pw for _, pw in logins)
+        except OSError:
+            return {"ok": False, "error": "Couldn't reach the leak check service. Check your internet connection."}
+        return {"ok": True, "checked": len(logins),
+                "leaked": {i: found[pw] for i, pw in logins if found[pw]}}
+
+    def totp_code(self, entry_id: str) -> dict:
+        v = self._need()
+        e = v.get(entry_id)
+        try:
+            c, left = otp.code((e.fields.get("totp") or "") if e else "")
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "code": c, "left": left}
+
+    def totp_check(self, text: str) -> dict:
+        try:
+            s = otp.parse(text)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "issuer": s["issuer"], "account": s["account"]}
+
+    def import_csv(self, commit: bool = False) -> dict:
+        """Pick a CSV export; first call counts what's new, the second (commit) adds it."""
+        v = self._need()
+        if not commit or not self._import_path:
+            picked = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("CSV (*.csv)",))
+            if not picked:
+                return {"ok": False}
+            self._import_path = Path(picked[0])
+        try:
+            text = self._import_path.read_bytes().decode("utf-8-sig", "replace")
+            with self._lock:
+                new, skipped = importer.read_csv(text, v.entries)
+                if commit:
+                    v.entries.extend(new)
+                    v.save()
+        except (OSError, ValueError, csv.Error) as exc:
+            return {"ok": False, "error": str(exc)}
+        if commit:
+            self._import_path = None
+            self._js("MV.refresh()")
+        return {"ok": True, "new": len(new), "skipped": skipped, "file": self._import_path.name if not commit else ""}
 
     # ---- paper backup ------------------------------------------------------
     def backup_export(self, password: str) -> dict:
@@ -685,7 +784,7 @@ class _SyncProvider:
         return update.packages().get(platform)
 
     def receive_package(self, platform: str, manifest: bytes, sig: str, tmp) -> str:
-        if platform != update.PLATFORM:
+        if STORE or platform != update.PLATFORM:
             raise update.UpdateError("Not a package for this PC.")
         pkg = update.store(manifest, sig, platform, tmp)
         self.api._js("MV.updates()")
@@ -704,7 +803,7 @@ class _SyncProvider:
 
     def file_refs(self) -> dict:
         v = self.api._need()
-        return {r["id"]: r for e in v.active_entries() if e.kind == "document" for r in docs.refs(e.fields)}
+        return {r["id"]: r for e in v.active_entries() for r in docs.refs(e.fields)}
 
     def has_file(self, file_id: str) -> bool:
         return docs.have(file_id)
@@ -773,7 +872,8 @@ class _ConnectorProvider:
                 v.add(entry)
                 action, entry_id = "created", entry.id
             elif target.password != password or _has_new_details(target, cred, profile):
-                target.password = password
+                old, target.password = target.password, password
+                keep_old_password(target, old)
                 for f in profile:
                     if cred.get(f) and not getattr(target, f):
                         setattr(target, f, str(cred[f]))
@@ -790,6 +890,26 @@ class _ConnectorProvider:
             return generate(PasswordPolicy.from_dict(policy))
         except (ValueError, TypeError):
             return generate(PasswordPolicy())
+
+
+BACKUP_DAYS = 14
+
+
+def _backups_dir() -> Path:
+    return paths.vault_path().parent / "backups"
+
+
+def _daily_backup() -> None:
+    """The vault file as it was when first opened or saved each day, for the
+    last BACKUP_DAYS days. It's the encrypted file itself: nothing is readable."""
+    src, d = paths.vault_path(), _backups_dir()
+    target = d / f"vault-{time.strftime('%Y-%m-%d')}.dat"
+    if target.exists() or not src.exists():
+        return
+    d.mkdir(exist_ok=True)
+    shutil.copy2(src, target)
+    for old in sorted(d.glob("vault-*.dat"))[:-BACKUP_DAYS]:
+        old.unlink()
 
 
 def _autolock_minutes() -> int:

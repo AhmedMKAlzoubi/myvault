@@ -90,10 +90,10 @@ def main() -> None:
     OUT.mkdir(parents=True)
 
     # 1. phone app (64-bit ARM: practically every phone from the last decade)
-    subprocess.run([flutter(), "build", "apk", "--release", "--split-per-abi", "--target-platform", "android-arm64"],
+    subprocess.run([flutter(), "build", "apk", "--release", "--flavor", "direct", "--split-per-abi", "--target-platform", "android-arm64"],
                    cwd=APP, check=True)
     apk = OUT / f"MyVault-{v}.apk"
-    shutil.copy(APP / "build" / "app" / "outputs" / "flutter-apk" / "app-arm64-v8a-release.apk", apk)
+    shutil.copy(APP / "build" / "app" / "outputs" / "flutter-apk" / "app-arm64-v8a-direct-release.apk", apk)
 
     # 2. Windows installer carrying the APK + its signed manifest
     stage = ROOT / "build" / "packages" / v

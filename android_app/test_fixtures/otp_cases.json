@@ -1,0 +1,114 @@
+{
+ "_about": "2FA codes (RFC 6238 test vectors) that myvault/otp.py and lib/otp.dart must both produce; 'bad' must be refused.",
+ "cases": [
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 59,
+   "code": "94287082"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 1111111109,
+   "code": "07081804"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 1111111111,
+   "code": "14050471"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 1234567890,
+   "code": "89005924"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 2000000000,
+   "code": "69279037"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&issuer=Example&algorithm=SHA1&digits=8&period=30",
+   "time": 20000000000,
+   "code": "65353130"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 59,
+   "code": "46119246"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 1111111109,
+   "code": "68084774"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 1111111111,
+   "code": "67062674"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 1234567890,
+   "code": "91819424"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 2000000000,
+   "code": "90698825"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA&issuer=Example&algorithm=SHA256&digits=8&period=30",
+   "time": 20000000000,
+   "code": "77737706"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 59,
+   "code": "90693936"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 1111111109,
+   "code": "25091201"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 1111111111,
+   "code": "99943326"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 1234567890,
+   "code": "93441116"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 2000000000,
+   "code": "38618901"
+  },
+  {
+   "text": "otpauth://totp/Example:alice@example.com?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA&issuer=Example&algorithm=SHA512&digits=8&period=30",
+   "time": 20000000000,
+   "code": "47863826"
+  },
+  {
+   "text": "gezd gnbv gy3t qojq gezd gnbv gy3t qojq",
+   "time": 59,
+   "code": "287082",
+   "left": 1
+  },
+  {
+   "text": "gezd gnbv gy3t qojq gezd gnbv gy3t qojq",
+   "time": 1111111109,
+   "code": "081804",
+   "left": 1
+  }
+ ],
+ "bad": [
+  "",
+  "hello",
+  "otpauth://hotp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&counter=1",
+  "otpauth://totp/x?secret=GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ&algorithm=MD5",
+  "ABCDEF"
+ ]
+}

@@ -354,7 +354,9 @@ Future<SyncResult> syncWithCode(String raw, Vault vault) async {
         try {
           final offered =
               '${((hello['offers'] ?? {}) as Map)[upd.platformName] ?? ''}';
-          final want = upd.isNewer(offered, appVersion) ? upd.platformName : '';
+          final want = !upd.storeBuild && upd.isNewer(offered, appVersion)
+              ? upd.platformName
+              : '';
           ch.send({'type': 'want', 'platform': want});
           final peerWant = '${(await ch.recv())['platform'] ?? ''}';
           if (want.isNotEmpty) {

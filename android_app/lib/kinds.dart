@@ -104,6 +104,7 @@ const kindDefs = <String, KindDef>{
       FieldDef('username', 'Username', top: true),
       FieldDef('email', 'Email', top: true, type: TextInputType.emailAddress),
       FieldDef('password', 'Password', top: true, secret: true, gen: true),
+      FieldDef('totp', '2FA secret', secret: true, mono: true),
     ],
     [
       FieldDef('app', 'App name', top: true),

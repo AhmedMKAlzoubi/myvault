@@ -179,7 +179,8 @@
     login: {
       label: "Login", plural: "Logins", desc: "A website or app sign-in.",
       fields: [F("website", "Website", { top: 1, ph: "example.com" }), F("username", "Username", { top: 1 }),
-        F("email", "Email", { top: 1, type: "email" }), F("password", "Password", { top: 1, secret: 1, gen: 1 })],
+        F("email", "Email", { top: 1, type: "email" }), F("password", "Password", { top: 1, secret: 1, gen: 1 }),
+        F("totp", "2FA secret", { secret: 1, mono: 1, ph: "Setup key or otpauth:// link" })],
       more: [F("app", "App name", { top: 1 }), F("phone", "Phone", { top: 1, type: "tel" }),
         F("region", "Region / country", { top: 1 }), F("age", "Age", { top: 1 }), F("gender", "Gender", { top: 1 })],
     },
@@ -266,6 +267,7 @@
   // ---- shell --------------------------------------------------------------
   const TOOLS = [
     ["generator", "Password generator", "dice"],
+    ["health", "Password health", "shield"],
     ["sync", "Sync with phone", "phone"],
     ["backup", "Paper backup", "printer"],
     ["browser", "Browser auto-fill", "globe"],
@@ -537,7 +539,8 @@
   function renderView(e) {
     const typeBox = h("div", { "aria-live": "polite" });
     const K = KINDS[e.kind] || KINDS.login;
-    const rows = (e.kind === "document" ? docFields(e) : [...K.fields, ...(K.more || [])]).map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
+    const rows = (e.kind === "document" ? docFields(e) : [...K.fields, ...(K.more || [])]).filter((f) => f.key !== "totp")
+      .map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
       .map(([f, v]) => [f, f.options ? t((f.options.find(([o]) => o === v) || [0, v])[1]) : f.type === "date" ? fmtDay(v) : v]);
     const custom = Object.entries(e.custom || {});
     const where = e.kind === "login" ? e.website : e.fields?.service;
@@ -548,13 +551,45 @@
           e.kind === "login" && e.password && btn("Type into app", () => askAutotype(e, typeBox), "", "keyboard"),
           btn("Edit", () => renderEdit(e), "", "edit"))),
       typeBox,
-      rows.length || e.notes ? h("dl", { class: "fields" }, rows.map(([f, v]) => fieldRow(f, v)),
+      rows.length || e.notes || e.fields?.totp ? h("dl", { class: "fields" }, rows.map(([f, v]) => fieldRow(f, v)),
+        e.fields?.totp && totpRow(e),
         e.kind !== "note" && !!e.notes && fieldRow(F("notes", "Notes", { multi: 1, prose: 1 }), e.notes))
         : h("p", { class: "prose" }, "Nothing stored here yet. Choose Edit to add details."),
-      e.kind === "document" && documentView(e),
+      historyView(e),
+      e.kind === "document" ? documentView(e) : fileRefs(e).length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(fileRefs(e), null)],
       custom.length > 0 && [h("p", { class: "section-t" }, "Extra fields"),
         h("dl", { class: "fields", style: "margin-top:8px" }, custom.map(([k, v]) => fieldRow(F(k, k), v)))],
       h("p", { class: "meta" }, `Last changed ${fmtDate(e.updated_at)} · Created ${fmtDate(e.created_at)}`)));
+  }
+  // The current 2FA code, counting down; the secret itself stays hidden.
+  function totpRow(e) {
+    const code = h("span", { class: "val-plain mono totp" });
+    const left = h("span", { class: "totp-left" });
+    let cur = "", shown = false;
+    const tick = async () => {
+      if (shown && !row.isConnected) return clearInterval(timer);    // the page moved on
+      shown = row.isConnected;
+      const r = await call("totp_code", e.id);
+      if (!r.ok) { code.textContent = t(r.error); cur = ""; return; }
+      cur = r.code;
+      code.textContent = r.code.slice(0, 3) + " " + r.code.slice(3);   // a code is never translated
+      left.textContent = `${r.left}s`;
+      left.classList.toggle("soon", r.left <= 5);
+    };
+    const row = h("div", { class: "row" }, h("dt", {}, "2FA code"), h("dd", {}, code, " ", left),
+      h("div", { class: "acts" }, iconBtn("copy", "Copy 2FA code", () => copy(cur, "2FA code"))));
+    const timer = setInterval(tick, 1000);
+    tick();
+    return row;
+  }
+  // A login's earlier passwords, newest first (kept when it's changed).
+  function historyView(e) {
+    let past = [];
+    try { past = JSON.parse(e.fields?.password_history || "[]"); } catch { /* none */ }
+    return past.length > 0 && h("details", { class: "more" },
+      h("summary", {}, icon("chev"), `Previous passwords (${past.length})`),
+      h("dl", { class: "fields", style: "margin-top:8px" },
+        past.map((x) => fieldRow(F("old", `Until ${fmtDate(x.until)}`, { secret: 1 }), x.password))));
   }
   const fmtDate = (t) => new Date(t * 1000).toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
   const fmtDay = (iso) => new Date(iso + "T00:00").toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
@@ -693,6 +728,27 @@
     return el;
   }
 
+  // Files on any other entry (a login's recovery-codes PDF, an SSH key's notes…).
+  function attachEditor(e, dirty) {
+    let files = fileRefs(e);
+    const grid = h("div");
+    const edit = { remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); paint(); } };
+    const paint = () => grid.replaceChildren(files.length ? fileGrid(files, edit) : h("p", { class: "hint", style: "margin:0" }, "No files yet."));
+    paint();
+    const el = h("div", { class: "field" }, h("span", { class: "lbl" }, "Files"),
+      h("p", { class: "hint" }, "Photos, PDFs or other files that belong with this entry. They're encrypted the moment you add them."),
+      grid, h("div", {}, btn("Add files…", async () => {
+        const r = await call("doc_add_files");
+        if (r.error) toast(r.error, true);
+        if (!r.files?.length) return;
+        files = [...files, ...r.files];
+        dirty();
+        paint();
+      }, "sm", "plus")));
+    el.collect = (fields) => { fields.files = files.length ? JSON.stringify(files) : ""; };
+    return el;
+  }
+
   function expiringSoon() {
     const soon = S.list.filter((e) => e.kind === "document" && e.expires && daysLeft(e.expires) <= 90)
       .sort((a, b) => a.expires.localeCompare(b.expires));
@@ -789,7 +845,7 @@
             close();
             choice = h("div", { class: "result bad", role: "alert", style: "margin-top:10px;display:grid;gap:10px" },
               h("span", {}, h("b", {}, "Replace this password? "), saved
-                ? "Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out."
+                ? "Once you save, the old one moves to Previous passwords. Change it on the website or app as well, or you can't sign in."
                 : "The password in the box will be replaced."),
               h("div", { class: "inp-row", style: "flex-wrap:wrap" },
                 btn("Type a new one", () => { close(); inp.readOnly = false; inp.value = ""; dirty(); sync(); inp.focus(); }, "sm", "edit"),
@@ -883,6 +939,10 @@
     async function save() {
       const out = draft();
       for (const k of Object.keys(out.fields)) if (!out.fields[k]) delete out.fields[k];
+      if (out.fields.totp) {
+        const c = await call("totp_check", out.fields.totp);
+        if (!c.ok) { err.textContent = t(c.error); return; }
+      }
       const r = await call("save_entry", out);
       if (!r.ok) { err.textContent = t(r.error); return; }
       S.dirty = false;
@@ -912,7 +972,7 @@
       h("div", { class: "form" },
         h("div", { class: "field" }, h("label", {}, "Name"), title),
         (e.kind === "document" ? docFields(e) : K.fields).map(control),
-        e.kind === "document" && (docPart = documentEditor(e, dirty, { draft, redraw, note: opts.note })),
+        e.kind === "document" ? (docPart = documentEditor(e, dirty, { draft, redraw, note: opts.note })) : (docPart = attachEditor(e, dirty)),
         K.more && h("details", { class: "more", open: moreFilled || null },
           h("summary", {}, icon("chev"), "Profile details (app, phone, region, age, gender)"),
           h("div", { class: "form two" }, K.more.map(control))),
@@ -990,7 +1050,7 @@
     S.selected = null;
     renderList();
     markTool(id);
-    ({ generator: toolGenerator, sync: toolSync, backup: toolBackup, browser: toolBrowser, settings: toolSettings })[id]();
+    ({ generator: toolGenerator, health: toolHealth, sync: toolSync, backup: toolBackup, browser: toolBrowser, settings: toolSettings })[id]();
   }
   const toolHead = (ic, t, lede) => h("header", { class: "page-head" }, h("span", { class: "glyph" }, icon(ic)),
     h("div", { class: "ttl" }, h("h2", {}, t), lede && h("p", { class: "byline" }, lede)));
@@ -999,6 +1059,40 @@
     sheet(h("section", { class: "page" },
       toolHead("dice", "Password generator", "Random, from this computer's secure random source. Nothing is saved unless you copy or use it."),
       h("div", { style: "margin-top:22px" }, generatorPanel({}, { big: true }))));
+  }
+
+  async function toolHealth() {
+    const r = await call("health");
+    const title = (id) => (S.list.find((x) => x.id === id) || {}).title || "(untitled)";
+    const link = (id, sub) => h("button", { type: "button", class: "soon-row", onclick: () => openEntry(id) },
+      h("span", { class: "glyph" }, icon("login")), h("span", {}, h("b", {}, raw(title(id))), sub && h("span", { class: "sub warn" }, sub)));
+    const leakBox = h("div", { "aria-live": "polite", style: "display:grid;gap:6px" });
+    const checkLeaks = async () => {
+      leakBox.replaceChildren(h("p", { class: "hint" }, "Checking…"));
+      const x = await call("leak_check");
+      if (!x.ok) return leakBox.replaceChildren(h("p", { class: "err" }, x.error));
+      const ids = Object.keys(x.leaked);
+      leakBox.replaceChildren(h("div", { class: "result" + (ids.length ? " bad" : "") },
+        ids.length ? `Found in known leaks: ${ids.length} of ${x.checked} passwords. Change these first, on the site and then here.`
+          : `Checked ${x.checked} passwords: none of them is in a known leak.`),
+        ...ids.map((id) => link(id, `Seen in leaks ${x.leaked[id].toLocaleString(LOCALE)} times`)));
+    };
+    sheet(h("section", { class: "page" },
+      toolHead("shield", "Password health", "Weak and reused passwords, found on this PC."),
+      h("div", { class: "panel" },
+        h("p", { class: "prose", style: "margin:0" }, !r.total ? "No logins with a password yet."
+          : !r.weak.length && !r.reused.length ? `All ${r.total} passwords look good: none is weak or reused.`
+          : `${r.total} logins checked: ${r.weak.length} weak, ${r.reused.reduce((n, g) => n + g.length, 0)} reused.`)),
+      r.weak.length > 0 && h("div", { class: "panel" }, h("h3", {}, "Weak passwords"),
+        h("p", { class: "hint", style: "margin:0" }, "Short or simple, so they're easy to guess. Change each on its site, then here: Edit › Change password › Generate one."),
+        r.weak.map((id) => link(id))),
+      r.reused.length > 0 && h("div", { class: "panel" }, h("h3", {}, "Reused passwords"),
+        h("p", { class: "hint", style: "margin:0" }, "If one of these sites leaks its passwords, the same password opens the others. Give each site its own."),
+        r.reused.map((group, i) => h("div", { style: "display:grid;gap:6px" }, h("b", {}, `Same password, group ${i + 1}`), group.map((id) => link(id))))),
+      h("div", { class: "panel" }, h("h3", {}, "Leaked passwords"),
+        h("p", { class: "prose", style: "margin:0" }, "Check whether any of your passwords appears in known data leaks, using Have I Been Pwned (haveibeenpwned.com)."),
+        h("p", { class: "hint" }, "Only the first 5 characters of a scrambled copy (SHA-1 hash) of each password are sent, never the password itself, and the match is made on this PC. Nothing is checked until you choose to."),
+        h("div", {}, btn("Check for leaked passwords", checkLeaks, "sm", "search")), leakBox)));
   }
 
   function stopSync() {
@@ -1116,15 +1210,15 @@
           if (r.ok) {
             r1.value = "";
             await refresh();
-            const changed = r.added || r.restored || r.updated;
+            const changed = !!(r.added || r.restored || r.updated);
             rErr.append(h("div", { class: "result" }, [
               `Entries read from the backup: ${r.found}.`,
-              r.added && ` Added: ${r.added}.`,
-              r.restored && ` Brought back after being deleted: ${r.restored}.`,
-              r.updated && ` Updated to the backup's newer copy: ${r.updated}.`,
+              !!r.added && ` Added: ${r.added}.`,
+              !!r.restored && ` Brought back after being deleted: ${r.restored}.`,
+              !!r.updated && ` Updated to the backup's newer copy: ${r.updated}.`,
               !changed && " Everything in it was already in your vault, so nothing changed.",
-              changed && r.unchanged && ` Already up to date: ${r.unchanged}.`,
-              r.unreadable && ` Blocks that couldn't be read: ${r.unreadable}.`]));
+              changed && !!r.unchanged && ` Already up to date: ${r.unchanged}.`,
+              !!r.unreadable && ` Blocks that couldn't be read: ${r.unreadable}.`]));
           } else if (r.error) rErr.append(h("div", { class: "result bad" }, r.error));
         }, "", "file")))));
   }
@@ -1207,6 +1301,58 @@
     return panel;
   }
 
+  function importPanel() {
+    const out = h("div", { "aria-live": "polite" });
+    const start = async () => {
+      const r = await call("import_csv", false);
+      if (!r.ok) return r.error && out.replaceChildren(h("p", { class: "err" }, r.error));
+      if (!r.new) return out.replaceChildren(h("div", { class: "result" }, r.skipped ? "Everything in that file is already in your vault." : "No logins found in that file."));
+      out.replaceChildren(h("div", { class: "result", style: "display:grid;gap:10px" },
+        h("span", {}, `New logins found: ${r.new}.`, !!r.skipped && ` Already in your vault, so skipped: ${r.skipped}.`),
+        h("div", { class: "inp-row" }, btn(`Import ${r.new} logins`, async () => {
+          const x = await call("import_csv", true);
+          if (!x.ok) return out.replaceChildren(h("p", { class: "err" }, x.error));
+          await refresh();
+          out.replaceChildren(h("div", { class: "result bad" }, h("b", {}, `Imported ${x.new} logins. `),
+            "Now delete the CSV file and empty the Recycle Bin: the file isn't encrypted, so anyone who opens it can read your passwords."));
+        }, "primary sm"), btn("Cancel", () => out.replaceChildren(), "sm"))));
+    };
+    return h("div", { class: "panel" }, h("h3", {}, "Import passwords"),
+      h("p", { class: "prose", style: "margin:0" }, "From Chrome, Edge, Firefox, Bitwarden, LastPass, 1Password, KeePass and most others: export your passwords there as a CSV file, then choose it here. Logins already in your vault are skipped."),
+      h("div", {}, btn("Choose a CSV file…", start, "sm", "file")), out);
+  }
+
+  function backupsPanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Automatic backups"));
+    (async () => {
+      const b = await call("backups");
+      const sel = h("select", { class: "inp", "aria-label": "Backup to restore", style: "max-width:200px" },
+        b.list.map((x) => h("option", { value: x.name }, fmtDay(x.date))));
+      const pw = h("input", { class: "inp", type: "password", placeholder: "Master password then", "aria-label": "Master password then", style: "max-width:220px" });
+      const out = h("div", { "aria-live": "polite" });
+      const restore = async () => {
+        out.replaceChildren();
+        if (!pw.value) return out.append(h("p", { class: "err" }, "Enter the master password you had on that day."));
+        const r = await call("backup_restore", sel.value, pw.value);
+        if (!r.ok) return out.append(h("div", { class: "result bad" }, r.error));
+        pw.value = "";
+        await refresh();
+        const changed = !!(r.added || r.restored || r.updated);
+        out.append(h("div", { class: "result" }, [
+          !!r.restored && `Brought back after being deleted: ${r.restored}.`,
+          !!r.added && ` Added: ${r.added}.`,
+          !!r.updated && ` Updated to the backup's newer copy: ${r.updated}.`,
+          !changed && "Everything in it was already in your vault, so nothing changed."]));
+      };
+      panel.append(h("p", { class: "prose", style: "margin:0" }, `Every day MyVault keeps a copy of your encrypted vault file, for the last ${b.keep} days. The copies are as safe as the vault: they need your master password.`),
+        ...(b.list.length ? [h("p", { class: "hint" }, "Restoring brings back entries deleted since that day; nothing newer is lost. Enter the master password you had then."),
+          h("div", { class: "inp-row", style: "flex-wrap:wrap" }, sel, pw, btn("Restore", restore, "sm", "refresh"))]
+          : [h("p", { class: "hint" }, "The first copy is made the next time you save.")]),
+        out, h("div", {}, btn("Open folder", () => openFolder("backups"), "sm", "folder")));
+    })();
+    return panel;
+  }
+
   function documentsPanel() {
     const panel = h("div", { class: "panel" }, h("h3", {}, "Documents"));
     (async () => {
@@ -1251,6 +1397,8 @@
     const panel = h("div", { class: "panel" }, h("h3", {}, "Updates"));
     const paint = async () => {
       const u = await call("update_state");
+      if (u.store) return panel.replaceChildren(h("h3", {}, "Updates"),
+        h("p", { class: "prose", style: "margin:0" }, `This is MyVault ${u.current}. Updates come from the Microsoft Store.`));
       const sw = h("input", { type: "checkbox", role: "switch", checked: u.enabled });
       sw.addEventListener("change", async () => { await call("set_update_check", sw.checked); paint(); refreshUpdates(); });
       const when = u.last_check ? new Date(u.last_check * 1000).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" }) : "never";
@@ -1316,6 +1464,8 @@
           else msg.append(h("p", { class: "err" }, r.error));
         }, "primary"))),
       autolockPanel(),
+      importPanel(),
+      backupsPanel(),
       documentsPanel(),
       startupPanel(),
       updatesPanel(),

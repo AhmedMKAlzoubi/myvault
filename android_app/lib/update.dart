@@ -294,6 +294,10 @@ Future<Package> download(
   return store(r.raw, r.sig, platform, tmp);
 }
 
+/// A Google Play build (`flutter build appbundle --flavor play`): Play does the
+/// updates, so MyVault never checks GitHub or installs APKs itself.
+final storeBuild = appFlavor == 'play';
+
 // ---- installing ----------------------------------------------------------------
 const _ch = MethodChannel('myvault/update');
 

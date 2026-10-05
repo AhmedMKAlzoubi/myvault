@@ -140,6 +140,36 @@ class Entry {
   );
 }
 
+const historyKeep = 10;
+
+/// When a login's password changes, the old one goes into its history
+/// (fields['password_history'], newest first). Same as keep_old_password() on the PC.
+void keepOldPassword(Entry e, String old) {
+  if (old.isEmpty || old == e.password) return;
+  var past = <dynamic>[];
+  try {
+    past = jsonDecode(e.fields['password_history'] ?? '[]') as List;
+  } catch (_) {}
+  e.fields['password_history'] = jsonEncode(
+    [
+      {'password': old, 'until': _now()},
+      ...past,
+    ].take(historyKeep).toList(),
+  );
+}
+
+/// A login's earlier passwords, newest first: (password, until).
+List<(String, double)> passwordHistory(Entry e) {
+  try {
+    return [
+      for (final h in jsonDecode(e.fields['password_history'] ?? '[]') as List)
+        ('${h['password']}', (h['until'] as num).toDouble()),
+    ];
+  } catch (_) {
+    return [];
+  }
+}
+
 class Vault {
   final String path;
   String password;

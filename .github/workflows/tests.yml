@@ -1,0 +1,36 @@
+# Runs both apps' tests on every push and pull request. The shared fixtures
+# (android_app/test_fixtures) make sure the PC and the phone read documents and
+# make 2FA codes the same way.
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements.txt
+      - run: python tests/test_core.py
+
+  phone-app:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: android_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
