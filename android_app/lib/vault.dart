@@ -140,7 +140,26 @@ class Entry {
     'deleted': deleted,
   };
 
-  factory Entry.fromJson(Map<String, dynamic> j) => Entry(
+  factory Entry.fromJson(Map<String, dynamic> j) =>
+      _read(j).._wipeIfDeleted(); // also cleans markers made by older versions
+
+  void _wipeIfDeleted() {
+    if (deleted) wipe();
+  }
+
+  /// A deleted entry's marker keeps only what sync needs to pass the deletion
+  /// on (id, kind, dates): nothing of what was in it. Same as wipe() on the PC.
+  void wipe() => copyFrom(
+    Entry(
+      id: id,
+      kind: kind,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+      deleted: true,
+    ),
+  );
+
+  static Entry _read(Map<String, dynamic> j) => Entry(
     id: j['id'] as String?,
     kind: kinds.contains(j['kind']) ? j['kind'] as String : 'login',
     title: (j['title'] ?? '') as String,
@@ -339,9 +358,7 @@ class Vault {
   void deleteById(String id) {
     final e = getById(id);
     if (e != null) {
-      e.deleted = true;
-      e.password = '';
-      e.fields = {};
+      e.wipe();
       e.touch();
       save();
     }

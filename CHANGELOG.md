@@ -2,10 +2,14 @@
 
 ## 0.7.0 (6 October 2026)
 
-- **Scan with NFC: read a passport's or ID card's chip** (phone). Tap **Scan with NFC** and hold the phone against the document: the details come straight from the chip, exactly. The chip opens only with three details printed on the document (its number, birth date and expiry), so the first time you type them (or use a photo of the `<<<` lines); they're kept in the entry, so after that it's just a tap. Some ID cards open with the 6-digit card access number (CAN) printed on their front instead. Works with e-passports and ID cards that follow the ICAO standard. Uses JMRTD, on the phone.
 - **No Google components any more** (phone). Google's ML Kit text reader, its document scanner and the ML Kit QR reader sent Google usage statistics (device and app information, performance data; never images or text). They're replaced by open-source parts that run on the phone and send nothing: Tesseract reads the text (and now Arabic too), zxing-cpp reads QR codes, and **Scan document** is MyVault's own: your camera app takes the photo (with its own flash), then MyVault finds the card's edges, you adjust the corners, and it's straightened. The app is 7 MB smaller.
+- **Scan several pages in one go:** after each page, **Add another page** or **Done**.
+- **Removing a photo or file asks first** (phone and Windows), and it only leaves the entry when you save; until then **Put it back** undoes it.
 - The microphone and storage permissions that the new camera and gallery libraries bring are left out: MyVault never asks for them.
 - An email address must be complete (`name@gmail.com`, not `name@gmail`) before an entry can be saved.
+- **Security fixes:**
+  - Windows: only MyVault's own page can open in its window. pywebview hands every page in the window the vault's API, so a link or file dropped onto the window could have opened a page able to read an unlocked vault. Dropping is now switched off and any other navigation is cancelled.
+  - Deleting an entry now removes everything in it. Before, the deletion marker that sync passes around kept the entry's name, notes (a secure note's text), username, email and extra fields; such markers are cleaned when the vault is next opened.
 - Fixed: when a save was refused (no name, a bad email), the unsaved edit could still reach the vault with the next save. Now nothing changes until the save goes through.
 - Reading the `<<<` lines got sturdier: when the reader adds or drops one character, the zone's last check digit picks the right fix.
 - **Fingerprint unlock** (Android 10+). Offered once after you unlock with the password, and switchable under menu › Auto-lock. The master password is kept encrypted by an Android Keystore key that only a strong fingerprint or face opens; it's switched off when fingerprints change or you change the master password. Also works for "Fill with MyVault" in other apps.

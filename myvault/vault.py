@@ -93,7 +93,16 @@ class Entry:
         e = cls(**{k: v for k, v in data.items() if k in known})
         if e.kind not in KINDS:
             e.kind = "login"
+        if e.deleted:
+            e.wipe()        # also cleans deletion markers made by older versions
         return e
+
+    def wipe(self) -> None:
+        """A deleted entry's marker keeps only what sync needs to pass the deletion
+        on (id, kind, dates): nothing of what was in it."""
+        blank = Entry(id=self.id, kind=self.kind, created_at=self.created_at,
+                      updated_at=self.updated_at, deleted=True)
+        self.__dict__.update(blank.__dict__)
 
 
 HISTORY_KEEP = 10
@@ -199,8 +208,6 @@ class Vault:
         entry = self.get(entry_id)
         if entry:
             # Soft-delete (tombstone) so a future sync can propagate the deletion.
-            entry.deleted = True
-            entry.password = ""
-            entry.fields = {}
+            entry.wipe()
             entry.touch()
             self.save()

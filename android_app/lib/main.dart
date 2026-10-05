@@ -2012,16 +2012,6 @@ class _EntryEditPageState extends State<EntryEditPage> {
               isNew: widget.isNew,
               draft: _doc,
               isEmpty: (k) => (_c[k]?.text ?? '').isEmpty,
-              value: (k) => _c[k]?.text ?? '',
-              put: (k, v) {
-                final c = _c[k];
-                if (c == null) return false;
-                setState(() {
-                  c.text = v;
-                  _auto.remove(k); // exact: nothing to check
-                });
-                return true;
-              },
               type: () => _c['doc_type']!.text,
               fill: (k, v) {
                 final c = _c[k];

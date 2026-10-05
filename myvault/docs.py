@@ -382,7 +382,7 @@ def nationality_code(v: str) -> str:
 
 
 _MONTHS = {m: i for i, m in enumerate(
-    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 _EXPIRY = re.compile(r"expir|valid\s*(until|thru|through|to)|end\s*date|انتهاء|صالح[ةه]?\s*(حتى|لغاية)|ينتهي", re.I)
 _ISSUE = re.compile(r"issue|start\s*date|إصدار|الإصدار|تحرير", re.I)
 _BIRTH = re.compile(r"birth|born|\bdob\b|ميلاد|الولادة", re.I)

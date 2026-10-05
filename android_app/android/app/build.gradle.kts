@@ -43,14 +43,6 @@ android {
         }
     }
 
-    // BouncyCastle's jars each carry the same licence and version notes.
-    packaging {
-        resources {
-            excludes += setOf("META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/versions/9/OSGI-INF/MANIFEST.MF",
-                "META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
-        }
-    }
-
     // "direct": GitHub releases, which update themselves (signed with MyVault's key).
     // "play": Google Play, which does the updates, so the updater is left out.
     flavorDimensions += "channel"
@@ -62,7 +54,7 @@ android {
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
-            // BouncyCastle and JMRTD load their algorithms by name: keep them whole.
+            // Tesseract's native code calls back into its Java classes by name.
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
@@ -86,9 +78,4 @@ dependencies {
     implementation("cz.adaptech.tesseract4android:tesseract4android:4.8.0")
     // Unlock with a fingerprint or face (Android's Keystore + BiometricPrompt).
     implementation("androidx.biometric:biometric:1.1.0")
-    // Reading e-passport / e-ID chips over NFC (ICAO 9303): JMRTD, with the
-    // full BouncyCastle crypto it needs for BAC and PACE.
-    implementation("org.jmrtd:jmrtd:0.8.9")
-    implementation("net.sf.scuba:scuba-sc-android:0.0.27")
-    implementation("org.bouncycastle:bcprov-jdk18on:1.86")
 }

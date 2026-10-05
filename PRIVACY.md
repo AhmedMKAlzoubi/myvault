@@ -44,7 +44,6 @@ MyVault makes only these connections:
 - **Camera:** used to scan QR codes (sync, paper backup, 2FA setup) and, when you choose "Scan document", to photograph a document with your camera app. The photo goes straight into MyVault's encrypted storage; the camera app's temporary copy is deleted at once.
 - **Notifications:** used only for document reminders you set. Each says only the document type (or the name you chose) and the time left, e.g. "Passport expires in 1 month". On a locked screen Android hides even that.
 - **Run at startup:** so document reminders keep working after the phone restarts. Nothing else runs.
-- **NFC (optional):** used only while you choose "Scan with NFC" and hold a passport or ID card to the phone. The chip opens only with the document's number, birth date and expiry (or its card access number), and the details are read into the entry on your phone. Nothing is sent anywhere.
 - **Fingerprint or face (optional):** used only if you turn on fingerprint unlock. Android checks the fingerprint and tells MyVault only whether it matched.
 - **Install other apps:** used only when you choose to install a MyVault update (not in the Google Play build). Before installing, MyVault checks the file is signed by the same key as the app you already have.
 - **Autofill service (optional, you switch it on):** lets MyVault offer to fill and save logins in other apps. MyVault reads a login screen only when Android asks it to fill or save, keeps only the app name or website and the username and password, and fills only after you unlock and pick an account.
@@ -66,6 +65,7 @@ MyVault isn't directed at children and collects no personal data from anyone, so
 All your data is on your devices, so you are in full control:
 
 - **Delete everything:** uninstall the app, or delete the `MyVault` folder (the Windows app's Settings has an "Open folder" button). On Android, uninstall the app or clear its storage.
+- **Deleting one entry** removes everything in it at once; only a small marker (its id and dates) is kept so your other devices delete it too at the next sync. On Windows, the encrypted daily backups still hold it for up to 14 days, until they're replaced.
 - **Export or move it:** sync to another device, or make a paper backup.
 - There is nothing to request from us, because we hold none of your data.
 

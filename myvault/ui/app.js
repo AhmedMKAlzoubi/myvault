@@ -622,7 +622,7 @@
           img, ref.mime === "application/pdf" && h("span", { class: "pdf" }, "PDF")),
         h("span", { class: "fname" }, raw(ref.name)),
         edit && h("div", { class: "file-acts" },
-          iconBtn("x", "Remove file", () => edit.remove(ref))));
+          iconBtn("trash", "Remove file", () => edit.remove(ref))));
       call("doc_preview", ref).then((r) => { if (r.ok) img.src = r.src; else tile.classList.add("missing"); });
       grid.append(tile);
     }
@@ -680,7 +680,8 @@
             found.guessed && filled.includes("expires") ? "The expiry date is a guess (it wasn't labelled). " : ""]);
       if (filled.length) form.redraw(d, msg, filled); else note.replaceChildren(msg);
     }
-    const edit = { remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); paint(); } };
+    const ask = h("div", { "aria-live": "polite" });
+    const edit = safeRemove(() => files, (f) => { files = f; dirty(); paint(); }, ask);
     const grid = h("div");
     const paint = () => grid.replaceChildren(files.length ? fileGrid(files, edit) : h("p", { class: "hint", style: "margin:0" }, "No files yet."));
     paint();
@@ -710,7 +711,7 @@
     const el = h("div", { class: "form", style: "margin:0" },
       h("div", { class: "field" }, h("span", { class: "lbl" }, "Files"),
         h("p", { class: "hint" }, "Photos or PDFs of the document: add both sides of a card. They're encrypted the moment you add them, and MyVault reads the details from all of them together, on this PC."),
-        grid, note, h("div", { class: "inp-row", style: "flex-wrap:wrap" }, add, readAll)),
+        grid, ask, note, h("div", { class: "inp-row", style: "flex-wrap:wrap" }, add, readAll)),
       h("div", { class: "field" }, h("span", { class: "lbl" }, "Remind me before it expires"),
         chips,
         h("div", { class: "inp-row", style: "margin-top:8px" }, custom, btn("Add days", () => {
@@ -728,16 +729,40 @@
     return el;
   }
 
+  // Removing a file asks first. It only leaves the entry when it's saved:
+  // until then it can be put back, and Cancel keeps it.
+  function safeRemove(get, set, slot) {
+    return { remove: (ref) => slot.replaceChildren(h("div", { class: "result bad", role: "alert", style: "display:grid;gap:10px;margin-top:10px" },
+      h("span", {}, h("b", {}, `Remove “${ref.name}”? `),
+        "It leaves this entry when you save. Until then you can put it back, and Cancel keeps it."),
+      h("div", { class: "inp-row" },
+        btn("Remove", () => {
+          const at = get().findIndex((x) => x.id === ref.id);
+          if (at < 0) return slot.replaceChildren();
+          set(get().filter((x) => x.id !== ref.id));
+          slot.replaceChildren(h("div", { class: "result", style: "margin-top:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap" },
+            h("span", {}, `Removed “${ref.name}”.`),
+            btn("Put it back", () => {
+              const f = [...get()];
+              if (!f.some((x) => x.id === ref.id)) f.splice(Math.min(at, f.length), 0, ref);
+              set(f);
+              slot.replaceChildren();
+            }, "sm", "refresh")));
+        }, "danger solid sm", "trash"),
+        btn("Keep it", () => slot.replaceChildren(), "sm")))) };
+  }
+
   // Files on any other entry (a login's recovery-codes PDF, an SSH key's notes…).
   function attachEditor(e, dirty) {
     let files = fileRefs(e);
     const grid = h("div");
-    const edit = { remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); paint(); } };
+    const ask = h("div", { "aria-live": "polite" });
+    const edit = safeRemove(() => files, (f) => { files = f; dirty(); paint(); }, ask);
     const paint = () => grid.replaceChildren(files.length ? fileGrid(files, edit) : h("p", { class: "hint", style: "margin:0" }, "No files yet."));
     paint();
     const el = h("div", { class: "field" }, h("span", { class: "lbl" }, "Files"),
       h("p", { class: "hint" }, "Photos, PDFs or other files that belong with this entry. They're encrypted the moment you add them."),
-      grid, h("div", {}, btn("Add files…", async () => {
+      grid, ask, h("div", {}, btn("Add files…", async () => {
         const r = await call("doc_add_files");
         if (r.error) toast(r.error, true);
         if (!r.files?.length) return;

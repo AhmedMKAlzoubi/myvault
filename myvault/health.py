@@ -39,7 +39,8 @@ def leaks(passwords, fetch=_fetch) -> dict[str, int]:
     """How many times each password appears in known leaks (0 = not found)."""
     out = {}
     for pw in set(passwords):
-        h = hashlib.sha1(pw.encode("utf-8")).hexdigest().upper()
+        # SHA-1 because that's what the service's range API uses, not for security
+        h = hashlib.sha1(pw.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
         counts = {}
         for line in fetch(h[:5]).splitlines():
             suffix, _, n = line.strip().partition(":")

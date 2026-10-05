@@ -88,6 +88,23 @@ void main() {
     ); // holder filled from the zone
     expect(find.text('15 Apr 2030'), findsOneWidget); // expiry, shown as a date
 
+    // Removing the file asks first, and can be put back.
+    final removeBtn = find.byTooltip('Remove file');
+    expect(removeBtn, findsOneWidget);
+    await t.tap(removeBtn);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Keep it'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsOneWidget); // still there
+    await t.tap(find.byTooltip('Remove file'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Remove'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsNothing);
+    await t.tap(find.text('Put it back'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsOneWidget); // back
+
     await t.tap(find.text('3 months'));
     await t.pump();
     await t.runAsync(() async {
@@ -143,14 +160,14 @@ void main() {
           return null;
         },
       );
-      Uint8List? result;
+      CropResult? result;
       await t.pumpWidget(
         MaterialApp(
           theme: buildTheme(Envelope.light, Brightness.light),
           home: Builder(
             builder: (c) => TextButton(
               onPressed: () async =>
-                  result = await Navigator.of(c).push<Uint8List>(
+                  result = await Navigator.of(c).push<CropResult>(
                     MaterialPageRoute(builder: (_) => CropPage(photo: photo)),
                   ),
               child: const Text('open'),
@@ -160,11 +177,7 @@ void main() {
       );
       await t.tap(find.text('open'));
       await t.runAsync(() async {
-        for (
-          var i = 0;
-          i < 40 && find.text('Use this').evaluate().isEmpty;
-          i++
-        ) {
+        for (var i = 0; i < 40 && find.text('Done').evaluate().isEmpty; i++) {
           await Future.delayed(const Duration(milliseconds: 25));
           await t.pump();
         }
@@ -178,9 +191,10 @@ void main() {
       final handles = find.byType(GestureDetector);
       await t.drag(handles.first, const Offset(30, 20));
       await t.pump();
-      await t.tap(find.text('Use this'));
+      await t.tap(find.text('Done'));
       await t.pumpAndSettle();
-      expect(result, Uint8List.fromList([1, 2, 3]));
+      expect(result?.photo, Uint8List.fromList([1, 2, 3]));
+      expect(result?.more, isFalse); // Done: no more pages
       expect(sent, hasLength(8));
       expect(sent![0], greaterThan(.1)); // moved right
       expect(sent![1], greaterThan(.1)); // and down
@@ -192,67 +206,6 @@ void main() {
         .1,
         .9,
       ]); // the others where found
-    },
-  );
-
-  testWidgets(
-    'Scan with NFC: a card access number opens the chip, and its details fill in',
-    (t) async {
-      t.view.physicalSize = const Size(1000, 4000);
-      t.view.devicePixelRatio = 1;
-      addTearDown(t.view.reset);
-      Map? asked;
-      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('myvault/nfc'),
-        (call) async {
-          if (call.method == 'status') return 'on';
-          if (call.method == 'read') {
-            asked = call.arguments as Map;
-            // what the chip's DG1 holds: the TD1 zone of a Jordanian ID card
-            return 'IDJORAB123456719901234567<<<<<\n'
-                '9006050M3103120JOR<<<<<<<<<<<6\n'
-                'MOHAMMED<<AHMED<<<<<<<<<<<<<<<';
-          }
-          return null;
-        },
-      );
-      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
-        const MethodChannel('myvault/docs'),
-        (call) async => null,
-      );
-      final dir = Directory.systemTemp.createTempSync('mv_nfc_ui');
-      final v = (await t.runAsync(
-        () async => Vault.create('${dir.path}/vault.dat', 'nfc-ui-pass'),
-      ))!;
-      Session.open(v);
-      await t.pumpWidget(
-        MaterialApp(
-          theme: buildTheme(Envelope.light, Brightness.light),
-          home: EntryEditPage(entry: Entry(kind: 'document'), isNew: true),
-        ),
-      );
-      await t.pumpAndSettle();
-      await t.tap(find.text('Scan with NFC'));
-      await t.pumpAndSettle();
-      expect(
-        find.text('Passport number'),
-        findsOneWidget,
-      ); // asks for the printed details
-      await t.tap(find.text('Use a card access number instead'));
-      await t.pumpAndSettle();
-      await t.enterText(
-        find.widgetWithText(TextField, 'Card access number'),
-        '123456',
-      );
-      await t.pump();
-      await t.tap(find.text('Start'));
-      await t.pumpAndSettle();
-      expect(asked?['can'], '123456');
-      expect(find.textContaining('Read from the chip'), findsOneWidget);
-      expect(find.text('Ahmed Mohammed'), findsOneWidget);
-      expect(find.text('9901234567'), findsOneWidget); // the ID number
-      expect(find.text('AB1234567'), findsOneWidget); // the card's own number
-      Session.lock();
     },
   );
 }

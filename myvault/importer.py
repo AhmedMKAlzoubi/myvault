@@ -39,7 +39,9 @@ def read_csv(text: str, existing=()) -> tuple[list[Entry], int]:
             for e in existing if not e.deleted and e.kind == "login"}
     out, skipped = [], 0
     for row in rows[1:]:
-        get = lambda what: (row[col[what]].strip() if col[what] is not None and col[what] < len(row) else "")
+        def get(what, row=row):
+            i = col[what]
+            return row[i].strip() if i is not None and i < len(row) else ""
         password, login = get("password"), get("username") or get("email")
         if get("type") and get("type").lower() not in ("login", "1"):      # Bitwarden's notes, cards…
             continue

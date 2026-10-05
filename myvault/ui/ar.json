@@ -544,5 +544,10 @@
 "That isn't the master password this backup was saved with.": "هذه ليست كلمة المرور الرئيسية التي حُفظت بها هذه النسخة.",
 "This is MyVault {0}. Updates come from the Microsoft Store.": "هذا MyVault {0}. تأتي التحديثات من متجر Microsoft.",
 "Updates come from the Microsoft Store.": "تأتي التحديثات من متجر Microsoft.",
-"“{0}” isn't a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.": "«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com."
+"“{0}” isn't a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.": "«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com.",
+"Put it back": "إعادتها",
+"Removed “{0}”.": "أُزيل «{0}».",
+"Remove": "إزالة",
+"Remove “{0}”?": "إزالة «{0}»؟",
+"It leaves this entry when you save. Until then you can put it back, and Cancel keeps it.": "يُزال من هذا العنصر عند الحفظ. حتى ذلك الحين يمكنك إعادته، والإلغاء يُبقيه."
 }

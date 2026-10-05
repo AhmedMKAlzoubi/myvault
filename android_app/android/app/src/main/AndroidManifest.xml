@@ -10,11 +10,8 @@
     <!-- Document reminders: show them, and keep the daily check across restarts. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    <!-- Reading an e-passport's or e-ID's chip (only while you hold it to the phone)
-         and unlocking with a fingerprint or face. Neither is required to run. -->
-    <uses-permission android:name="android.permission.NFC"/>
+    <!-- Unlocking with a fingerprint or face, if you turn it on. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
-    <uses-feature android:name="android.hardware.nfc" android:required="false"/>
     <!-- The QR scanner's camera plugin and its gallery picker ask for these, for
          video recording and gallery videos that MyVault never uses: left out. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>

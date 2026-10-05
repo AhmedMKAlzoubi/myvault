@@ -16,9 +16,6 @@ import 'update.dart' as upd;
 import 'vault.dart';
 
 const _ch = MethodChannel('myvault/docs');
-const _nfc = MethodChannel(
-  'myvault/nfc',
-); // NfcBridge.kt: e-passport / e-ID chips
 
 void _snack(BuildContext c, String msg) => ScaffoldMessenger.of(c)
   ..hideCurrentSnackBar()
@@ -99,36 +96,36 @@ Future<Uint8List> previewOf(Vault v, FileRef r, {int width = 900}) async {
 }
 
 // ---- MyVault's own scanner: crop and straighten a photo ------------------------------
-/// Photos from the camera, each through the crop screen (null: skipped).
-Future<List<(String, Uint8List)>> cropPhotos(
-  BuildContext context,
-  List<(String, Uint8List)> photos,
-) async {
+/// What the crop screen gives back: the cut-out page (empty: take it again),
+/// and whether to scan another page after it.
+typedef CropResult = ({Uint8List photo, bool more});
+
+/// A scan: camera photos, each through the crop screen, page after page
+/// (a card's front and back) until the person taps Done.
+Future<List<(String, Uint8List)>> scanPages(BuildContext context) async {
   final out = <(String, Uint8List)>[];
-  for (var (name, bytes) in photos) {
-    while (true) {
-      if (!context.mounted) break;
-      final got = await Navigator.of(context).push<Uint8List>(
-        MaterialPageRoute(builder: (_) => CropPage(photo: bytes)),
-      );
-      if (got == null) break; // cancelled
-      if (got.isNotEmpty) {
-        out.add((name, got));
-        break;
-      }
-      final again = await _getFiles('camera'); // retake
-      if (again.isEmpty) break;
-      (name, bytes) = again.first;
-    }
+  var shot = await _getFiles('camera');
+  while (shot.isNotEmpty) {
+    if (!context.mounted) break;
+    final got = await Navigator.of(context).push<CropResult>(
+      MaterialPageRoute(
+        builder: (_) => CropPage(photo: shot.first.$2, page: out.length + 1),
+      ),
+    );
+    if (got == null) break; // cancelled: the pages so far are kept
+    if (got.photo.isNotEmpty) out.add((shot.first.$1, got.photo));
+    if (got.photo.isNotEmpty && !got.more) break;
+    shot = await _getFiles('camera'); // retake, or the next page
   }
   return out;
 }
 
 /// Drag the box's corners to the document's; it's cut out and straightened.
-/// Pops the new photo, an empty list to retake, or null to cancel.
+/// Pops a [CropResult], or null to cancel.
 class CropPage extends StatefulWidget {
   final Uint8List photo;
-  const CropPage({super.key, required this.photo});
+  final int page; // 1 for the first page of this scan
+  const CropPage({super.key, required this.photo, this.page = 1});
   @override
   State<CropPage> createState() => _CropPageState();
 }
@@ -180,7 +177,7 @@ class _CropPageState extends State<CropPage> {
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _use() async {
+  Future<void> _use({required bool more}) async {
     setState(() => _busy = true);
     try {
       final out = await _ch.invokeMethod<Uint8List>('warp', {
@@ -189,7 +186,9 @@ class _CropPageState extends State<CropPage> {
           for (final p in _pts) ...[p.dx, p.dy],
         ],
       });
-      if (mounted) Navigator.of(context).pop(out);
+      if (mounted && out != null) {
+        Navigator.of(context).pop<CropResult>((photo: out, more: more));
+      }
     } on PlatformException catch (e) {
       if (mounted) {
         setState(() => _busy = false);
@@ -204,7 +203,11 @@ class _CropPageState extends State<CropPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        title: Text(tr('Crop the document')),
+        title: Text(
+          widget.page == 1
+              ? tr('Crop the document')
+              : tr('Crop page ${widget.page}'),
+        ),
         actions: [
           IconButton(
             tooltip: tr('Turn'),
@@ -300,19 +303,33 @@ class _CropPageState extends State<CropPage> {
                     style: TextStyle(color: e.ink2, fontSize: 13),
                   ),
                   const SizedBox(height: 10),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
                     children: [
                       TextButton(
                         onPressed: _busy
                             ? null
-                            : () => Navigator.of(context).pop(Uint8List(0)),
+                            : () => Navigator.of(context).pop<CropResult>((
+                                photo: Uint8List(0),
+                                more: false,
+                              )),
                         child: Text(tr('Retake')),
                       ),
-                      const Spacer(),
+                      OutlinedButton.icon(
+                        onPressed: _busy || _size == null
+                            ? null
+                            : () => _use(more: true),
+                        icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                        label: Text(tr('Add another page')),
+                      ),
                       FilledButton.icon(
-                        onPressed: _busy || _size == null ? null : _use,
+                        onPressed: _busy || _size == null
+                            ? null
+                            : () => _use(more: false),
                         icon: const Icon(Icons.check, size: 18),
-                        label: Text(tr('Use this')),
+                        label: Text(tr('Done')),
                       ),
                     ],
                   ),
@@ -355,165 +372,81 @@ class _BoxPainter extends CustomPainter {
   bool shouldRepaint(_BoxPainter old) => old.pts != pts;
 }
 
-// ---- what opens a document's chip ---------------------------------------------------
-typedef _ChipKey = ({
-  bool photo,
-  String can,
-  String number,
-  DateTime? birth,
-  DateTime? expiry,
-});
-
-/// The three details printed on the document that open its chip, or the card
-/// access number some ID cards have, or "take a photo of the <<< lines".
-class _ChipKeyDialog extends StatefulWidget {
-  final bool idCard;
-  final String number;
-  final DateTime? birth, expiry;
-  const _ChipKeyDialog({
-    required this.idCard,
-    required this.number,
-    this.birth,
-    this.expiry,
+/// A file's thumbnail on an edit page, with a remove button that asks first.
+/// The file only leaves the entry when it's saved; until then "Put it back"
+/// undoes it, and leaving without saving keeps it.
+class RemovableThumb extends StatelessWidget {
+  final Vault vault;
+  final FileRef file;
+  final DocumentDraft draft;
+  final VoidCallback changed; // the editor redraws
+  const RemovableThumb({
+    super.key,
+    required this.vault,
+    required this.file,
+    required this.draft,
+    required this.changed,
   });
-  @override
-  State<_ChipKeyDialog> createState() => _ChipKeyDialogState();
-}
 
-class _ChipKeyDialogState extends State<_ChipKeyDialog> {
-  late final _number = TextEditingController(text: widget.number);
-  final _can = TextEditingController();
-  late DateTime? _birth = widget.birth, _expiry = widget.expiry;
-  bool _useCan = false;
-
-  bool get _ok => _useCan
-      ? RegExp(r'^\d{6}$').hasMatch(_can.text.trim())
-      : _number.text.trim().length >= 5 && _birth != null && _expiry != null;
-
-  Future<void> _pick(bool birth) async {
-    final now = DateTime.now();
-    final got = await showDatePicker(
-      context: context,
-      initialDate:
-          (birth ? _birth : _expiry) ??
-          (birth ? DateTime(now.year - 30) : DateTime(now.year + 3)),
-      firstDate: DateTime(1900),
-      lastDate: DateTime(now.year + 30),
-    );
-    if (got != null) setState(() => birth ? _birth = got : _expiry = got);
-  }
-
-  Widget _date(String label, DateTime? value, bool birth) => InkWell(
-    onTap: () => _pick(birth),
-    child: InputDecorator(
-      decoration: InputDecoration(
-        labelText: tr(label),
-        suffixIcon: const Icon(Icons.calendar_today_outlined, size: 20),
-      ),
-      isEmpty: value == null,
-      child: Text(value == null ? '' : fmtDay(isoDay(value))),
-    ),
-  );
-
-  @override
-  Widget build(BuildContext context) {
+  Future<void> _remove(BuildContext context) async {
     final e = Envelope.of(context);
-    return AlertDialog(
-      title: Text(tr('Scan with NFC')),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              tr(
-                _useCan
-                    ? 'Some ID cards print a 6-digit card access number (often marked CAN) on the front. If yours has one, it opens the chip on its own. Passports don\'t have one.'
-                    : 'Chips open only with three details printed on the document, so nobody can read them from a distance. Type them once: MyVault keeps them in this entry, so next time it\'s just a tap.',
-              ),
-              style: TextStyle(color: e.ink2, fontSize: 13.5),
-            ),
-            const SizedBox(height: 12),
-            if (_useCan)
-              TextField(
-                controller: _can,
-                autofocus: true,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: tr('Card access number'),
-                ),
-              )
-            else ...[
-              TextField(
-                controller: _number,
-                textCapitalization: TextCapitalization.characters,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: tr(
-                    widget.idCard ? 'Card number' : 'Passport number',
-                  ),
-                  helperText: tr(
-                    widget.idCard
-                        ? 'The card\'s own number, as on its <<< lines (not the national number).'
-                        : 'As printed on the photo page.',
-                  ),
-                  helperMaxLines: 3,
-                ),
-              ),
-              const SizedBox(height: 10),
-              _date('Date of birth', _birth, true),
-              const SizedBox(height: 10),
-              _date('Expiry date', _expiry, false),
-            ],
-            const SizedBox(height: 8),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: TextButton(
-                onPressed: () => setState(() => _useCan = !_useCan),
-                child: Text(
-                  tr(
-                    _useCan
-                        ? 'Use the number and dates instead'
-                        : 'Use a card access number instead',
-                  ),
-                ),
-              ),
-            ),
-          ],
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Remove this file?')),
+        content: Text(
+          tr(
+            '“${file.name}” leaves this entry when you save. Until then you can put it back, and leaving without saving keeps it.',
+          ),
         ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(tr('Keep it')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(tr('Remove'), style: TextStyle(color: e.red)),
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop<_ChipKey>(context, (
-            photo: true,
-            can: '',
-            number: '',
-            birth: null,
-            expiry: null,
-          )),
-          child: Text(tr('Use a photo')),
-        ),
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: Text(tr('Cancel')),
-        ),
-        TextButton(
-          onPressed: _ok
-              ? () => Navigator.pop<_ChipKey>(context, (
-                  photo: false,
-                  can: _useCan ? _can.text.trim() : '',
-                  number: _number.text.trim().replaceAll(' ', '').toUpperCase(),
-                  birth: _birth,
-                  expiry: _expiry,
-                ))
-              : null,
-          child: Text(tr('Start')),
-        ),
-      ],
     );
+    if (ok != true) return;
+    final at = draft.files.indexWhere((x) => x.id == file.id);
+    if (at < 0) return;
+    draft.files = [...draft.files]..removeAt(at);
+    changed();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(tr('Removed “${file.name}”.')),
+          action: SnackBarAction(
+            label: tr('Put it back'),
+            onPressed: () {
+              if (draft.files.any((x) => x.id == file.id)) return;
+              draft.files = [...draft.files]
+                ..insert(at.clamp(0, draft.files.length), file);
+              changed();
+            },
+          ),
+        ),
+      );
   }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      FileThumb(vault: vault, file: file),
+      IconButton(
+        tooltip: tr('Remove file'),
+        icon: const Icon(Icons.delete_outline, size: 20),
+        onPressed: () => _remove(context),
+      ),
+    ],
+  );
 }
 
 // ---- thumbnails and the viewer ---------------------------------------------------
@@ -821,19 +754,13 @@ class _FilesEditorState extends State<FilesEditor> {
           runSpacing: 10,
           children: [
             for (final f in d.files)
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FileThumb(vault: widget.vault, file: f),
-                  IconButton(
-                    tooltip: tr('Remove file'),
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => setState(
-                      () =>
-                          d.files = d.files.where((x) => x.id != f.id).toList(),
-                    ),
-                  ),
-                ],
+              RemovableThumb(
+                vault: widget.vault,
+                file: f,
+                draft: d,
+                changed: () {
+                  if (mounted) setState(() {});
+                },
               ),
           ],
         ),
@@ -867,9 +794,6 @@ class DocumentEditor extends StatefulWidget {
   final bool isNew;
   final bool Function(String key, String value) fill;
 
-  /// Sets a field even if it has something (details from the chip are exact).
-  final bool Function(String key, String value) put;
-  final String Function(String key) value;
   final bool Function(String key) isEmpty;
   final String Function() type; // the type chosen right now
   final DocumentDraft draft;
@@ -879,8 +803,6 @@ class DocumentEditor extends StatefulWidget {
     required this.entry,
     required this.isNew,
     required this.fill,
-    required this.put,
-    required this.value,
     required this.isEmpty,
     required this.type,
     required this.draft,
@@ -908,145 +830,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
   String _note = '';
   bool _busy = false;
   bool _check = false; // the note asks to check what was filled in
-  String _nfcState = 'none'; // this phone's NFC: none, off or on
-  bool _reading = false; // waiting for the chip
-  bool _denied =
-      false; // the chip refused the last key: offer the access number
   DocumentDraft get d => widget.draft;
-
-  Future<void> _nfcStatus() async {
-    try {
-      final s = await _nfc.invokeMethod<String>('status') ?? 'none';
-      if (mounted) setState(() => _nfcState = s);
-    } on MissingPluginException {
-      // tests: no NFC
-    }
-  }
-
-  /// Read the details from the document's chip. It opens only with the
-  /// document number, birth date and expiry (or a card access number).
-  Future<void> _readChip() async {
-    await _nfcStatus();
-    if (!mounted) return;
-    if (_nfcState == 'off') {
-      final open = await showDialog<bool>(
-        context: context,
-        builder: (c) => AlertDialog(
-          title: Text(tr('Turn on NFC')),
-          content: Text(
-            tr("NFC is off. Turn it on in Android's settings, then come back."),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: Text(tr('Cancel')),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, true),
-              child: Text(tr('Open settings')),
-            ),
-          ],
-        ),
-      );
-      if (open == true) await _nfc.invokeMethod('settings');
-      return;
-    }
-    String docNo() {
-      final card = widget.value('card_number').trim();
-      return card.isNotEmpty ? card : widget.value('number').trim();
-    }
-
-    DateTime? birth() => parseDay(widget.value('birth_date'));
-    DateTime? expiry() => parseDay(widget.value('expires'));
-    bool ready() => docNo().isNotEmpty && birth() != null && expiry() != null;
-    String yymmdd(DateTime t) =>
-        '${t.year % 100}'.padLeft(2, '0') +
-        '${t.month}'.padLeft(2, '0') +
-        '${t.day}'.padLeft(2, '0');
-    var can = '';
-    if (!ready() || _denied) {
-      final idCard = const ['id_card', 'residence'].contains(widget.type());
-      final got = await showDialog<_ChipKey>(
-        context: context,
-        builder: (_) => _ChipKeyDialog(
-          idCard: idCard,
-          number: docNo(),
-          birth: birth(),
-          expiry: expiry(),
-        ),
-      );
-      if (got == null || !mounted) return;
-      if (got.photo) {
-        await _add('scan');
-        if (!ready() && d.files.isNotEmpty) await _read();
-        if (!mounted) return;
-        if (!ready()) {
-          setState(() {
-            _check = false;
-            _note = tr(
-              "MyVault couldn't read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.",
-            );
-          });
-          return;
-        }
-      } else if (got.can.isNotEmpty) {
-        can = got.can;
-      } else {
-        // Kept in the entry, so next time it's just a tap.
-        widget.put(idCard ? 'card_number' : 'number', got.number);
-        widget.put('birth_date', isoDay(got.birth!));
-        widget.put('expires', isoDay(got.expiry!));
-      }
-    }
-    final b = birth(), x = expiry();
-    setState(() {
-      _reading = true;
-      _check = false;
-      _note = tr(
-        'Hold the phone flat against the document now and keep it still. Passport: the photo page or the cover. ID card: the middle of the card.',
-      );
-    });
-    try {
-      final mrz = await _nfc.invokeMethod<String>('read', {
-        'number': docNo().replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),
-        'birth': b == null ? '' : yymmdd(b),
-        'expiry': x == null ? '' : yymmdd(x),
-        'can': can,
-      });
-      final got = readDetails([mrz ?? '']);
-      if (got['how'] != 'mrz') throw PlatformException(code: 'failed');
-      final set = <String>[];
-      for (final MapEntry(:key, :value) in got.entries) {
-        if (key == 'how' || key == 'guessed') continue;
-        if (widget.put(key, '$value')) set.add(key);
-      }
-      final type = widget.type();
-      _note = tr(
-        "Read from the chip: ${set.map((k) => tr(docLabel(k, type))).join(tr(', '))}. These come straight from the document's chip, so they're exact.",
-      );
-      _denied = false;
-    } on PlatformException catch (e) {
-      _denied = e.code == 'denied';
-      _note = switch (e.code) {
-        'cancelled' => '',
-        'denied' => tr(
-          "The chip didn't open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.",
-        ),
-        'lost' => tr(
-          'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.',
-        ),
-        'needs_mrz' => tr(
-          "This chip doesn't take a card access number. Leave that box empty to use the number and dates.",
-        ),
-        'not_chip' => tr("That isn't a passport or ID card chip."),
-        'off' => tr(
-          "NFC is off. Turn it on in Android's settings, then come back.",
-        ),
-        _ => tr("Couldn't read the chip. Try again, holding the phone still."),
-      };
-    }
-    if (mounted) setState(() => _reading = false);
-  }
 
   @override
   void initState() {
@@ -1054,14 +838,14 @@ class _DocumentEditorState extends State<DocumentEditor> {
     d.files = fileRefs(widget.entry);
     d.days = widget.isNew ? {30, 7} : remindDays(widget.entry).toSet();
     d.name.text = widget.entry.fields['remind_name'] ?? '';
-    _nfcStatus();
   }
 
   Future<void> _add(String how) async {
     try {
       // Scanning: your camera app (its own flash and exposure), then MyVault's crop screen.
-      var got = await _getFiles(how == 'scan' ? 'camera' : how);
-      if (how == 'scan' && mounted) got = await cropPhotos(context, got);
+      final got = how == 'scan'
+          ? await scanPages(context)
+          : await _getFiles(how);
       final added = <FileRef>[];
       for (final (name, bytes) in got) {
         added.add(await seal(widget.vault, bytes, name));
@@ -1168,19 +952,13 @@ class _DocumentEditorState extends State<DocumentEditor> {
           runSpacing: 10,
           children: [
             for (final f in d.files)
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FileThumb(vault: widget.vault, file: f),
-                  IconButton(
-                    tooltip: tr('Remove file'),
-                    icon: const Icon(Icons.close, size: 20),
-                    onPressed: () => setState(
-                      () =>
-                          d.files = d.files.where((x) => x.id != f.id).toList(),
-                    ),
-                  ),
-                ],
+              RemovableThumb(
+                vault: widget.vault,
+                file: f,
+                draft: d,
+                changed: () {
+                  if (mounted) setState(() {});
+                },
               ),
           ],
         ),
@@ -1228,24 +1006,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
               icon: const Icon(Icons.attach_file, size: 18),
               label: Text(tr('Choose files')),
             ),
-            if (_nfcState != 'none' &&
-                const [
-                  '',
-                  'passport',
-                  'id_card',
-                  'residence',
-                ].contains(widget.type()))
-              _reading
-                  ? TextButton.icon(
-                      onPressed: () => _nfc.invokeMethod('stop'),
-                      icon: const Icon(Icons.close, size: 18),
-                      label: Text(tr('Stop reading')),
-                    )
-                  : OutlinedButton.icon(
-                      onPressed: _readChip,
-                      icon: const Icon(Icons.contactless_outlined, size: 18),
-                      label: Text(tr('Scan with NFC')),
-                    ),
             if (d.files.isNotEmpty)
               TextButton.icon(
                 onPressed: _busy ? null : _read,

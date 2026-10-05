@@ -417,7 +417,7 @@ class PairingSession:
             while not self._stop.is_set() and time.time() < self.expires_at:
                 try:
                     conn, addr = self._srv.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break

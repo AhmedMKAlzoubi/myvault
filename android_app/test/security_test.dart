@@ -46,6 +46,34 @@ void main() {
     );
   });
 
+  test('a deleted entry keeps nothing but the marker', () {
+    final dir = Directory.systemTemp.createTempSync('mv_wipe');
+    final v = Vault.create('${dir.path}/v.dat', 'pw-12345678');
+    final e = Entry(
+      kind: 'note',
+      title: 'Bank PIN',
+      notes: '1234',
+      custom: {'PUK': '5678'},
+    );
+    v.add(e);
+    v.deleteById(e.id);
+    final t = Vault.open('${dir.path}/v.dat', 'pw-12345678').getById(e.id)!;
+    expect(t.deleted, isTrue);
+    expect(
+      [t.title, t.notes, t.custom, t.fields],
+      ['', '', <String, String>{}, <String, String>{}],
+    );
+    expect(t.kind, 'note');
+    final old = Entry.fromJson({
+      'id': 'x',
+      'kind': 'note',
+      'notes': 'secret',
+      'deleted': true,
+      'updated_at': 5.0,
+    });
+    expect((old.notes, old.updatedAt, old.deleted), ('', 5.0, true));
+  });
+
   test('old passwords are kept, newest first, at most 10', () {
     final e = Entry(password: 'first');
     for (final pw in ['second', 'second', 'third']) {

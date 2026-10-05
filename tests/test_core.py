@@ -647,6 +647,19 @@ def test_password_history_health_and_leaks():
         assert len(json.loads(api.entry(a)["fields"]["password_history"])) == 10
 
 
+def test_deleted_entries_keep_nothing_but_the_marker():
+    with tempfile.TemporaryDirectory() as d:
+        v = Vault.create(Path(d) / "v.dat", "pw-12345678")
+        e = v.add(Entry(kind="note", title="Bank PIN", notes="1234", custom={"PUK": "5678"}, email="me@x.com"))
+        v.delete(e.id)
+        t = Vault.open(Path(d) / "v.dat", "pw-12345678").get(e.id)
+        assert t.deleted and (t.title, t.notes, t.custom, t.email, t.fields) == ("", "", {}, "", {}), t
+        assert t.kind == "note" and t.updated_at >= t.created_at
+        # a marker made by an older version (it kept the notes) is cleaned when read
+        old = Entry.from_dict({"id": "x", "kind": "note", "notes": "secret", "deleted": True, "updated_at": 5.0})
+        assert old.notes == "" and old.updated_at == 5.0 and old.deleted
+
+
 def test_incomplete_email_refused_and_entry_left_as_it_was():
     from myvault import app
     with tempfile.TemporaryDirectory() as d:

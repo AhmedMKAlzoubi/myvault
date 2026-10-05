@@ -19,7 +19,6 @@ import argparse
 import base64
 import hashlib
 import json
-import os
 import re
 import shutil
 import subprocess

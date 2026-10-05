@@ -976,6 +976,32 @@ def _page() -> str:
 _mutex = None
 
 
+def _guard_window(window) -> None:
+    """Only MyVault's own page may load in its window. pywebview gives every page
+    that loads there the vault's API, so a link or a file dropped onto the window
+    (or any other way out) must never open: those navigations are cancelled."""
+    try:
+        from System import Action      # pythonnet: WebView2 lives on the window's UI thread
+    except ImportError:
+        return
+    def ours(uri: str) -> bool:
+        return uri.startswith("data:") or uri == "about:blank"     # load_html() pages
+    def setup():
+        view = window.native.browser.webview
+        try:
+            view.AllowExternalDrop = False
+        except Exception:
+            pass            # an older WebView2: the guard below still stops a drop
+        def starting(_sender, args):
+            if not ours(str(args.Uri)):
+                args.Cancel = True
+        view.CoreWebView2.NavigationStarting += starting
+    try:
+        window.native.Invoke(Action(setup))
+    except Exception:
+        pass                # not WebView2 (another platform): nothing to guard here
+
+
 def _focus_running_copy() -> bool:
     """One MyVault at a time (two would fight over the connector port). If one
     is already open, bring its window forward and return True."""
@@ -1058,6 +1084,12 @@ def run() -> None:
         min_size=(820, 560), background_color="#F4F5F7", text_select=True,
         hidden=background and tray_ok, minimized=background and not tray_ok)
     api._window = window
+    guarded = []
+    def guard_once():
+        if not guarded:
+            guarded.append(True)
+            _guard_window(window)
+    window.events.loaded += guard_once
     if tray_ok:
         def start_tray():
             try:

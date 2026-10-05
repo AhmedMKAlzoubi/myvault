@@ -507,7 +507,7 @@ const arabic = <String, String>{
   'Use the camera': 'استخدام الكاميرا',
   'Too dark? Tap the scanner\'s flash button. Photo too bright or shiny? Pick “No filter” after scanning, tilt the card away from the light, or use the camera instead.':
       'الصورة معتمة؟ اضغط زر الفلاش في الماسح. الصورة ساطعة أو لامعة؟ اختر «بلا فلتر» بعد المسح، أو أمِل البطاقة بعيدًا عن الضوء، أو استخدم الكاميرا بدلًا منه.',
-  // ---- 2FA, password health, fingerprint, chip ----
+  // ---- 2FA, password health, fingerprint ----
   '2FA secret': 'مفتاح التحقق بخطوتين',
   '2FA code': 'رمز التحقق بخطوتين',
   'Copy 2FA code': 'نسخ رمز التحقق بخطوتين',
@@ -568,35 +568,7 @@ const arabic = <String, String>{
   'Unlock with fingerprint or face': 'الفتح بالبصمة أو الوجه',
   'Your master password is kept encrypted on this phone by a key that only your fingerprint or face opens. If fingerprints are added or removed, you\'ll type the password once more.':
       'تُحفظ كلمة مرورك الرئيسية مشفّرة على هذا الهاتف بمفتاح لا تفتحه إلا بصمتك أو وجهك. إذا أُضيفت بصمات أو أُزيلت، فستكتب كلمة المرور مرة أخرى.',
-  'Turn on NFC': 'تشغيل NFC',
-  'NFC is off. Turn it on in Android\'s settings, then come back.':
-      'NFC متوقف. شغّله من إعدادات Android ثم عُد.',
-  'Open settings': 'فتح الإعدادات',
-  'Read the chip': 'قراءة الشريحة',
-  'Passports and many ID cards have a chip with the same details as the <<< lines, exact. It opens only with the document\'s number, date of birth and expiry date, so scan the document or type those first.':
-      'في جوازات السفر وكثير من بطاقات الهوية شريحة فيها التفاصيل نفسها الموجودة في أسطر <<<، بدقة تامة. لا تُفتح إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء، فامسح المستند أو اكتبها أولًا.',
-  'Card access number (optional)': 'رقم الوصول إلى البطاقة (اختياري)',
-  'The 6 digits printed on the front of some ID cards.':
-      'الأرقام الستة المطبوعة على وجه بعض بطاقات الهوية.',
-  'Start': 'ابدأ',
-  'First scan the document, or type its number, date of birth and expiry date: the chip only opens with them.':
-      'امسح المستند أولًا، أو اكتب رقمه وتاريخ الميلاد وتاريخ الانتهاء: لا تُفتح الشريحة إلا بها.',
-  'Hold the phone flat against the document now and keep it still. Passport: the photo page or the cover. ID card: the middle of the card.':
-      'ضع الهاتف الآن مسطّحًا على المستند وأبقِه ثابتًا. جواز السفر: صفحة الصورة أو الغلاف. بطاقة الهوية: منتصف البطاقة.',
-  'Read from the chip: {0}. These come straight from the document\'s chip, so they\'re exact.':
-      'قُرئت من الشريحة: {0}. هذه مأخوذة مباشرة من شريحة المستند، فهي دقيقة.',
-  'The chip didn\'t open. Check the document number, date of birth and expiry date (or the card access number) against the document, then try again.':
-      'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء (أو رقم الوصول إلى البطاقة) مع المستند، ثم حاول مرة أخرى.',
-  'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.':
-      'فقد الهاتف الاتصال بالشريحة. أبقِه ثابتًا على المستند وحاول مرة أخرى. في جواز السفر، جرّب الغلاف وصفحة الصورة.',
-  'This chip doesn\'t take a card access number. Leave that box empty to use the number and dates.':
-      'هذه الشريحة لا تقبل رقم الوصول إلى البطاقة. اترك تلك الخانة فارغة لاستخدام الرقم والتواريخ.',
-  'That isn\'t a passport or ID card chip.':
-      'هذه ليست شريحة جواز سفر أو بطاقة هوية.',
-  'Couldn\'t read the chip. Try again, holding the phone still.':
-      'تعذّرت قراءة الشريحة. حاول مرة أخرى مع إبقاء الهاتف ثابتًا.',
-  'Stop reading': 'إيقاف القراءة',
-  // ---- MyVault's own scanner and NFC ----
+  // ---- MyVault's own scanner ----
   'Crop the document': 'قصّ المستند',
   'Turn': 'تدوير',
   'Drag the corners onto the document\'s corners. MyVault cuts it out and straightens it, which also helps it read the details.':
@@ -607,28 +579,22 @@ const arabic = <String, String>{
       'امسح وجهي البطاقة: التقط الصورة بالكاميرا (استخدم الفلاش إذا كان المكان معتمًا)، ثم اسحب الزوايا إلى زوايا البطاقة. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
   'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.':
       'الصورة ساطعة أو لامعة؟ أمِل البطاقة بعيدًا عن الضوء، أو أطفئ الفلاش.',
-  'Scan with NFC': 'المسح عبر NFC',
-  'The chip opens only with the document\'s number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport\'s photo page, or the back of the ID card.':
-      'لا تُفتح الشريحة إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء. يقرؤها MyVault من أسطر <<<: التقط أولًا صورة لصفحة الصورة في جواز السفر، أو لظهر بطاقة الهوية.',
-  'Card access number': 'رقم الوصول إلى البطاقة',
-  'Take the photo': 'التقاط الصورة',
-  'MyVault couldn\'t read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.':
-      'لم يتمكن MyVault من قراءة الرقم والتواريخ من الصورة. اكتبها بنفسك (أو التقط الصورة مجددًا مستقيمة وواضحة)، ثم اضغط «المسح عبر NFC».',
-  'The chip didn\'t open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.':
-      'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء مع المستند، ثم اضغط «المسح عبر NFC» مرة أخرى. بعض بطاقات الهوية لا تُفتح إلا برقم الوصول إلى البطاقة: يمكنك اختياره حينها.',
   'That photo couldn\'t be used.': 'تعذّر استخدام هذه الصورة.',
   'Allow the camera for MyVault to take a photo (Android settings › Apps › MyVault › Permissions).':
       'اسمح لـ MyVault باستخدام الكاميرا لالتقاط صورة (إعدادات Android › التطبيقات › MyVault › الأذونات).',
-  // ---- chip key, email check ----
-  '“{0}” isn\'t a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.': '«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com.',
-  'Some ID cards print a 6-digit card access number (often marked CAN) on the front. If yours has one, it opens the chip on its own. Passports don\'t have one.': 'تطبع بعض بطاقات الهوية رقم وصول من 6 أرقام (يُكتب بجانبه غالبًا CAN) على وجهها. إن كان في بطاقتك، فهو يفتح الشريحة وحده. جوازات السفر ليس فيها هذا الرقم.',
-  'Chips open only with three details printed on the document, so nobody can read them from a distance. Type them once: MyVault keeps them in this entry, so next time it\'s just a tap.': 'لا تُفتح الشرائح إلا بثلاث معلومات مطبوعة على المستند، فلا يستطيع أحد قراءتها عن بُعد. اكتبها مرة واحدة: يحفظها MyVault في هذا العنصر، فتكفي في المرة القادمة لمسة واحدة.',
-  'Passport number': 'رقم جواز السفر',
-  'The card\'s own number, as on its <<< lines (not the national number).': 'رقم البطاقة نفسها كما في أسطر <<< (وليس الرقم الوطني).',
-  'As printed on the photo page.': 'كما هو مطبوع في صفحة الصورة.',
-  'Use the number and dates instead': 'استخدام الرقم والتواريخ بدلًا من ذلك',
-  'Use a card access number instead': 'استخدام رقم الوصول إلى البطاقة بدلًا من ذلك',
-  'Use a photo': 'استخدام صورة',
+  // ---- email check ----
+  '“{0}” isn\'t a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.':
+      '«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com.',
+  // ---- several pages, removing files ----
+  'Put it back': 'إعادتها',
+  'Removed “{0}”.': 'أُزيل «{0}».',
+  'Remove': 'إزالة',
+  'Remove this file?': 'إزالة هذا الملف؟',
+  '“{0}” leaves this entry when you save. Until then you can put it back, and leaving without saving keeps it.':
+      'يُزال «{0}» من هذا العنصر عند الحفظ. حتى ذلك الحين يمكنك إعادته، والخروج دون حفظ يُبقيه.',
+  'Crop page {0}': 'قصّ الصفحة {0}',
+  'Add another page': 'إضافة صفحة أخرى',
+  'Done': 'تم',
 };
 
 const arabicMonths = [
