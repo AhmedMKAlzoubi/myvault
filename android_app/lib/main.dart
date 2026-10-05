@@ -1619,27 +1619,31 @@ class _EntryEditPageState extends State<EntryEditPage> {
         return _snack(context, tr(x.message));
       }
     }
-    final oldPassword = _e.password;
-    _e.title = _title.text.trim();
+    // Edit a copy: a refused save must leave the entry as it was.
+    final n = _e.copy();
+    n.title = _title.text.trim();
     for (final f in _allFields) {
-      f.write(_e, _c[f.key]!.text);
+      f.write(n, _c[f.key]!.text);
     }
-    keepOldPassword(_e, oldPassword);
-    if (_e.kind != 'document') {
-      docs.setFileRefs(_e, _doc.files); // FilesEditor's
+    keepOldPassword(n, _e.password);
+    if (n.kind == 'document') {
+      _doc.writeTo(n);
+    } else {
+      docs.setFileRefs(n, _doc.files); // FilesEditor's
     }
-    if (_e.kind == 'document') {
-      _doc.writeTo(_e);
-      // The first reminder: Android needs the person's OK to show notifications.
-      if (docs.remindDays(_e).isNotEmpty) askNotifications();
-    }
-    if (_e.kind != 'note') _e.notes = _notes.text;
-    _e.custom = {
+    if (n.kind != 'note') n.notes = _notes.text;
+    n.custom = {
       for (final r in _custom)
         if (r[0].text.trim().isNotEmpty) r[0].text.trim(): r[1].text,
     };
-    if (_e.displayName() == '(untitled)') {
+    if (n.displayName() == '(untitled)') {
       return _snack(context, tr('Give it a name first.'));
+    }
+    if (emailProblem(n).isNotEmpty) return _snack(context, tr(emailProblem(n)));
+    _e.copyFrom(n);
+    // The first reminder: Android needs the person's OK to show notifications.
+    if (_e.kind == 'document' && docs.remindDays(_e).isNotEmpty) {
+      askNotifications();
     }
     final v = Session.vault!;
     widget.isNew ? v.add(_e) : v.update(_e);

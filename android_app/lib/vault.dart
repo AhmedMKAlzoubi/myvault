@@ -62,6 +62,30 @@ class Entry {
 
   void touch() => updatedAt = _now();
 
+  /// A separate copy, to edit without touching this one until it's saved.
+  Entry copy() =>
+      Entry.fromJson(jsonDecode(jsonEncode(toJson())) as Map<String, dynamic>);
+
+  /// Takes every value of [o] (an edited copy of this entry).
+  void copyFrom(Entry o) {
+    kind = o.kind;
+    title = o.title;
+    website = o.website;
+    app = o.app;
+    username = o.username;
+    email = o.email;
+    password = o.password;
+    region = o.region;
+    age = o.age;
+    gender = o.gender;
+    phone = o.phone;
+    notes = o.notes;
+    custom = o.custom;
+    fields = o.fields;
+    passwordPolicy = o.passwordPolicy;
+    deleted = o.deleted;
+  }
+
   String displayName() {
     for (final v in [
       title,
@@ -141,6 +165,19 @@ class Entry {
 }
 
 const historyKeep = 10;
+
+/// An email address with a name, an @ and a full domain (gmail.com, not gmail).
+final _email = RegExp(r'^[^@\s]+@[^@\s.]+(\.[^@\s.]+)*\.[^@\s.]{2,}$');
+
+/// Why the entry's email address can't be right, or '' (same rule as the PC).
+String emailProblem(Entry e) {
+  for (final v in [e.email, e.fields['email'] ?? '']) {
+    if (v.trim().isNotEmpty && !_email.hasMatch(v.trim())) {
+      return '“${v.trim()}” isn\'t a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.';
+    }
+  }
+  return '';
+}
 
 /// When a login's password changes, the old one goes into its history
 /// (fields['password_history'], newest first). Same as keep_old_password() on the PC.

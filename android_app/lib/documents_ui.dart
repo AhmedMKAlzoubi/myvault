@@ -355,6 +355,167 @@ class _BoxPainter extends CustomPainter {
   bool shouldRepaint(_BoxPainter old) => old.pts != pts;
 }
 
+// ---- what opens a document's chip ---------------------------------------------------
+typedef _ChipKey = ({
+  bool photo,
+  String can,
+  String number,
+  DateTime? birth,
+  DateTime? expiry,
+});
+
+/// The three details printed on the document that open its chip, or the card
+/// access number some ID cards have, or "take a photo of the <<< lines".
+class _ChipKeyDialog extends StatefulWidget {
+  final bool idCard;
+  final String number;
+  final DateTime? birth, expiry;
+  const _ChipKeyDialog({
+    required this.idCard,
+    required this.number,
+    this.birth,
+    this.expiry,
+  });
+  @override
+  State<_ChipKeyDialog> createState() => _ChipKeyDialogState();
+}
+
+class _ChipKeyDialogState extends State<_ChipKeyDialog> {
+  late final _number = TextEditingController(text: widget.number);
+  final _can = TextEditingController();
+  late DateTime? _birth = widget.birth, _expiry = widget.expiry;
+  bool _useCan = false;
+
+  bool get _ok => _useCan
+      ? RegExp(r'^\d{6}$').hasMatch(_can.text.trim())
+      : _number.text.trim().length >= 5 && _birth != null && _expiry != null;
+
+  Future<void> _pick(bool birth) async {
+    final now = DateTime.now();
+    final got = await showDatePicker(
+      context: context,
+      initialDate:
+          (birth ? _birth : _expiry) ??
+          (birth ? DateTime(now.year - 30) : DateTime(now.year + 3)),
+      firstDate: DateTime(1900),
+      lastDate: DateTime(now.year + 30),
+    );
+    if (got != null) setState(() => birth ? _birth = got : _expiry = got);
+  }
+
+  Widget _date(String label, DateTime? value, bool birth) => InkWell(
+    onTap: () => _pick(birth),
+    child: InputDecorator(
+      decoration: InputDecoration(
+        labelText: tr(label),
+        suffixIcon: const Icon(Icons.calendar_today_outlined, size: 20),
+      ),
+      isEmpty: value == null,
+      child: Text(value == null ? '' : fmtDay(isoDay(value))),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return AlertDialog(
+      title: Text(tr('Scan with NFC')),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              tr(
+                _useCan
+                    ? 'Some ID cards print a 6-digit card access number (often marked CAN) on the front. If yours has one, it opens the chip on its own. Passports don\'t have one.'
+                    : 'Chips open only with three details printed on the document, so nobody can read them from a distance. Type them once: MyVault keeps them in this entry, so next time it\'s just a tap.',
+              ),
+              style: TextStyle(color: e.ink2, fontSize: 13.5),
+            ),
+            const SizedBox(height: 12),
+            if (_useCan)
+              TextField(
+                controller: _can,
+                autofocus: true,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: tr('Card access number'),
+                ),
+              )
+            else ...[
+              TextField(
+                controller: _number,
+                textCapitalization: TextCapitalization.characters,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  labelText: tr(
+                    widget.idCard ? 'Card number' : 'Passport number',
+                  ),
+                  helperText: tr(
+                    widget.idCard
+                        ? 'The card\'s own number, as on its <<< lines (not the national number).'
+                        : 'As printed on the photo page.',
+                  ),
+                  helperMaxLines: 3,
+                ),
+              ),
+              const SizedBox(height: 10),
+              _date('Date of birth', _birth, true),
+              const SizedBox(height: 10),
+              _date('Expiry date', _expiry, false),
+            ],
+            const SizedBox(height: 8),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: () => setState(() => _useCan = !_useCan),
+                child: Text(
+                  tr(
+                    _useCan
+                        ? 'Use the number and dates instead'
+                        : 'Use a card access number instead',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop<_ChipKey>(context, (
+            photo: true,
+            can: '',
+            number: '',
+            birth: null,
+            expiry: null,
+          )),
+          child: Text(tr('Use a photo')),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(tr('Cancel')),
+        ),
+        TextButton(
+          onPressed: _ok
+              ? () => Navigator.pop<_ChipKey>(context, (
+                  photo: false,
+                  can: _useCan ? _can.text.trim() : '',
+                  number: _number.text.trim().replaceAll(' ', '').toUpperCase(),
+                  birth: _birth,
+                  expiry: _expiry,
+                ))
+              : null,
+          child: Text(tr('Start')),
+        ),
+      ],
+    );
+  }
+}
+
 // ---- thumbnails and the viewer ---------------------------------------------------
 class FileThumb extends StatelessWidget {
   final Vault vault;
@@ -804,34 +965,18 @@ class _DocumentEditorState extends State<DocumentEditor> {
         '${t.day}'.padLeft(2, '0');
     var can = '';
     if (!ready() || _denied) {
-      // The chip opens only with the number and dates, read from the <<< lines.
-      final how = await showDialog<String>(
+      final idCard = const ['id_card', 'residence'].contains(widget.type());
+      final got = await showDialog<_ChipKey>(
         context: context,
-        builder: (c) => AlertDialog(
-          title: Text(tr('Scan with NFC')),
-          content: Text(
-            tr(
-              "The chip opens only with the document's number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport's photo page, or the back of the ID card.",
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(c),
-              child: Text(tr('Cancel')),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, 'can'),
-              child: Text(tr('Card access number')),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(c, 'scan'),
-              child: Text(tr('Take the photo')),
-            ),
-          ],
+        builder: (_) => _ChipKeyDialog(
+          idCard: idCard,
+          number: docNo(),
+          birth: birth(),
+          expiry: expiry(),
         ),
       );
-      if (how == null || !mounted) return;
-      if (how == 'scan') {
+      if (got == null || !mounted) return;
+      if (got.photo) {
         await _add('scan');
         if (!ready() && d.files.isNotEmpty) await _read();
         if (!mounted) return;
@@ -844,38 +989,13 @@ class _DocumentEditorState extends State<DocumentEditor> {
           });
           return;
         }
+      } else if (got.can.isNotEmpty) {
+        can = got.can;
       } else {
-        final box = TextEditingController();
-        final ok = await showDialog<bool>(
-          context: context,
-          builder: (c) => AlertDialog(
-            title: Text(tr('Card access number')),
-            content: TextField(
-              controller: box,
-              autofocus: true,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              decoration: InputDecoration(
-                helperText: tr(
-                  'The 6 digits printed on the front of some ID cards.',
-                ),
-                helperMaxLines: 3,
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(c),
-                child: Text(tr('Cancel')),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(c, true),
-                child: Text(tr('Start')),
-              ),
-            ],
-          ),
-        );
-        can = box.text.trim();
-        if (ok != true || can.isEmpty || !mounted) return;
+        // Kept in the entry, so next time it's just a tap.
+        widget.put(idCard ? 'card_number' : 'number', got.number);
+        widget.put('birth_date', isoDay(got.birth!));
+        widget.put('expires', isoDay(got.expiry!));
       }
     }
     final b = birth(), x = expiry();

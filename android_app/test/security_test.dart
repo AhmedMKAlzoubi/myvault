@@ -27,6 +27,25 @@ void main() {
     expect((s.issuer, s.account), ('Example', 'alice@example.com'));
   });
 
+  test('an email address needs its full domain (same rule as the PC)', () {
+    for (final ok in ['me@gmail.com', 'a.b+c@mail.co.uk', '']) {
+      expect(emailProblem(Entry(email: ok)), isEmpty, reason: ok);
+    }
+    for (final bad in [
+      'zduhsu@gmail',
+      'a@b.c',
+      '@gmail.com',
+      'x y@gmail.com',
+      'me@gmail.',
+    ]) {
+      expect(emailProblem(Entry(email: bad)), contains(bad), reason: bad);
+    }
+    expect(
+      emailProblem(Entry(kind: 'document', fields: {'email': 'a@b'})),
+      isNotEmpty,
+    );
+  });
+
   test('old passwords are kept, newest first, at most 10', () {
     final e = Entry(password: 'first');
     for (final pw in ['second', 'second', 'third']) {

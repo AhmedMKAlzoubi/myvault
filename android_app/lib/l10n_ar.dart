@@ -599,19 +599,36 @@ const arabic = <String, String>{
   // ---- MyVault's own scanner and NFC ----
   'Crop the document': 'قصّ المستند',
   'Turn': 'تدوير',
-  'Drag the corners onto the document\'s corners. MyVault cuts it out and straightens it, which also helps it read the details.': 'اسحب الزوايا إلى زوايا المستند. يقصّه MyVault ويقوّمه، وهذا يساعده أيضًا على قراءة التفاصيل.',
+  'Drag the corners onto the document\'s corners. MyVault cuts it out and straightens it, which also helps it read the details.':
+      'اسحب الزوايا إلى زوايا المستند. يقصّه MyVault ويقوّمه، وهذا يساعده أيضًا على قراءة التفاصيل.',
   'Retake': 'إعادة الالتقاط',
   'Use this': 'استخدام هذه',
-  'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.': 'امسح وجهي البطاقة: التقط الصورة بالكاميرا (استخدم الفلاش إذا كان المكان معتمًا)، ثم اسحب الزوايا إلى زوايا البطاقة. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
-  'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.': 'الصورة ساطعة أو لامعة؟ أمِل البطاقة بعيدًا عن الضوء، أو أطفئ الفلاش.',
+  'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.':
+      'امسح وجهي البطاقة: التقط الصورة بالكاميرا (استخدم الفلاش إذا كان المكان معتمًا)، ثم اسحب الزوايا إلى زوايا البطاقة. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
+  'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.':
+      'الصورة ساطعة أو لامعة؟ أمِل البطاقة بعيدًا عن الضوء، أو أطفئ الفلاش.',
   'Scan with NFC': 'المسح عبر NFC',
-  'The chip opens only with the document\'s number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport\'s photo page, or the back of the ID card.': 'لا تُفتح الشريحة إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء. يقرؤها MyVault من أسطر <<<: التقط أولًا صورة لصفحة الصورة في جواز السفر، أو لظهر بطاقة الهوية.',
+  'The chip opens only with the document\'s number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport\'s photo page, or the back of the ID card.':
+      'لا تُفتح الشريحة إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء. يقرؤها MyVault من أسطر <<<: التقط أولًا صورة لصفحة الصورة في جواز السفر، أو لظهر بطاقة الهوية.',
   'Card access number': 'رقم الوصول إلى البطاقة',
   'Take the photo': 'التقاط الصورة',
-  'MyVault couldn\'t read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.': 'لم يتمكن MyVault من قراءة الرقم والتواريخ من الصورة. اكتبها بنفسك (أو التقط الصورة مجددًا مستقيمة وواضحة)، ثم اضغط «المسح عبر NFC».',
-  'The chip didn\'t open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.': 'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء مع المستند، ثم اضغط «المسح عبر NFC» مرة أخرى. بعض بطاقات الهوية لا تُفتح إلا برقم الوصول إلى البطاقة: يمكنك اختياره حينها.',
+  'MyVault couldn\'t read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.':
+      'لم يتمكن MyVault من قراءة الرقم والتواريخ من الصورة. اكتبها بنفسك (أو التقط الصورة مجددًا مستقيمة وواضحة)، ثم اضغط «المسح عبر NFC».',
+  'The chip didn\'t open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.':
+      'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء مع المستند، ثم اضغط «المسح عبر NFC» مرة أخرى. بعض بطاقات الهوية لا تُفتح إلا برقم الوصول إلى البطاقة: يمكنك اختياره حينها.',
   'That photo couldn\'t be used.': 'تعذّر استخدام هذه الصورة.',
-  'Allow the camera for MyVault to take a photo (Android settings › Apps › MyVault › Permissions).': 'اسمح لـ MyVault باستخدام الكاميرا لالتقاط صورة (إعدادات Android › التطبيقات › MyVault › الأذونات).',
+  'Allow the camera for MyVault to take a photo (Android settings › Apps › MyVault › Permissions).':
+      'اسمح لـ MyVault باستخدام الكاميرا لالتقاط صورة (إعدادات Android › التطبيقات › MyVault › الأذونات).',
+  // ---- chip key, email check ----
+  '“{0}” isn\'t a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.': '«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com.',
+  'Some ID cards print a 6-digit card access number (often marked CAN) on the front. If yours has one, it opens the chip on its own. Passports don\'t have one.': 'تطبع بعض بطاقات الهوية رقم وصول من 6 أرقام (يُكتب بجانبه غالبًا CAN) على وجهها. إن كان في بطاقتك، فهو يفتح الشريحة وحده. جوازات السفر ليس فيها هذا الرقم.',
+  'Chips open only with three details printed on the document, so nobody can read them from a distance. Type them once: MyVault keeps them in this entry, so next time it\'s just a tap.': 'لا تُفتح الشرائح إلا بثلاث معلومات مطبوعة على المستند، فلا يستطيع أحد قراءتها عن بُعد. اكتبها مرة واحدة: يحفظها MyVault في هذا العنصر، فتكفي في المرة القادمة لمسة واحدة.',
+  'Passport number': 'رقم جواز السفر',
+  'The card\'s own number, as on its <<< lines (not the national number).': 'رقم البطاقة نفسها كما في أسطر <<< (وليس الرقم الوطني).',
+  'As printed on the photo page.': 'كما هو مطبوع في صفحة الصورة.',
+  'Use the number and dates instead': 'استخدام الرقم والتواريخ بدلًا من ذلك',
+  'Use a card access number instead': 'استخدام رقم الوصول إلى البطاقة بدلًا من ذلك',
+  'Use a photo': 'استخدام صورة',
 };
 
 const arabicMonths = [

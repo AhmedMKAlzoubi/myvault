@@ -20,6 +20,7 @@ Android app can sync without ever changing the file format.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -96,6 +97,17 @@ class Entry:
 
 
 HISTORY_KEEP = 10
+
+# An email address with a name, an @ and a full domain (gmail.com, not gmail).
+EMAIL = re.compile(r"[^@\s]+@[^@\s.]+(\.[^@\s.]+)*\.[^@\s.]{2,}")
+
+
+def email_problem(e: "Entry") -> str:
+    """Why the entry's email address can't be right, or "" (same rule as the phone)."""
+    for value in (e.email, e.fields.get("email", "")):
+        if value and not EMAIL.fullmatch(value.strip()):
+            return f"“{value.strip()}” isn't a complete email address. It needs a name, @ and the full domain, such as name@gmail.com."
+    return ""
 
 
 def keep_old_password(e: Entry, old: str) -> None:

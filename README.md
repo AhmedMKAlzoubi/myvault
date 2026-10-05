@@ -197,10 +197,11 @@ each one expires.
   own flash), then MyVault finds the card's edges; drag the corners if needed,
   and it's cut out and straightened.
 - **Scan with NFC (phone):** e-passports and many ID cards have a chip with
-  the same details as the `<<<` lines. Tap **Scan with NFC**: if MyVault doesn't
-  have the number and dates yet, it first asks for a photo of the `<<<` lines;
-  then hold the phone against the document, and the details come straight from
-  the chip, exactly. The chip only opens with
+  the same details as the `<<<` lines. Tap **Scan with NFC** and hold the phone
+  against the document: the details come straight from the chip, exactly. The
+  chip opens only with the document's number, birth date and expiry date (so
+  nobody can read it from your pocket): type them the first time, or take a
+  photo of the `<<<` lines, and they're kept in the entry for next time. The chip only opens with
   those details, or with the 6-digit card access number some ID cards print on
   the front. Cards with only a gold contact chip (no NFC) can't be read this way.
 - **Reminders:** pick any mix of 1 day, 3 days, 1 week, 2 weeks, 1 month, 2, 3 or

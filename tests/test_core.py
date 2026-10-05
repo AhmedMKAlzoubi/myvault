@@ -647,6 +647,22 @@ def test_password_history_health_and_leaks():
         assert len(json.loads(api.entry(a)["fields"]["password_history"])) == 10
 
 
+def test_incomplete_email_refused_and_entry_left_as_it_was():
+    from myvault import app
+    with tempfile.TemporaryDirectory() as d:
+        api = app.Api()
+        api._vault = Vault.create(Path(d) / "v.dat", "pw-12345678")
+        i = api.save_entry({"kind": "login", "title": "Mail", "email": "me@gmail.com"})["id"]
+        r = api.save_entry({**api.entry(i), "title": "Changed", "email": "zduhsu@gmail"})
+        assert not r["ok"] and "zduhsu@gmail" in r["error"], r
+        assert (api.entry(i)["title"], api.entry(i)["email"]) == ("Mail", "me@gmail.com")   # untouched
+        assert not api.save_entry({**api.entry(i), "title": ""  , "email": ""})["ok"]        # no name
+        assert api.entry(i)["title"] == "Mail"
+        bad = {"kind": "document", "title": "Lease", "fields": {"doc_type": "rental", "email": "a@b"}}
+        assert not api.save_entry(bad)["ok"]
+        assert api.save_entry({**bad, "fields": {"doc_type": "rental", "email": "a.b+c@mail.co.uk"}})["ok"]
+
+
 def test_csv_import_from_other_password_managers():
     from myvault import importer
     chrome = "name,url,username,password,note\nGitHub,https://github.com/login,ahmed,Pw-1,\nShop,https://www.shop.com,a@b.c,Pw-2,gift card\n"

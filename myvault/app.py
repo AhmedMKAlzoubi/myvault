@@ -32,7 +32,7 @@ import webview
 
 from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
-from .vault import KINDS, Entry, Vault, keep_old_password
+from .vault import KINDS, Entry, Vault, email_problem, keep_old_password
 
 AUTO_LOCK_CHOICES = (1, 2, 5, 10, 15, 30, 60)   # minutes; Settings > Auto-lock
 CLIPBOARD_CLEAR_SECONDS = 30
@@ -203,10 +203,10 @@ class Api:
         if kind not in KINDS:
             return {"ok": False, "error": "Unknown entry type."}
         with self._lock:
-            e = v.get(str(data.get("id", ""))) if data.get("id") else None
-            is_new = e is None or e.deleted
-            if is_new:
-                e = Entry(kind=kind)
+            cur = v.get(str(data.get("id", ""))) if data.get("id") else None
+            is_new = cur is None or cur.deleted
+            # Work on a copy: a refused save must leave the entry as it was.
+            e = Entry(kind=kind) if is_new else Entry.from_dict(cur.to_dict())
             old_password = e.password
             e.kind = kind
             for key in TEXT_FIELDS:
@@ -220,6 +220,11 @@ class Api:
                 e.password_policy = PasswordPolicy.from_dict(data["password_policy"]).to_dict()
             if e.display_name() == "(untitled)":
                 return {"ok": False, "error": "Give it a name first."}
+            if email_problem(e):
+                return {"ok": False, "error": email_problem(e)}
+            if not is_new:
+                cur.__dict__.update(e.__dict__)
+                e = cur
             try:
                 v.add(e) if is_new else v.update(e)
             except OSError as exc:
