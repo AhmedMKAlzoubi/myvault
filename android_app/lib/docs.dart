@@ -478,19 +478,66 @@ Map<String, dynamic> readMrz(String text) {
       lines.add(l);
     }
   }
+  String fit(String l, int width) => l.padRight(width, '<').substring(0, width);
+  // a zone whose dates check out but not everything: if nothing better
+  Map<String, dynamic>? first;
   for (final (width, rows) in [(44, 2), (36, 2), (30, 3)]) {
-    final fit = [
+    final cands = [
       for (final l in lines)
-        if ((l.length - width).abs() <= 3)
-          l.padRight(width, '<').substring(0, width),
+        if ((l.length - width).abs() <= 3) l,
     ];
-    for (var i = 0; i + rows <= fit.length; i++) {
-      final block = fit.sublist(i, i + rows);
-      final got = rows == 3 ? _td1(block) : _td23(block);
-      if ('${got['expires'] ?? ''}'.isNotEmpty) return {...got, 'how': 'mrz'};
+    for (var i = 0; i + rows <= cands.length; i++) {
+      final raw = cands.sublist(i, i + rows);
+      final plain = [for (final x in raw) fit(x, width)];
+      // The reader sometimes adds or drops one character, which shifts the
+      // rest of the line: the version that passes the last check digit wins.
+      final tries = [
+        plain,
+        for (var r = 0; r < rows; r++)
+          for (final v in _variants(raw[r], width))
+            [...plain.sublist(0, r), fit(v, width), ...plain.sublist(r + 1)],
+      ];
+      for (final block in tries) {
+        final got = rows == 3 ? _td1(block) : _td23(block);
+        if ('${got['expires'] ?? ''}'.isEmpty) continue;
+        // (a TD1 zone's third line is the name: letters only)
+        if (_composite(block, width) &&
+            (rows == 2 || RegExp(r'^[A-Z<]+$').hasMatch(block[2]))) {
+          return {...got, 'how': 'mrz'};
+        }
+        first ??= got;
+      }
     }
   }
-  return {};
+  return first == null ? {} : {...first, 'how': 'mrz'};
+}
+
+/// The zone's last check digit, over all its other checked fields.
+bool _composite(List<String> b, int width) {
+  final l1 = b[0], l2 = b[1];
+  final s = width == 30
+      ? l1.substring(5, 30) +
+            l2.substring(0, 7) +
+            l2.substring(8, 15) +
+            l2.substring(18, 29)
+      : l2.substring(0, 10) +
+            l2.substring(13, 20) +
+            l2.substring(21, width - 1);
+  final d = int.tryParse(_fixDigits(l2[width - 1]));
+  return d != null && _check(s) == d;
+}
+
+/// A line read with one character too many (or too few): each way to fix it.
+Iterable<String> _variants(String line, int width) sync* {
+  if (line.length > width) {
+    for (var j = 0; j < line.length; j++) {
+      yield line.substring(0, j) + line.substring(j + 1);
+    }
+  } else if (line.length < width) {
+    for (var j = 0; j <= line.length; j++) {
+      yield '${line.substring(0, j)}<${line.substring(j)}';
+    }
+  }
 }
 
 // The same rules as myvault/docs.py: keep the two in step (the shared cases in
@@ -609,6 +656,13 @@ String _clean(String key, String v) {
         !_titleRx.hasMatch(v) &&
         !_otherLabel.hasMatch(v);
     return ok && (key != 'holder' || v.split(' ').length >= 2) ? v : '';
+  }
+  if (key == 'address' && RegExp('[\u0621-\u064A]').hasMatch(v)) {
+    // Latin words in an Arabic address are misreadings
+    v = v
+        .split(RegExp(r'\s+'))
+        .where((w) => !RegExp(r'^[A-Za-z]+[.,،]?$').hasMatch(w))
+        .join(' ');
   }
   if (key == 'address' &&
       (_titleRx.hasMatch(v) ||

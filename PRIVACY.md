@@ -24,6 +24,12 @@ MyVault is a password manager that runs only on your own devices. It is made by 
 | Fingerprint unlock (Android, if you turn it on) | The app's private storage | Your master password, encrypted by a key in the Android Keystore that only opens after your fingerprint or face. Fingerprints and face data stay with Android; MyVault never sees them |
 | Paper backup PDF | Wherever you save or print it | Your master password (scrypt, stronger settings). It includes document details, not the photos or PDFs |
 
+## Google and other companies
+
+MyVault contains no advertising, analytics, crash-reporting or tracking code, and since 0.7.0 no Google components at all: the phone app reads text with Tesseract and QR codes with zxing-cpp (both open source, on the phone), and has its own document scanner. (Version 0.6.0 used Google's ML Kit text reader and document scanner, which send Google usage statistics such as device and app information and performance data, though never the images or text.)
+
+If you install MyVault from Google Play, Google Play itself knows that you installed it, as for any app, and Android may send Google crash reports if you allowed that in Android's own settings. MyVault doesn't add to either.
+
 ## When MyVault uses the network
 
 MyVault makes only these connections:
@@ -35,17 +41,17 @@ MyVault makes only these connections:
 
 ## Permissions (Android)
 
-- **Camera:** used to scan the sync QR code and, when you choose "Take a photo", to photograph a document. The photo goes straight into MyVault's encrypted storage; the camera app's temporary copy is deleted at once.
+- **Camera:** used to scan QR codes (sync, paper backup, 2FA setup) and, when you choose "Scan document", to photograph a document with your camera app. The photo goes straight into MyVault's encrypted storage; the camera app's temporary copy is deleted at once.
 - **Notifications:** used only for document reminders you set. Each says only the document type (or the name you chose) and the time left, e.g. "Passport expires in 1 month". On a locked screen Android hides even that.
 - **Run at startup:** so document reminders keep working after the phone restarts. Nothing else runs.
-- **NFC (optional):** used only while you choose "Read the chip" and hold a passport or ID card to the phone. The chip opens only with the document's number, birth date and expiry (or its card access number), and the details are read into the entry on your phone. Nothing is sent anywhere.
+- **NFC (optional):** used only while you choose "Scan with NFC" and hold a passport or ID card to the phone. The chip opens only with the document's number, birth date and expiry (or its card access number), and the details are read into the entry on your phone. Nothing is sent anywhere.
 - **Fingerprint or face (optional):** used only if you turn on fingerprint unlock. Android checks the fingerprint and tells MyVault only whether it matched.
 - **Install other apps:** used only when you choose to install a MyVault update (not in the Google Play build). Before installing, MyVault checks the file is signed by the same key as the app you already have.
 - **Autofill service (optional, you switch it on):** lets MyVault offer to fill and save logins in other apps. MyVault reads a login screen only when Android asks it to fill or save, keeps only the app name or website and the username and password, and fills only after you unlock and pick an account.
 
 ## Reading documents
 
-When you ask MyVault to read a document's details, the text is read **on your device**: on Windows by its built-in text reader, on Android by Google's on-device text recognizer, which is built into the MyVault app. No image or text is sent anywhere. The details are only suggestions; you check them before saving.
+When you ask MyVault to read a document's details, the text is read **on your device**: on Windows by its built-in text reader, on Android by Tesseract, an open-source reader built into the MyVault app. No image or text is sent anywhere. The details are only suggestions; you check them before saving.
 
 ## Clipboard and screen
 

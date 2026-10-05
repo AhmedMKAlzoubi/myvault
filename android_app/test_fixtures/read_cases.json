@@ -230,6 +230,26 @@
     "number": "9901234567",
     "card_number": "AB1234567"
    }
+  },
+  {
+   "name": "Tesseract's real output from a photo of an ID card's back: one character too many (IJOR) is repaired by the last check digit",
+   "text": [
+    "مكان الولادة: إربد\n\nالعنوان: glee شارع الملك حسين\nIDJORAB123456719901234567<<<<<\n9006050M3103120IJOR<<<<<<<<<<<6\n>>>>>>>>>>>>>>>510 11م > MOHAMMED<\n239NJIYS\n\nGELLJ\nIDJORAB123456719901234567<<<<<\n9006050M3103120IJOR<<<<<<<<<<<6\nMOHAMMED<<AHMED<<<<<<<<<<<<<<\n"
+   ],
+   "want": {
+    "how": "mrz",
+    "doc_type": "id_card",
+    "country": "JOR",
+    "holder": "Ahmed Mohammed",
+    "number": "9901234567",
+    "card_number": "AB1234567",
+    "nationality": "JOR",
+    "birth_date": "1990-06-05",
+    "gender": "M",
+    "expires": "2031-03-12",
+    "birth_place": "إربد",
+    "address": "شارع الملك حسين"
+   }
   }
  ]
 }

@@ -513,59 +513,105 @@ const arabic = <String, String>{
   'Copy 2FA code': 'نسخ رمز التحقق بخطوتين',
   'Previous passwords ({0})': 'كلمات المرور السابقة ({0})',
   'Until {0}': 'حتى {0}',
-  'Only time-based codes (TOTP) are supported.': 'الرموز المعتمدة على الوقت (TOTP) فقط مدعومة.',
+  'Only time-based codes (TOTP) are supported.':
+      'الرموز المعتمدة على الوقت (TOTP) فقط مدعومة.',
   'That 2FA link isn\'t valid.': 'رابط التحقق بخطوتين هذا غير صالح.',
-  'That isn\'t a 2FA secret. Paste the setup key or the otpauth:// link.': 'هذا ليس مفتاح تحقق بخطوتين. الصق مفتاح الإعداد أو رابط otpauth://.',
-  'Once you save, the old one moves to Previous passwords. Change it on the website or app as well, or you can\'t sign in.': 'بعد الحفظ تنتقل كلمة المرور القديمة إلى «كلمات المرور السابقة». غيّرها في الموقع أو التطبيق أيضًا، وإلا فلن تتمكن من تسجيل الدخول.',
+  'That isn\'t a 2FA secret. Paste the setup key or the otpauth:// link.':
+      'هذا ليس مفتاح تحقق بخطوتين. الصق مفتاح الإعداد أو رابط otpauth://.',
+  'Once you save, the old one moves to Previous passwords. Change it on the website or app as well, or you can\'t sign in.':
+      'بعد الحفظ تنتقل كلمة المرور القديمة إلى «كلمات المرور السابقة». غيّرها في الموقع أو التطبيق أيضًا، وإلا فلن تتمكن من تسجيل الدخول.',
   'Password health': 'صحة كلمات المرور',
   'No logins with a password yet.': 'لا توجد تسجيلات دخول بكلمة مرور بعد.',
-  'All {0} passwords look good: none is weak or reused.': 'كلمات المرور كلها ({0}) جيدة: لا توجد كلمة ضعيفة أو مكررة.',
-  '{0} logins checked: {1} weak, {2} reused.': 'فُحص {0} من تسجيلات الدخول: {1} ضعيفة، {2} مكررة.',
+  'All {0} passwords look good: none is weak or reused.':
+      'كلمات المرور كلها ({0}) جيدة: لا توجد كلمة ضعيفة أو مكررة.',
+  '{0} logins checked: {1} weak, {2} reused.':
+      'فُحص {0} من تسجيلات الدخول: {1} ضعيفة، {2} مكررة.',
   'Weak passwords': 'كلمات مرور ضعيفة',
-  'Short or simple, so they\'re easy to guess. Change each on its site, then here: Edit › Change password › Generate one.': 'قصيرة أو بسيطة، فيسهل تخمينها. غيّر كل واحدة في موقعها ثم هنا: تعديل › تغيير كلمة المرور › إنشاء واحدة.',
+  'Short or simple, so they\'re easy to guess. Change each on its site, then here: Edit › Change password › Generate one.':
+      'قصيرة أو بسيطة، فيسهل تخمينها. غيّر كل واحدة في موقعها ثم هنا: تعديل › تغيير كلمة المرور › إنشاء واحدة.',
   'Reused passwords': 'كلمات مرور مكررة',
-  'If one of these sites leaks its passwords, the same password opens the others. Give each site its own.': 'إذا سُرّبت كلمات المرور من أحد هذه المواقع، فستفتح كلمة المرور نفسها المواقع الأخرى. اجعل لكل موقع كلمة مرور خاصة به.',
+  'If one of these sites leaks its passwords, the same password opens the others. Give each site its own.':
+      'إذا سُرّبت كلمات المرور من أحد هذه المواقع، فستفتح كلمة المرور نفسها المواقع الأخرى. اجعل لكل موقع كلمة مرور خاصة به.',
   'Same password, group {0}': 'كلمة المرور نفسها، المجموعة {0}',
   'Leaked passwords': 'كلمات مرور مسرّبة',
-  'Check whether any of your passwords appears in known data leaks, using Have I Been Pwned (haveibeenpwned.com).': 'تحقّق مما إذا كانت أي من كلمات مرورك موجودة في تسريبات بيانات معروفة، باستخدام خدمة Have I Been Pwned ‏(haveibeenpwned.com).',
+  'Check whether any of your passwords appears in known data leaks, using Have I Been Pwned (haveibeenpwned.com).':
+      'تحقّق مما إذا كانت أي من كلمات مرورك موجودة في تسريبات بيانات معروفة، باستخدام خدمة Have I Been Pwned ‏(haveibeenpwned.com).',
   'Check for leaked passwords': 'البحث عن كلمات مرور مسرّبة',
-  'Found in known leaks: {0} of {1} passwords. Change these first, on the site and then here.': 'موجودة في تسريبات معروفة: {0} من {1} كلمة مرور. غيّر هذه أولًا، في الموقع ثم هنا.',
-  'Checked {0} passwords: none of them is in a known leak.': 'فُحصت {0} كلمة مرور: لا توجد أي منها في تسريب معروف.',
+  'Found in known leaks: {0} of {1} passwords. Change these first, on the site and then here.':
+      'موجودة في تسريبات معروفة: {0} من {1} كلمة مرور. غيّر هذه أولًا، في الموقع ثم هنا.',
+  'Checked {0} passwords: none of them is in a known leak.':
+      'فُحصت {0} كلمة مرور: لا توجد أي منها في تسريب معروف.',
   'Seen in leaks {0} times': 'ظهرت في التسريبات {0} مرة',
-  'Couldn\'t reach the leak check service. Check your internet connection.': 'تعذّر الوصول إلى خدمة فحص التسريبات. تحقّق من اتصالك بالإنترنت.',
-  'Photos or PDFs that belong with this entry. They\'re encrypted the moment you add them.': 'صور أو ملفات PDF تخص هذا العنصر. تُشفَّر لحظة إضافتها.',
-  'Only the first 5 characters of a scrambled copy (SHA-1 hash) of each password are sent, never the password itself, and the match is made on this phone. Nothing is checked until you choose to.': 'تُرسل أول 5 أحرف فقط من نسخة مُبعثرة (بصمة SHA-1) لكل كلمة مرور، وليس كلمة المرور نفسها أبدًا، وتتم المطابقة على هذا الهاتف. لا يُفحص شيء حتى تختار ذلك.',
+  'Couldn\'t reach the leak check service. Check your internet connection.':
+      'تعذّر الوصول إلى خدمة فحص التسريبات. تحقّق من اتصالك بالإنترنت.',
+  'Photos or PDFs that belong with this entry. They\'re encrypted the moment you add them.':
+      'صور أو ملفات PDF تخص هذا العنصر. تُشفَّر لحظة إضافتها.',
+  'Only the first 5 characters of a scrambled copy (SHA-1 hash) of each password are sent, never the password itself, and the match is made on this phone. Nothing is checked until you choose to.':
+      'تُرسل أول 5 أحرف فقط من نسخة مُبعثرة (بصمة SHA-1) لكل كلمة مرور، وليس كلمة المرور نفسها أبدًا، وتتم المطابقة على هذا الهاتف. لا يُفحص شيء حتى تختار ذلك.',
   'Scan the QR code': 'مسح رمز QR',
-  'Point the camera at the QR code the site shows when you turn on two-factor sign-in.': 'وجّه الكاميرا إلى رمز QR الذي يعرضه الموقع عند تفعيل تسجيل الدخول بخطوتين.',
-  'That QR code isn\'t a 2FA setup code.': 'رمز QR هذا ليس رمز إعداد للتحقق بخطوتين.',
-  '2FA secret added. Save to keep it.': 'أُضيف مفتاح التحقق بخطوتين. احفظ للاحتفاظ به.',
+  'Point the camera at the QR code the site shows when you turn on two-factor sign-in.':
+      'وجّه الكاميرا إلى رمز QR الذي يعرضه الموقع عند تفعيل تسجيل الدخول بخطوتين.',
+  'That QR code isn\'t a 2FA setup code.':
+      'رمز QR هذا ليس رمز إعداد للتحقق بخطوتين.',
+  '2FA secret added. Save to keep it.':
+      'أُضيف مفتاح التحقق بخطوتين. احفظ للاحتفاظ به.',
   'Use the password': 'استخدام كلمة المرور',
   'Turn on fingerprint unlock': 'تفعيل الفتح بالبصمة',
   'Unlock MyVault': 'فتح MyVault',
-  'This phone\'s fingerprints changed, so enter your master password once. Then turn fingerprint unlock on again in the menu › Auto-lock.': 'تغيّرت بصمات هذا الهاتف، فأدخل كلمة مرورك الرئيسية مرة واحدة. ثم فعّل الفتح بالبصمة من جديد من القائمة › القفل التلقائي.',
+  'This phone\'s fingerprints changed, so enter your master password once. Then turn fingerprint unlock on again in the menu › Auto-lock.':
+      'تغيّرت بصمات هذا الهاتف، فأدخل كلمة مرورك الرئيسية مرة واحدة. ثم فعّل الفتح بالبصمة من جديد من القائمة › القفل التلقائي.',
   'Unlock with your fingerprint?': 'الفتح ببصمتك؟',
-  'Next time, open MyVault with your fingerprint or face instead of typing the master password. Your password stays encrypted on this phone, and you can turn this off in the menu › Auto-lock.': 'في المرة القادمة، افتح MyVault ببصمتك أو وجهك بدلًا من كتابة كلمة المرور الرئيسية. تبقى كلمة مرورك مشفّرة على هذا الهاتف، ويمكنك إيقاف ذلك من القائمة › القفل التلقائي.',
+  'Next time, open MyVault with your fingerprint or face instead of typing the master password. Your password stays encrypted on this phone, and you can turn this off in the menu › Auto-lock.':
+      'في المرة القادمة، افتح MyVault ببصمتك أو وجهك بدلًا من كتابة كلمة المرور الرئيسية. تبقى كلمة مرورك مشفّرة على هذا الهاتف، ويمكنك إيقاف ذلك من القائمة › القفل التلقائي.',
   'Not now': 'ليس الآن',
   'Use fingerprint': 'استخدام البصمة',
   'Unlock with fingerprint or face': 'الفتح بالبصمة أو الوجه',
-  'Your master password is kept encrypted on this phone by a key that only your fingerprint or face opens. If fingerprints are added or removed, you\'ll type the password once more.': 'تُحفظ كلمة مرورك الرئيسية مشفّرة على هذا الهاتف بمفتاح لا تفتحه إلا بصمتك أو وجهك. إذا أُضيفت بصمات أو أُزيلت، فستكتب كلمة المرور مرة أخرى.',
+  'Your master password is kept encrypted on this phone by a key that only your fingerprint or face opens. If fingerprints are added or removed, you\'ll type the password once more.':
+      'تُحفظ كلمة مرورك الرئيسية مشفّرة على هذا الهاتف بمفتاح لا تفتحه إلا بصمتك أو وجهك. إذا أُضيفت بصمات أو أُزيلت، فستكتب كلمة المرور مرة أخرى.',
   'Turn on NFC': 'تشغيل NFC',
-  'NFC is off. Turn it on in Android\'s settings, then come back.': 'NFC متوقف. شغّله من إعدادات Android ثم عُد.',
+  'NFC is off. Turn it on in Android\'s settings, then come back.':
+      'NFC متوقف. شغّله من إعدادات Android ثم عُد.',
   'Open settings': 'فتح الإعدادات',
   'Read the chip': 'قراءة الشريحة',
-  'Passports and many ID cards have a chip with the same details as the <<< lines, exact. It opens only with the document\'s number, date of birth and expiry date, so scan the document or type those first.': 'في جوازات السفر وكثير من بطاقات الهوية شريحة فيها التفاصيل نفسها الموجودة في أسطر <<<، بدقة تامة. لا تُفتح إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء، فامسح المستند أو اكتبها أولًا.',
+  'Passports and many ID cards have a chip with the same details as the <<< lines, exact. It opens only with the document\'s number, date of birth and expiry date, so scan the document or type those first.':
+      'في جوازات السفر وكثير من بطاقات الهوية شريحة فيها التفاصيل نفسها الموجودة في أسطر <<<، بدقة تامة. لا تُفتح إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء، فامسح المستند أو اكتبها أولًا.',
   'Card access number (optional)': 'رقم الوصول إلى البطاقة (اختياري)',
-  'The 6 digits printed on the front of some ID cards.': 'الأرقام الستة المطبوعة على وجه بعض بطاقات الهوية.',
+  'The 6 digits printed on the front of some ID cards.':
+      'الأرقام الستة المطبوعة على وجه بعض بطاقات الهوية.',
   'Start': 'ابدأ',
-  'First scan the document, or type its number, date of birth and expiry date: the chip only opens with them.': 'امسح المستند أولًا، أو اكتب رقمه وتاريخ الميلاد وتاريخ الانتهاء: لا تُفتح الشريحة إلا بها.',
-  'Hold the phone flat against the document now and keep it still. Passport: the photo page or the cover. ID card: the middle of the card.': 'ضع الهاتف الآن مسطّحًا على المستند وأبقِه ثابتًا. جواز السفر: صفحة الصورة أو الغلاف. بطاقة الهوية: منتصف البطاقة.',
-  'Read from the chip: {0}. These come straight from the document\'s chip, so they\'re exact.': 'قُرئت من الشريحة: {0}. هذه مأخوذة مباشرة من شريحة المستند، فهي دقيقة.',
-  'The chip didn\'t open. Check the document number, date of birth and expiry date (or the card access number) against the document, then try again.': 'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء (أو رقم الوصول إلى البطاقة) مع المستند، ثم حاول مرة أخرى.',
-  'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.': 'فقد الهاتف الاتصال بالشريحة. أبقِه ثابتًا على المستند وحاول مرة أخرى. في جواز السفر، جرّب الغلاف وصفحة الصورة.',
-  'This chip doesn\'t take a card access number. Leave that box empty to use the number and dates.': 'هذه الشريحة لا تقبل رقم الوصول إلى البطاقة. اترك تلك الخانة فارغة لاستخدام الرقم والتواريخ.',
-  'That isn\'t a passport or ID card chip.': 'هذه ليست شريحة جواز سفر أو بطاقة هوية.',
-  'Couldn\'t read the chip. Try again, holding the phone still.': 'تعذّرت قراءة الشريحة. حاول مرة أخرى مع إبقاء الهاتف ثابتًا.',
+  'First scan the document, or type its number, date of birth and expiry date: the chip only opens with them.':
+      'امسح المستند أولًا، أو اكتب رقمه وتاريخ الميلاد وتاريخ الانتهاء: لا تُفتح الشريحة إلا بها.',
+  'Hold the phone flat against the document now and keep it still. Passport: the photo page or the cover. ID card: the middle of the card.':
+      'ضع الهاتف الآن مسطّحًا على المستند وأبقِه ثابتًا. جواز السفر: صفحة الصورة أو الغلاف. بطاقة الهوية: منتصف البطاقة.',
+  'Read from the chip: {0}. These come straight from the document\'s chip, so they\'re exact.':
+      'قُرئت من الشريحة: {0}. هذه مأخوذة مباشرة من شريحة المستند، فهي دقيقة.',
+  'The chip didn\'t open. Check the document number, date of birth and expiry date (or the card access number) against the document, then try again.':
+      'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء (أو رقم الوصول إلى البطاقة) مع المستند، ثم حاول مرة أخرى.',
+  'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.':
+      'فقد الهاتف الاتصال بالشريحة. أبقِه ثابتًا على المستند وحاول مرة أخرى. في جواز السفر، جرّب الغلاف وصفحة الصورة.',
+  'This chip doesn\'t take a card access number. Leave that box empty to use the number and dates.':
+      'هذه الشريحة لا تقبل رقم الوصول إلى البطاقة. اترك تلك الخانة فارغة لاستخدام الرقم والتواريخ.',
+  'That isn\'t a passport or ID card chip.':
+      'هذه ليست شريحة جواز سفر أو بطاقة هوية.',
+  'Couldn\'t read the chip. Try again, holding the phone still.':
+      'تعذّرت قراءة الشريحة. حاول مرة أخرى مع إبقاء الهاتف ثابتًا.',
   'Stop reading': 'إيقاف القراءة',
+  // ---- MyVault's own scanner and NFC ----
+  'Crop the document': 'قصّ المستند',
+  'Turn': 'تدوير',
+  'Drag the corners onto the document\'s corners. MyVault cuts it out and straightens it, which also helps it read the details.': 'اسحب الزوايا إلى زوايا المستند. يقصّه MyVault ويقوّمه، وهذا يساعده أيضًا على قراءة التفاصيل.',
+  'Retake': 'إعادة الالتقاط',
+  'Use this': 'استخدام هذه',
+  'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.': 'امسح وجهي البطاقة: التقط الصورة بالكاميرا (استخدم الفلاش إذا كان المكان معتمًا)، ثم اسحب الزوايا إلى زوايا البطاقة. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
+  'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.': 'الصورة ساطعة أو لامعة؟ أمِل البطاقة بعيدًا عن الضوء، أو أطفئ الفلاش.',
+  'Scan with NFC': 'المسح عبر NFC',
+  'The chip opens only with the document\'s number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport\'s photo page, or the back of the ID card.': 'لا تُفتح الشريحة إلا برقم المستند وتاريخ الميلاد وتاريخ الانتهاء. يقرؤها MyVault من أسطر <<<: التقط أولًا صورة لصفحة الصورة في جواز السفر، أو لظهر بطاقة الهوية.',
+  'Card access number': 'رقم الوصول إلى البطاقة',
+  'Take the photo': 'التقاط الصورة',
+  'MyVault couldn\'t read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.': 'لم يتمكن MyVault من قراءة الرقم والتواريخ من الصورة. اكتبها بنفسك (أو التقط الصورة مجددًا مستقيمة وواضحة)، ثم اضغط «المسح عبر NFC».',
+  'The chip didn\'t open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.': 'لم تُفتح الشريحة. طابق رقم المستند وتاريخ الميلاد وتاريخ الانتهاء مع المستند، ثم اضغط «المسح عبر NFC» مرة أخرى. بعض بطاقات الهوية لا تُفتح إلا برقم الوصول إلى البطاقة: يمكنك اختياره حينها.',
+  'That photo couldn\'t be used.': 'تعذّر استخدام هذه الصورة.',
+  'Allow the camera for MyVault to take a photo (Android settings › Apps › MyVault › Permissions).': 'اسمح لـ MyVault باستخدام الكاميرا لالتقاط صورة (إعدادات Android › التطبيقات › MyVault › الأذونات).',
 };
 
 const arabicMonths = [

@@ -5,7 +5,7 @@ import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
@@ -1625,7 +1625,9 @@ class _EntryEditPageState extends State<EntryEditPage> {
       f.write(_e, _c[f.key]!.text);
     }
     keepOldPassword(_e, oldPassword);
-    if (_e.kind != 'document') docs.setFileRefs(_e, _doc.files); // FilesEditor's
+    if (_e.kind != 'document') {
+      docs.setFileRefs(_e, _doc.files); // FilesEditor's
+    }
     if (_e.kind == 'document') {
       _doc.writeTo(_e);
       // The first reminder: Android needs the person's OK to show notifications.
@@ -2331,14 +2333,21 @@ class ScannerView extends StatefulWidget {
 }
 
 class _ScannerViewState extends State<ScannerView> {
-  final _ctrl = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
   bool _done = false;
   String _status = tr('Looking for a code…');
+  String _error = ''; // the camera couldn't start
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
+  // QR codes are read on the phone by zxing-cpp (flutter_zxing): no Google services.
+  void _seen(Code c) {
+    final raw = c.text;
+    if (_done || !c.isValid || raw == null) return;
+    if (widget.recognizes != null && !widget.recognizes!(raw)) {
+      if (_status != widget.wrongCode) {
+        setState(() => _status = widget.wrongCode);
+      }
+      return;
+    }
+    if (widget.onCode(raw)) _done = true;
   }
 
   @override
@@ -2347,50 +2356,40 @@ class _ScannerViewState extends State<ScannerView> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        MobileScanner(
-          controller: _ctrl,
-          onDetect: (cap) {
-            if (_done) return;
-            for (final b in cap.barcodes) {
-              final raw = b.rawValue;
-              if (raw == null) continue;
-              if (widget.recognizes != null && !widget.recognizes!(raw)) {
-                if (_status != widget.wrongCode) {
-                  setState(() => _status = widget.wrongCode);
-                }
-                continue;
+        if (_error.isEmpty)
+          ReaderWidget(
+            onScan: _seen,
+            codeFormat: Format.qrCode,
+            tryHarder: true, // the paper backup's dense codes
+            cropPercent: .8,
+            showGallery: false,
+            showToggleCamera: false,
+            actionButtonsAlignment: AlignmentDirectional.topEnd,
+            scanDelay: const Duration(milliseconds: 300),
+            scanDelaySuccess: const Duration(milliseconds: 300),
+            onControllerCreated: (_, err) {
+              if (err != null && mounted) {
+                setState(
+                  () => _error = err.toString().contains('ermission')
+                      ? 'permission'
+                      : 'error',
+                );
               }
-              if (widget.onCode(raw)) {
-                _done = true;
-                _ctrl.stop();
-                break;
-              }
-            }
-          },
-          errorBuilder: (_, err) => Center(
+            },
+          )
+        else
+          Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
                 tr(
-                  "MyVault can't use the camera (${err.errorCode.name}). Allow camera access for MyVault in "
+                  "MyVault can't use the camera ($_error). Allow camera access for MyVault in "
                   'Android settings › Apps › MyVault › Permissions, then try again.',
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white),
               ),
             ),
           ),
-        ),
-        Center(
-          child: Container(
-            width: 250,
-            height: 250,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 2),
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        ),
         Positioned(
           left: 16,
           right: 16,

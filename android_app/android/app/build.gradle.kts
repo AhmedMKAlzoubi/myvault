@@ -80,12 +80,10 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")   // FileProvider, for installing updates
-    // Reading document text on the phone: Google ML Kit with the model bundled
-    // in the app, so it works offline and nothing is downloaded or sent.
-    implementation("com.google.mlkit:text-recognition:16.0.1")
-    // Scanning documents (edges found live, corners adjustable, several pages):
-    // Google Play services, on the phone.
-    implementation("com.google.android.gms:play-services-mlkit-document-scanner:16.0.0")
+    // Reading document text on the phone: Tesseract (open source, Apache 2.0), with
+    // its English and Arabic models in assets/tessdata. Offline, and no Google
+    // services: nothing about you or the app is sent anywhere.
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.8.0")
     // Unlock with a fingerprint or face (Android's Keystore + BiometricPrompt).
     implementation("androidx.biometric:biometric:1.1.0")
     // Reading e-passport / e-ID chips over NFC (ICAO 9303): JMRTD, with the

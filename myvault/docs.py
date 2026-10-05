@@ -269,17 +269,50 @@ def _kind(code: str) -> str:
     return {"P": "passport", "V": "visa"}.get(c, "id_card" if c in "IAC" else "other")
 
 
+def _composite(block: list[str], width: int) -> bool:
+    """The zone's last check digit, over all its other checked fields."""
+    l1, l2 = block[0], block[1]
+    if width == 30:
+        s, d = l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29], l2[29]
+    else:
+        s, d = l2[0:10] + l2[13:20] + l2[21:width - 1], l2[width - 1]
+    d = d.translate(_FIX_DIGIT)
+    return d.isdigit() and _check(s) == int(d)
+
+
+def _variants(line: str, width: int):
+    """A line read with one character too many (or too few): each way to fix it."""
+    if len(line) > width:
+        for j in range(len(line)):
+            yield line[:j] + line[j + 1:]
+    elif len(line) < width:
+        for j in range(len(line) + 1):
+            yield line[:j] + "<" + line[j:]
+
+
 def read_mrz(text: str) -> dict:
     lines = _mrz_lines(text)
+    fit = lambda ln, width: ln.ljust(width, "<")[:width]
+    first = None           # a zone whose dates check out but not everything: if nothing better
     for width, rows in ((44, 2), (36, 2), (30, 3)):
-        fit = [ln.ljust(width, "<")[:width] for ln in lines if abs(len(ln) - width) <= 3]
-        for i in range(len(fit) - rows + 1):
-            block = fit[i:i + rows]
-            got = (_td1 if rows == 3 else _td23)(block)
-            if got.get("expires"):
-                got["how"] = "mrz"
-                return got
-    return {}
+        cands = [ln for ln in lines if abs(len(ln) - width) <= 3]
+        parse = _td1 if rows == 3 else _td23
+        for i in range(len(cands) - rows + 1):
+            raw = cands[i:i + rows]
+            plain = [fit(x, width) for x in raw]
+            # The reader sometimes adds or drops one character, which shifts the
+            # rest of the line: the version that passes the last check digit wins.
+            tries = [plain] + [plain[:r] + [fit(v, width)] + plain[r + 1:]
+                               for r in range(rows) for v in _variants(raw[r], width)]
+            for block in tries:
+                got = parse(block)
+                if not got.get("expires"):
+                    continue
+                # (a TD1 zone's third line is the name: letters only)
+                if _composite(block, width) and (rows == 2 or re.fullmatch("[A-Z<]+", block[2])):
+                    return {**got, "how": "mrz"}
+                first = first or got
+    return {**first, "how": "mrz"} if first else {}
 
 
 def _td23(b: list[str]) -> dict:
@@ -418,8 +451,11 @@ def _clean(key: str, v: str) -> str:
         v = _LABEL_WORD.sub("", v).strip(" :：.,;-–")
         ok = _NAME.match(v) and not _TITLE.search(v) and not _OTHER_LABEL.search(v)
         return v if ok and (key != "holder" or len(v.split()) >= 2) else ""
-    if key == "address" and (_TITLE.search(v) or _OTHER_LABEL.search(v) or not re.search(r"[^\W\d_]{2}", v)):
-        return ""
+    if key == "address":
+        if re.search("[ء-ي]", v):        # Latin words in an Arabic address are misreadings
+            v = " ".join(w for w in v.split() if not re.fullmatch("[A-Za-z]+[.,،]?", w))
+        if _TITLE.search(v) or _OTHER_LABEL.search(v) or not re.search(r"[^\W\d_]{2}", v):
+            return ""
     if key == "gender":
         g = v.strip().upper()[:1]
         return "M" if g == "M" or "ذكر" in v else "F" if g == "F" or "أنثى" in v else ""

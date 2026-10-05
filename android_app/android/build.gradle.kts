@@ -2,6 +2,8 @@ allprojects {
     repositories {
         google()
         mavenCentral()
+        // Only Tesseract4Android (the phone's text reader) comes from JitPack.
+        maven("https://jitpack.io") { content { includeGroup("cz.adaptech.tesseract4android") } }
     }
 }
 

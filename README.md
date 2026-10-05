@@ -189,14 +189,18 @@ each one expires.
   machine-readable zone (the `<<<` lines), which MyVault reads and checks with its
   check digits. For other documents it looks for dates labelled "expiry",
   "valid until", "تاريخ الانتهاء" and so on. Windows uses its built-in text reader;
-  the phone uses Google's on-device one, built into the app. You check the details
-  before saving, and can always type them in yourself. (The phone's reader handles
-  Latin letters and numbers, not Arabic script; on Windows, Arabic works when
-  Windows' Arabic language is installed.)
-- **Read the chip (phone, NFC):** e-passports and many ID cards have a chip with
-  the same details as the `<<<` lines. Scan the document (or type its number,
-  birth date and expiry date), tap **Read the chip** and hold the phone against
-  it: the details come straight from the chip, exactly. The chip only opens with
+  the phone uses [Tesseract](https://github.com/tesseract-ocr/tesseract) (open
+  source, built into the app, English and Arabic). You check the details before
+  saving, and can always type them in yourself. On Windows, Arabic works when
+  Windows' Arabic language is installed.
+- **Scanning on the phone:** **Scan document** opens your camera app (with its
+  own flash), then MyVault finds the card's edges; drag the corners if needed,
+  and it's cut out and straightened.
+- **Scan with NFC (phone):** e-passports and many ID cards have a chip with
+  the same details as the `<<<` lines. Tap **Scan with NFC**: if MyVault doesn't
+  have the number and dates yet, it first asks for a photo of the `<<<` lines;
+  then hold the phone against the document, and the details come straight from
+  the chip, exactly. The chip only opens with
   those details, or with the 6-digit card access number some ID cards print on
   the front. Cards with only a gold contact chip (no NFC) can't be read this way.
 - **Reminders:** pick any mix of 1 day, 3 days, 1 week, 2 weeks, 1 month, 2, 3 or
@@ -352,6 +356,13 @@ Arabic. To add a language, add a file like these and a choice in the settings.
 MyVault is free software under the [GNU General Public License v3.0](LICENSE).
 You may use, study, change and share it. If you share a changed version, you
 must also share its source under GPL-3.0. Copyright (C) 2026 Ahmed Mohammed.
+
+The phone app includes open-source parts under their own licences:
+[Tesseract](https://github.com/tesseract-ocr/tesseract) and its
+[tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) English and Arabic
+models (Apache 2.0, via Tesseract4Android), [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp)
+(Apache 2.0, via flutter_zxing, MIT), [JMRTD](https://jmrtd.org) (LGPL 3) and
+[Bouncy Castle](https://www.bouncycastle.org) (MIT).
 
 ## Privacy, terms and security
 

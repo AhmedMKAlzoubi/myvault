@@ -40,7 +40,7 @@ dependencies:
   # MyVault: encryption (scrypt + AES-GCM) and the app's storage location.
   pointycastle: ^3.9.1
   path_provider: ^2.1.4
-  mobile_scanner: ^7.4.2
+  flutter_zxing: ^3.1.0   # QR codes (sync, paper backup, 2FA): zxing-cpp, on the phone, no Google services
   cryptography: ^2.9.0
 
 dev_dependencies:

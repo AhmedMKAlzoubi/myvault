@@ -98,6 +98,263 @@ Future<Uint8List> previewOf(Vault v, FileRef r, {int width = 900}) async {
   }))!;
 }
 
+// ---- MyVault's own scanner: crop and straighten a photo ------------------------------
+/// Photos from the camera, each through the crop screen (null: skipped).
+Future<List<(String, Uint8List)>> cropPhotos(
+  BuildContext context,
+  List<(String, Uint8List)> photos,
+) async {
+  final out = <(String, Uint8List)>[];
+  for (var (name, bytes) in photos) {
+    while (true) {
+      if (!context.mounted) break;
+      final got = await Navigator.of(context).push<Uint8List>(
+        MaterialPageRoute(builder: (_) => CropPage(photo: bytes)),
+      );
+      if (got == null) break; // cancelled
+      if (got.isNotEmpty) {
+        out.add((name, got));
+        break;
+      }
+      final again = await _getFiles('camera'); // retake
+      if (again.isEmpty) break;
+      (name, bytes) = again.first;
+    }
+  }
+  return out;
+}
+
+/// Drag the box's corners to the document's; it's cut out and straightened.
+/// Pops the new photo, an empty list to retake, or null to cancel.
+class CropPage extends StatefulWidget {
+  final Uint8List photo;
+  const CropPage({super.key, required this.photo});
+  @override
+  State<CropPage> createState() => _CropPageState();
+}
+
+class _CropPageState extends State<CropPage> {
+  late Uint8List _photo = widget.photo;
+  static const _inset = [
+    Offset(.08, .1),
+    Offset(.92, .1),
+    Offset(.92, .9),
+    Offset(.08, .9),
+  ];
+  List<Offset> _pts = [
+    ..._inset,
+  ]; // top-left, top-right, bottom-right, bottom-left
+  Size? _size; // the photo, in pixels
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final img = await decodeImageFromList(_photo);
+    List<double>? found;
+    try {
+      found = await _ch.invokeListMethod<double>('detect', {'bytes': _photo});
+    } on PlatformException {
+      // the box stays where it is
+    }
+    if (!mounted) return;
+    setState(() {
+      _size = Size(img.width.toDouble(), img.height.toDouble());
+      _pts = found != null && found.length == 8
+          ? [for (var i = 0; i < 4; i++) Offset(found[2 * i], found[2 * i + 1])]
+          : [..._inset];
+    });
+  }
+
+  Future<void> _rotate() async {
+    setState(() => _busy = true);
+    final turned = await _ch.invokeMethod<Uint8List>('rotate', {
+      'bytes': _photo,
+    });
+    if (turned != null) _photo = turned;
+    await _load();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _use() async {
+    setState(() => _busy = true);
+    try {
+      final out = await _ch.invokeMethod<Uint8List>('warp', {
+        'bytes': _photo,
+        'points': [
+          for (final p in _pts) ...[p.dx, p.dy],
+        ],
+      });
+      if (mounted) Navigator.of(context).pop(out);
+    } on PlatformException catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _snack(context, e.message ?? "That photo couldn't be used.");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(tr('Crop the document')),
+        actions: [
+          IconButton(
+            tooltip: tr('Turn'),
+            icon: const Icon(Icons.rotate_right),
+            onPressed: _busy || _size == null ? null : _rotate,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: _size == null
+                ? const Center(child: CircularProgressIndicator())
+                : LayoutBuilder(
+                    builder: (_, box) {
+                      final scale = [
+                        box.maxWidth / _size!.width,
+                        box.maxHeight / _size!.height,
+                      ].reduce((a, b) => a < b ? a : b);
+                      final w = _size!.width * scale, h = _size!.height * scale;
+                      final o = Offset(
+                        (box.maxWidth - w) / 2,
+                        (box.maxHeight - h) / 2,
+                      );
+                      Offset at(Offset p) => o + Offset(p.dx * w, p.dy * h);
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: o.dx,
+                            top: o.dy,
+                            width: w,
+                            height: h,
+                            child: Image.memory(_photo, gaplessPlayback: true),
+                          ),
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _BoxPainter([
+                                for (final p in _pts) at(p),
+                              ]),
+                            ),
+                          ),
+                          for (var i = 0; i < 4; i++)
+                            Positioned(
+                              left: at(_pts[i]).dx - 24,
+                              top: at(_pts[i]).dy - 24,
+                              child: GestureDetector(
+                                onPanUpdate: (d) => setState(() {
+                                  final p =
+                                      _pts[i] +
+                                      Offset(d.delta.dx / w, d.delta.dy / h);
+                                  _pts[i] = Offset(
+                                    p.dx.clamp(0.0, 1.0),
+                                    p.dy.clamp(0.0, 1.0),
+                                  );
+                                }),
+                                child: Container(
+                                  width: 48,
+                                  height: 48,
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: e.tint.withValues(alpha: .35),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            color: e.sheet,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    tr(
+                      "Drag the corners onto the document's corners. MyVault cuts it out and straightens it, which also helps it read the details.",
+                    ),
+                    style: TextStyle(color: e.ink2, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  Row(
+                    children: [
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => Navigator.of(context).pop(Uint8List(0)),
+                        child: Text(tr('Retake')),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: _busy || _size == null ? null : _use,
+                        icon: const Icon(Icons.check, size: 18),
+                        label: Text(tr('Use this')),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BoxPainter extends CustomPainter {
+  final List<Offset> pts;
+  _BoxPainter(this.pts);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final box = Path()..addPolygon(pts, true);
+    // dim what's outside the box
+    canvas.drawPath(
+      Path.combine(
+        PathOperation.difference,
+        Path()..addRect(Offset.zero & size),
+        box,
+      ),
+      Paint()..color = Colors.black.withValues(alpha: .45),
+    );
+    canvas.drawPath(
+      box,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_BoxPainter old) => old.pts != pts;
+}
+
 // ---- thumbnails and the viewer ---------------------------------------------------
 class FileThumb extends StatelessWidget {
   final Vault vault;
@@ -492,6 +749,8 @@ class _DocumentEditorState extends State<DocumentEditor> {
   bool _check = false; // the note asks to check what was filled in
   String _nfcState = 'none'; // this phone's NFC: none, off or on
   bool _reading = false; // waiting for the chip
+  bool _denied =
+      false; // the chip refused the last key: offer the access number
   DocumentDraft get d => widget.draft;
 
   Future<void> _nfcStatus() async {
@@ -531,68 +790,95 @@ class _DocumentEditorState extends State<DocumentEditor> {
       if (open == true) await _nfc.invokeMethod('settings');
       return;
     }
-    final cardNo = widget.value('card_number').trim();
-    final docNo = cardNo.isNotEmpty ? cardNo : widget.value('number').trim();
-    final birth = parseDay(widget.value('birth_date'));
-    final expiry = parseDay(widget.value('expires'));
+    String docNo() {
+      final card = widget.value('card_number').trim();
+      return card.isNotEmpty ? card : widget.value('number').trim();
+    }
+
+    DateTime? birth() => parseDay(widget.value('birth_date'));
+    DateTime? expiry() => parseDay(widget.value('expires'));
+    bool ready() => docNo().isNotEmpty && birth() != null && expiry() != null;
     String yymmdd(DateTime t) =>
         '${t.year % 100}'.padLeft(2, '0') +
         '${t.month}'.padLeft(2, '0') +
         '${t.day}'.padLeft(2, '0');
-    final can = TextEditingController();
-    final go = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text(tr('Read the chip')),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                tr(
-                  "Passports and many ID cards have a chip with the same details as the <<< lines, exact. It opens only with the document's number, date of birth and expiry date, so scan the document or type those first.",
+    var can = '';
+    if (!ready() || _denied) {
+      // The chip opens only with the number and dates, read from the <<< lines.
+      final how = await showDialog<String>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(tr('Scan with NFC')),
+          content: Text(
+            tr(
+              "The chip opens only with the document's number, date of birth and expiry date. MyVault reads them from the <<< lines: first take a photo of the passport's photo page, or the back of the ID card.",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c),
+              child: Text(tr('Cancel')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, 'can'),
+              child: Text(tr('Card access number')),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, 'scan'),
+              child: Text(tr('Take the photo')),
+            ),
+          ],
+        ),
+      );
+      if (how == null || !mounted) return;
+      if (how == 'scan') {
+        await _add('scan');
+        if (!ready() && d.files.isNotEmpty) await _read();
+        if (!mounted) return;
+        if (!ready()) {
+          setState(() {
+            _check = false;
+            _note = tr(
+              "MyVault couldn't read the number and dates from the photo. Type them in (or take the photo again, straight and sharp), then tap Scan with NFC.",
+            );
+          });
+          return;
+        }
+      } else {
+        final box = TextEditingController();
+        final ok = await showDialog<bool>(
+          context: context,
+          builder: (c) => AlertDialog(
+            title: Text(tr('Card access number')),
+            content: TextField(
+              controller: box,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              maxLength: 6,
+              decoration: InputDecoration(
+                helperText: tr(
+                  'The 6 digits printed on the front of some ID cards.',
                 ),
+                helperMaxLines: 3,
               ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: can,
-                keyboardType: TextInputType.number,
-                maxLength: 6,
-                decoration: InputDecoration(
-                  labelText: tr('Card access number (optional)'),
-                  helperText: tr(
-                    'The 6 digits printed on the front of some ID cards.',
-                  ),
-                  helperMaxLines: 3,
-                ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(c),
+                child: Text(tr('Cancel')),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(c, true),
+                child: Text(tr('Start')),
               ),
             ],
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: Text(tr('Cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: Text(tr('Start')),
-          ),
-        ],
-      ),
-    );
-    if (go != true || !mounted) return;
-    if (can.text.trim().isEmpty &&
-        (docNo.isEmpty || birth == null || expiry == null)) {
-      setState(() {
-        _check = false;
-        _note = tr(
-          'First scan the document, or type its number, date of birth and expiry date: the chip only opens with them.',
         );
-      });
-      return;
+        can = box.text.trim();
+        if (ok != true || can.isEmpty || !mounted) return;
+      }
     }
+    final b = birth(), x = expiry();
     setState(() {
       _reading = true;
       _check = false;
@@ -602,10 +888,10 @@ class _DocumentEditorState extends State<DocumentEditor> {
     });
     try {
       final mrz = await _nfc.invokeMethod<String>('read', {
-        'number': docNo.replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),
-        'birth': birth == null ? '' : yymmdd(birth),
-        'expiry': expiry == null ? '' : yymmdd(expiry),
-        'can': can.text.trim(),
+        'number': docNo().replaceAll(RegExp(r'[\s-]'), '').toUpperCase(),
+        'birth': b == null ? '' : yymmdd(b),
+        'expiry': x == null ? '' : yymmdd(x),
+        'can': can,
       });
       final got = readDetails([mrz ?? '']);
       if (got['how'] != 'mrz') throw PlatformException(code: 'failed');
@@ -618,11 +904,13 @@ class _DocumentEditorState extends State<DocumentEditor> {
       _note = tr(
         "Read from the chip: ${set.map((k) => tr(docLabel(k, type))).join(tr(', '))}. These come straight from the document's chip, so they're exact.",
       );
+      _denied = false;
     } on PlatformException catch (e) {
+      _denied = e.code == 'denied';
       _note = switch (e.code) {
         'cancelled' => '',
         'denied' => tr(
-          "The chip didn't open. Check the document number, date of birth and expiry date (or the card access number) against the document, then try again.",
+          "The chip didn't open. Check the document number, date of birth and expiry date against the document, then tap Scan with NFC again. Some ID cards open only with their card access number: you can choose it then.",
         ),
         'lost' => tr(
           'The phone lost the chip. Hold it still against the document and try again. On a passport, try both the cover and the photo page.',
@@ -651,14 +939,9 @@ class _DocumentEditorState extends State<DocumentEditor> {
 
   Future<void> _add(String how) async {
     try {
-      List<(String, Uint8List)> got;
-      try {
-        got = await _getFiles(how);
-      } on PlatformException catch (e) {
-        // No Google document scanner on this phone: the plain camera instead.
-        if (how != 'scan' || e.code != 'no_scanner') rethrow;
-        got = await _getFiles('camera');
-      }
+      // Scanning: your camera app (its own flash and exposure), then MyVault's crop screen.
+      var got = await _getFiles(how == 'scan' ? 'camera' : how);
+      if (how == 'scan' && mounted) got = await cropPhotos(context, got);
       final added = <FileRef>[];
       for (final (name, bytes) in got) {
         added.add(await seal(widget.vault, bytes, name));
@@ -748,14 +1031,14 @@ class _DocumentEditorState extends State<DocumentEditor> {
         const SizedBox(height: 4),
         Text(
           tr(
-            'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.',
+            'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.',
           ),
           style: TextStyle(color: e.ink3, fontSize: 12.5),
         ),
         const SizedBox(height: 4),
         Text(
           tr(
-            "Too dark? Tap the scanner's flash button. Photo too bright or shiny? Pick “No filter” after scanning, tilt the card away from the light, or use the camera instead.",
+            'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.',
           ),
           style: TextStyle(color: e.ink3, fontSize: 12.5),
         ),
@@ -821,11 +1104,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
               label: Text(tr('Scan document')),
             ),
             OutlinedButton.icon(
-              onPressed: () => _add('camera'),
-              icon: const Icon(Icons.photo_camera_outlined, size: 18),
-              label: Text(tr('Use the camera')),
-            ),
-            OutlinedButton.icon(
               onPressed: () => _add('pick'),
               icon: const Icon(Icons.attach_file, size: 18),
               label: Text(tr('Choose files')),
@@ -846,7 +1124,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
                   : OutlinedButton.icon(
                       onPressed: _readChip,
                       icon: const Icon(Icons.contactless_outlined, size: 18),
-                      label: Text(tr('Read the chip')),
+                      label: Text(tr('Scan with NFC')),
                     ),
             if (d.files.isNotEmpty)
               TextButton.icon(
