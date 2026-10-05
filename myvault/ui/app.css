@@ -15,6 +15,8 @@
   --glass: rgba(246, 248, 251, 0.9);
   --red: #B4432E;
   --red-wash: #F6E7E3;
+  --warn: #9A6A12;
+  --warn-wash: #F8EED9;
   --ok: #2D6A4A;
   --sel: #1B2433;
   --sel-ink: #F4F5F7;
@@ -46,6 +48,8 @@
     --glass: rgba(26, 32, 43, 0.9);
     --red: #E5866F;
     --red-wash: #3A2421;
+    --warn: #E2B45C;
+    --warn-wash: #3A3020;
     --ok: #7CC29B;
     --sel: #E6EAF2;
     --sel-ink: #12161E;
@@ -330,6 +334,9 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 @keyframes pulse { 50% { opacity: .35; } }
 .result { padding: 12px 14px; border-radius: var(--r); background: var(--tint-wash); color: var(--ink); font-size: 13.5px; }
 .result.bad { background: var(--red-wash); }
+.result.check { background: var(--warn-wash); border: 1px solid var(--warn); }
+.field.auto .inp { border-color: var(--warn); box-shadow: 0 0 0 3px var(--warn-wash); }
+.field.auto > label::after { content: " •"; color: var(--warn); }
 .pathline { font-family: var(--mono); font-size: 12.5px; padding: 8px 10px; border-radius: var(--r); background: var(--paper); border: 1px solid var(--rule); overflow-wrap: anywhere; flex: 1; }
 .folder-row + .folder-row { padding-top: 14px; border-top: 1px solid var(--rule); }
 .facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }

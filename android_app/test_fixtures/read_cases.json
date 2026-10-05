@@ -1,48 +1,235 @@
 {
-  "_about": "What read_details() / readDetails() must find in a document's text. Run by tests/test_core.py (Windows) and android_app/test/docs_test.dart (phone), so both read documents the same way. 'today' is fixed.",
-  "today": "2026-10-05",
-  "cases": [
-    {"name": "passport machine-readable zone (ICAO specimen), with an O for a 0",
-     "text": ["P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO74O8122F1204159ZE184226B<<<<<10"],
-     "want": {"how": "mrz", "doc_type": "passport", "country": "UTO", "holder": "Anna Maria Eriksson", "number": "L898902C3",
-              "nationality": "UTO", "birth_date": "1974-08-12", "gender": "F", "expires": "2012-04-15"}},
-    {"name": "ID card back (TD1), front and back read together",
-     "text": ["HASHEMITE KINGDOM OF JORDAN\nPERSONAL ID CARD", "I<UTOD231458907<<<<<<<<<<<<<<<\n7408122F1204159UTO<<<<<<<<<<<6\nERIKSSON<<ANNA<MARIA<<<<<<<<<<"],
-     "want": {"how": "mrz", "doc_type": "id_card", "country": "UTO", "holder": "Anna Maria Eriksson", "number": "D23145890",
-              "nationality": "UTO", "birth_date": "1974-08-12", "gender": "F", "expires": "2012-04-15"}},
-    {"name": "only a birthday: never an expiry",
-     "text": ["AHMED MOHAMMED\n05/06/1990"],
-     "want": {"how": "text", "birth_date": "1990-06-05"}},
-    {"name": "ID front read without its (Arabic) labels: dates by order, the national number",
-     "text": ["HASHEMITE KINGDOM OF JORDAN\nPERSONAL ID CARD\n9901234567\n05/06/1990\n12/03/2021\n12/03/2031"],
-     "want": {"how": "text", "doc_type": "id_card", "number": "9901234567", "birth_date": "1990-06-05",
-              "issued": "2021-03-12", "expires": "2031-03-12", "guessed": true}},
-    {"name": "labels and values in two columns: order wins over the nearest label",
-     "text": ["Date of Birth\nDate of Expiry\n05.06.1990\n01.01.2030"],
-     "want": {"how": "text", "birth_date": "1990-06-05", "expires": "2030-01-01", "guessed": true}},
-    {"name": "an address line saying 'residence' doesn't make it a residence permit",
-     "text": ["IDENTITY CARD\nPlace of residence: Amman\nDate of expiry 01/01/2031"],
-     "want": {"how": "text", "doc_type": "id_card", "address": "Amman", "expires": "2031-01-01"}},
-    {"name": "a residence permit",
-     "text": ["RESIDENCE PERMIT\nNationality: Egyptian\nSponsor: Acme Trading\nValid until 2027-05-01"],
-     "want": {"how": "text", "doc_type": "residence", "nationality": "Egyptian", "employer": "Acme Trading", "expires": "2027-05-01"}},
-    {"name": "driving licence with labels, class and number",
-     "text": ["DRIVING LICENCE\nLicence No: 12345678\nClass: B\nDate of issue 01/02/2020   Date of expiry 01/02/2030\nDate of birth 05/06/1990"],
-     "want": {"how": "text", "doc_type": "driving_license", "number": "12345678", "licence_class": "B",
-              "issued": "2020-02-01", "expires": "2030-02-01", "birth_date": "1990-06-05"}},
-    {"name": "Arabic labels and Arabic-Indic digits",
-     "text": ["رخصة مركبة\nتاريخ الانتهاء: ٠١/٠٣/٢٠٢٧"],
-     "want": {"how": "text", "doc_type": "car_registration", "expires": "2027-03-01"}},
-    {"name": "car registration: plate and chassis number",
-     "text": ["VEHICLE REGISTRATION\nPlate No: 12-34567\nVIN: 1HGCM82633A004352\nExpires 2027-06-01"],
-     "want": {"how": "text", "doc_type": "car_registration", "plate": "12-34567", "vin": "1HGCM82633A004352", "expires": "2027-06-01"}},
-    {"name": "lease: start and end with no labels, contact details",
-     "text": ["Lease agreement 1 March 2026 until 28 Feb 2027\nLandlord: Omar Haddad\nPhone: +962 79 123 4567\nEmail: omar@example.com\nAddress: 12 King Hussein St, Amman"],
-     "want": {"how": "text", "doc_type": "rental", "landlord": "Omar Haddad", "phone": "+962791234567", "email": "omar@example.com",
-              "address": "12 King Hussein St, Amman", "issued": "2026-03-01", "expires": "2027-02-28", "guessed": true}},
-    {"name": "passport front page labels: nationality, sex, place of birth",
-     "text": ["PASSPORT\nName: Ahmed Mohammed\nNationality: Jordanian\nSex: M\nPlace of birth: Irbid\nDate of birth 05 JUN 1990\nDate of issue 10 JAN 2022\nDate of expiry 09 JAN 2032\nPassport No. R1234567"],
-     "want": {"how": "text", "doc_type": "passport", "holder": "Ahmed Mohammed", "nationality": "Jordanian", "gender": "M",
-              "birth_place": "Irbid", "birth_date": "1990-06-05", "issued": "2022-01-10", "expires": "2032-01-09", "number": "R1234567"}}
-  ]
+ "_about": "What read_details() / readDetails() must find in a document's text. Run by tests/test_core.py (Windows) and android_app/test/docs_test.dart (phone), so both read documents the same way. 'today' is fixed.",
+ "today": "2026-10-05",
+ "cases": [
+  {
+   "name": "passport machine-readable zone (ICAO specimen), with an O for a 0; the made-up UTO nationality is left empty",
+   "text": [
+    "P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<\nL898902C36UTO74O8122F1204159ZE184226B<<<<<10"
+   ],
+   "want": {
+    "how": "mrz",
+    "doc_type": "passport",
+    "country": "UTO",
+    "holder": "Anna Maria Eriksson",
+    "number": "L898902C3",
+    "birth_date": "1974-08-12",
+    "gender": "F",
+    "expires": "2012-04-15"
+   }
+  },
+  {
+   "name": "ID card back (TD1), front and back read together; the made-up UTO nationality is left empty",
+   "text": [
+    "HASHEMITE KINGDOM OF JORDAN\nPERSONAL ID CARD",
+    "I<UTOD231458907<<<<<<<<<<<<<<<\n7408122F1204159UTO<<<<<<<<<<<6\nERIKSSON<<ANNA<MARIA<<<<<<<<<<"
+   ],
+   "want": {
+    "how": "mrz",
+    "doc_type": "id_card",
+    "country": "UTO",
+    "holder": "Anna Maria Eriksson",
+    "number": "D23145890",
+    "birth_date": "1974-08-12",
+    "gender": "F",
+    "expires": "2012-04-15"
+   }
+  },
+  {
+   "name": "only a birthday: never an expiry",
+   "text": [
+    "AHMED MOHAMMED\n05/06/1990"
+   ],
+   "want": {
+    "how": "text",
+    "birth_date": "1990-06-05"
+   }
+  },
+  {
+   "name": "ID front read without its (Arabic) labels: dates by order, the national number",
+   "text": [
+    "HASHEMITE KINGDOM OF JORDAN\nPERSONAL ID CARD\n9901234567\n05/06/1990\n12/03/2021\n12/03/2031"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "id_card",
+    "number": "9901234567",
+    "birth_date": "1990-06-05",
+    "issued": "2021-03-12",
+    "expires": "2031-03-12",
+    "guessed": true
+   }
+  },
+  {
+   "name": "labels and values in two columns: order wins over the nearest label",
+   "text": [
+    "Date of Birth\nDate of Expiry\n05.06.1990\n01.01.2030"
+   ],
+   "want": {
+    "how": "text",
+    "birth_date": "1990-06-05",
+    "expires": "2030-01-01",
+    "guessed": true
+   }
+  },
+  {
+   "name": "an address line saying 'residence' doesn't make it a residence permit",
+   "text": [
+    "IDENTITY CARD\nPlace of residence: Amman\nDate of expiry 01/01/2031"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "id_card",
+    "address": "Amman",
+    "expires": "2031-01-01"
+   }
+  },
+  {
+   "name": "a residence permit",
+   "text": [
+    "RESIDENCE PERMIT\nNationality: Egyptian\nSponsor: Acme Trading\nValid until 2027-05-01"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "residence",
+    "nationality": "EGY",
+    "employer": "Acme Trading",
+    "expires": "2027-05-01"
+   }
+  },
+  {
+   "name": "driving licence with labels, class and number",
+   "text": [
+    "DRIVING LICENCE\nLicence No: 12345678\nClass: B\nDate of issue 01/02/2020   Date of expiry 01/02/2030\nDate of birth 05/06/1990"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "driving_license",
+    "number": "12345678",
+    "licence_class": "B",
+    "issued": "2020-02-01",
+    "expires": "2030-02-01",
+    "birth_date": "1990-06-05"
+   }
+  },
+  {
+   "name": "Arabic labels and Arabic-Indic digits",
+   "text": [
+    "رخصة مركبة\nتاريخ الانتهاء: ٠١/٠٣/٢٠٢٧"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "car_registration",
+    "expires": "2027-03-01"
+   }
+  },
+  {
+   "name": "car registration: plate and chassis number",
+   "text": [
+    "VEHICLE REGISTRATION\nPlate No: 12-34567\nVIN: 1HGCM82633A004352\nExpires 2027-06-01"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "car_registration",
+    "plate": "12-34567",
+    "vin": "1HGCM82633A004352",
+    "expires": "2027-06-01"
+   }
+  },
+  {
+   "name": "lease: start and end with no labels, contact details",
+   "text": [
+    "Lease agreement 1 March 2026 until 28 Feb 2027\nLandlord: Omar Haddad\nPhone: +962 79 123 4567\nEmail: omar@example.com\nAddress: 12 King Hussein St, Amman"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "rental",
+    "landlord": "Omar Haddad",
+    "phone": "+962791234567",
+    "email": "omar@example.com",
+    "address": "12 King Hussein St, Amman",
+    "issued": "2026-03-01",
+    "expires": "2027-02-28",
+    "guessed": true
+   }
+  },
+  {
+   "name": "passport front page labels: nationality, sex, place of birth",
+   "text": [
+    "PASSPORT\nName: Ahmed Mohammed\nNationality: Jordanian\nSex: M\nPlace of birth: Irbid\nDate of birth 05 JUN 1990\nDate of issue 10 JAN 2022\nDate of expiry 09 JAN 2032\nPassport No. R1234567"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "passport",
+    "holder": "Ahmed Mohammed",
+    "nationality": "JOR",
+    "gender": "M",
+    "birth_place": "Irbid",
+    "birth_date": "1990-06-05",
+    "issued": "2022-01-10",
+    "expires": "2032-01-09",
+    "number": "R1234567"
+   }
+  },
+  {
+   "name": "Windows' Arabic reader: invisible direction marks and the label stuck to the name",
+   "text": [
+    "الاسم ‏:Name Ahmed Mhd Khiar Alzoubi"
+   ],
+   "want": {
+    "how": "text",
+    "holder": "Ahmed Mhd Khiar Alzoubi"
+   }
+  },
+  {
+   "name": "a card title read next to 'nationality' is not a nationality",
+   "text": [
+    "الجنسية\nبطاقة هوية مقيم"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "id_card"
+   }
+  },
+  {
+   "name": "Arabic nationality, feminine form",
+   "text": [
+    "الجنسية: أردنية"
+   ],
+   "want": {
+    "how": "text",
+    "nationality": "JOR"
+   }
+  },
+  {
+   "name": "ID card back: the national number from the zone's extra data, the card's own number apart",
+   "text": [
+    "IDJORAB123456719901234567<<<<<\n9006050M3103120JOR<<<<<<<<<<<6\nMOHAMMED<<AHMED<<<<<<<<<<<<<<<"
+   ],
+   "want": {
+    "how": "mrz",
+    "doc_type": "id_card",
+    "country": "JOR",
+    "holder": "Ahmed Mohammed",
+    "number": "9901234567",
+    "card_number": "AB1234567",
+    "nationality": "JOR",
+    "birth_date": "1990-06-05",
+    "gender": "M",
+    "expires": "2031-03-12"
+   }
+  },
+  {
+   "name": "ID card front: the serial by the chip isn't the ID number",
+   "text": [
+    "PERSONAL ID CARD\nAB1234567\n9901234567"
+   ],
+   "want": {
+    "how": "text",
+    "doc_type": "id_card",
+    "number": "9901234567",
+    "card_number": "AB1234567"
+   }
+  }
+ ]
 }

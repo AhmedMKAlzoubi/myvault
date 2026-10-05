@@ -150,6 +150,14 @@
   const typeLabel = (k) => (DOC_TYPES.find(([v]) => v === k && v) || [0, "Document"])[1];
   const typeOf = (fields) => SCHEMA.types[(fields || {}).doc_type] || SCHEMA.types.other || { fields: [] };
   const docLabel = (key, fields) => key === "doc_type" ? "Type" : (typeOf(fields).labels || {})[key] || SCHEMA.fields[key]?.label || key;
+  // Nationalities, by name in the app's language (myvault/ui/countries.json, shared with the phone).
+  const NATIONS = (window.COUNTRIES || []).map((c) => [c[0], ENGLISH ? c[2] : c[4]])
+    .sort((a, b) => a[1].localeCompare(b[1], ENGLISH ? "en" : "ar"));
+  // A field's choices; a value typed before there was a list stays one of them.
+  function choices(d, value) {
+    const list = [["", "Choose…"], ...(d.options === "countries" ? NATIONS : d.options)];
+    return value && !list.some(([v]) => v === value) ? [...list, [value, value]] : list;
+  }
   // A document's fields: its type's, then any other detail it has, so nothing is ever hidden.
   function docFields(e) {
     const f = e.fields || {};
@@ -157,7 +165,8 @@
     const keys = [...own, ...Object.keys(SCHEMA.fields).filter((k) => !own.includes(k) && f[k])];
     return [F("doc_type", "Type", { options: DOC_TYPES }), ...keys.map((k) => {
       const d = SCHEMA.fields[k];
-      return F(k, docLabel(k, f), { secret: d.secret, multi: d.multi, mono: d.mono, ph: d.ph, type: d.date ? "date" : d.type });
+      return F(k, docLabel(k, f), { secret: d.secret, multi: d.multi, mono: d.mono, ph: d.ph, type: d.date ? "date" : d.type,
+        options: d.options && choices(d, f[k]) });
     })];
   }
   const LEADS = [[1, "1 day"], [3, "3 days"], [7, "1 week"], [14, "2 weeks"], [30, "1 month"], [60, "2 months"],
@@ -529,7 +538,7 @@
     const typeBox = h("div", { "aria-live": "polite" });
     const K = KINDS[e.kind] || KINDS.login;
     const rows = (e.kind === "document" ? docFields(e) : [...K.fields, ...(K.more || [])]).map((f) => [f, getVal(e, f)]).filter(([, v]) => v)
-      .map(([f, v]) => [f, f.options ? t(typeLabel(v)) : f.type === "date" ? fmtDay(v) : v]);
+      .map(([f, v]) => [f, f.options ? t((f.options.find(([o]) => o === v) || [0, v])[1]) : f.type === "date" ? fmtDay(v) : v]);
     const custom = Object.entries(e.custom || {});
     const where = e.kind === "login" ? e.website : e.fields?.service;
     sheet(h("article", { class: "page" },
@@ -627,14 +636,14 @@
         if (!cur) { d.fields[key] = v; filled.push(key); } else if (cur !== v) kept.push(key);
       }
       const names = (keys) => keys.map((k) => t(docLabel(k, d.fields))).join(t(", "));
-      const msg = h("div", { class: "result" + (filled.length ? "" : " bad") },
+      const msg = h("div", { class: "result" + (filled.length ? " check" : " bad"), role: filled.length ? "alert" : null },
         !filled.length && !kept.length ? "Couldn't find the details in these files. Type them in instead."
-          : [found.how === "mrz" ? "Read from the machine-readable zone (the <<< lines) and checked. " : "Read from the document's text. ",
+          : [filled.length ? h("b", {}, "Scans can be misread: check every highlighted box against the document before saving. ") : "",
+            found.how === "mrz" ? "Read from the machine-readable zone (the <<< lines) and checked. " : "Read from the document's text. ",
             filled.length ? `Filled in: ${names(filled)}. ` : "",
             kept.length ? `Kept what you'd typed for: ${names(kept)}. ` : "",
-            found.guessed && filled.includes("expires") ? "The expiry date is a guess (it wasn't labelled). " : "",
-            "Check the details before saving."]);
-      if (filled.length) form.redraw(d, msg); else note.replaceChildren(msg);
+            found.guessed && filled.includes("expires") ? "The expiry date is a guess (it wasn't labelled). " : ""]);
+      if (filled.length) form.redraw(d, msg, filled); else note.replaceChildren(msg);
     }
     const edit = { remove: (ref) => { files = files.filter((x) => x.id !== ref.id); dirty(); paint(); } };
     const grid = h("div");
@@ -808,22 +817,25 @@
           h("div", { class: "inp-row", style: f.multi ? "align-items:start" : "" }, parts), meter);
         return wrap;
       }
+      // A box filled in from a scan stays marked until the person changes or checks it.
+      const auto = opts.filled?.includes(f.key);
+      const touched = (ev) => { dirty(); ev.target.closest(".field")?.classList.remove("auto"); };
       if (f.options) {
-        const sel = h("select", { class: "inp", "aria-label": f.label, onchange: () => {
-          dirty();
-          if (e.kind === "document") redraw(draft());     // its fields follow the type
+        const sel = h("select", { class: "inp", "aria-label": f.label, onchange: (ev) => {
+          touched(ev);
+          if (f.key === "doc_type") redraw(draft());     // a document's fields follow its type
         } },
           f.options.map(([v, label]) => h("option", { value: v, selected: v === value || null }, label)));
         inputs.push([f, sel]);
-        return h("div", { class: "field" }, h("label", {}, f.label), sel);
+        return h("div", { class: "field" + (auto ? " auto" : "") }, h("label", {}, f.label), sel);
       }
       const inp = f.multi
-        ? h("textarea", { class: "inp mono", rows: 4, spellcheck: "false", oninput: dirty, "aria-label": f.label })
-        : h("input", { class: "inp" + (f.mono ? " mono" : ""), type: f.type || "text", placeholder: f.ph || "", oninput: dirty,
+        ? h("textarea", { class: "inp mono", rows: 4, spellcheck: "false", oninput: touched, "aria-label": f.label })
+        : h("input", { class: "inp" + (f.mono ? " mono" : ""), type: f.type || "text", placeholder: f.ph || "", oninput: touched,
           spellcheck: "false", "aria-label": f.label });
       inp.value = value;
       inputs.push([f, inp]);
-      return h("div", { class: "field" }, h("label", {}, f.label),
+      return h("div", { class: "field" + (auto ? " auto" : "") }, h("label", {}, f.label),
         f.file ? h("div", { class: "inp-row", style: "align-items:start" }, inp, fileBtn(inp)) : inp);
     }
     function fileBtn(target) {
@@ -863,8 +875,9 @@
       });
       return out;
     }
-    function redraw(d, note) {
-      renderEdit(d, { note });
+    function redraw(d, note, filled) {
+      const still = inputs.filter(([, el]) => el.closest(".field.auto")).map(([f]) => f.key);
+      renderEdit(d, { note, filled: [...still, ...(filled || [])] });
       S.dirty = true;
     }
     async function save() {

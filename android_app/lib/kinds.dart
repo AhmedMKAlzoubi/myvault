@@ -4,6 +4,7 @@ library;
 import 'package:flutter/material.dart';
 
 import 'docs.dart';
+import 'l10n.dart';
 import 'vault.dart';
 
 class FieldDef {
@@ -209,5 +210,18 @@ FieldDef _docField(String key, String type) {
       'email' => TextInputType.emailAddress,
       _ => null,
     },
+    options: switch (d['options']) {
+      'countries' => [('', 'Choose…'), ...nations()],
+      final List o => [
+        ('', 'Choose…'),
+        for (final x in o) ('${(x as List)[0]}', '${x[1]}'),
+      ],
+      _ => null,
+    },
   );
 }
+
+/// Nationalities by name in the app's language (assets/countries.json).
+List<(String, String)> nations() =>
+    [for (final c in countries) (c[0], isArabic ? c[4] : c[2])]
+      ..sort((a, b) => a.$2.compareTo(b.$2));

@@ -843,8 +843,9 @@ def _page() -> str:
     html = html.replace('<html lang="en">', f'<html lang="{lang}" dir="{"rtl" if lang == "ar" else "ltr"}">')
     words = json.dumps(i18n.arabic() if lang == "ar" else {}, ensure_ascii=False).replace("</", "<\\/")
     types = (UI_DIR / "doc_types.json").read_text("utf-8").replace("</", "<\\/")
+    countries = json.dumps(docs.countries(), ensure_ascii=False).replace("</", "<\\/")
     return html.replace("/*__CSS__*/", css).replace(
-        "//__JS__", f"window.I18N = {words};\nwindow.DOC_SCHEMA = {types};\n{js}")
+        "//__JS__", f"window.I18N = {words};\nwindow.DOC_SCHEMA = {types};\nwindow.COUNTRIES = {countries};\n{js}")
 
 
 _mutex = None

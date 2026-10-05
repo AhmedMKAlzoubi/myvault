@@ -33,6 +33,44 @@ Future<void> loadDocSchema() async {
   _schema =
       jsonDecode(await rootBundle.loadString('assets/doc_types.json'))
           as Map<String, dynamic>;
+  countries = [
+    for (final c
+        in (jsonDecode(await rootBundle.loadString('assets/countries.json'))
+                as Map)['list']
+            as List)
+      [for (final x in c as List) '$x'],
+  ];
+}
+
+/// [code, country, nationality, country in Arabic, nationality in Arabic]:
+/// assets/countries.json, the same file as the Windows app's.
+List<List<String>> countries = [];
+
+String _plainAr(String w) => w
+    .replaceFirst(RegExp('^ال'), '')
+    .replaceFirst(RegExp(r'ة+$'), '')
+    .replaceAll(RegExp('[أإآ]'), 'ا');
+
+/// A nationality or country, in English or Arabic, as its code; '' if it isn't one.
+String nationalityCode(String v) {
+  v = v.trim();
+  final up = v.toUpperCase(), low = v.toLowerCase();
+  if (countries.any((c) => c[0] == up)) return up;
+  if (up == 'D') return 'DEU'; // Germany's code in passports
+  for (final c in countries) {
+    if (low == c[1].toLowerCase() || low == c[2].toLowerCase()) return c[0];
+  }
+  for (final m in RegExp(r'\p{L}+', unicode: true).allMatches(v)) {
+    final wl = m[0]!.toLowerCase(), wa = _plainAr(m[0]!);
+    for (final c in countries) {
+      if (wl == c[1].toLowerCase() ||
+          wl == c[2].toLowerCase() ||
+          (wa.length > 2 && (wa == _plainAr(c[3]) || wa == _plainAr(c[4])))) {
+        return c[0];
+      }
+    }
+  }
+  return '';
 }
 
 Map<String, dynamic> get docSchemaFields =>
@@ -398,7 +436,7 @@ Map<String, dynamic> _td23(List<String> b) {
     'doc_type': _kind(l1.substring(0, 2)),
     'country': l1.substring(2, 5).replaceAll('<', ''),
     'holder': _name(l1.substring(5)),
-    'nationality': l2.substring(10, 13).replaceAll('<', ''),
+    'nationality': nationalityCode(l2.substring(10, 13).replaceAll('<', '')),
     'gender': 'MF'.contains(l2[20]) ? l2[20] : '',
   };
   final number = _field(l2.substring(0, 9), l2[9], false);
@@ -412,12 +450,15 @@ Map<String, dynamic> _td23(List<String> b) {
 
 Map<String, dynamic> _td1(List<String> b) {
   final l1 = b[0], l2 = b[1], l3 = b[2];
+  // many ID cards keep the national number in the extra data
+  final extra = l1.substring(15, 30).replaceAll(RegExp(r'^<+|<+$'), '');
   final out = <String, dynamic>{
     'doc_type': _kind(l1.substring(0, 2)),
     'country': l1.substring(2, 5).replaceAll('<', ''),
     'holder': _name(l3),
-    'nationality': l2.substring(15, 18).replaceAll('<', ''),
+    'nationality': nationalityCode(l2.substring(15, 18).replaceAll('<', '')),
     'gender': 'MF'.contains(l2[7]) ? l2[7] : '',
+    '_national': RegExp(r'^\d{8,14}$').hasMatch(extra) ? extra : '',
   };
   final number = _field(l1.substring(5, 14), l1[14], false);
   final birth = _field(l2.substring(0, 6), l2[6], true);
@@ -467,6 +508,10 @@ final _issue = _rx(r'issue|start\s*date|إصدار|الإصدار|تحرير');
 final _birth = _rx(r'birth|born|\bdob\b|ميلاد|الولادة');
 final _number = _rx(
   r'(?:\bno\b\.?|number|\bnum\b\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})',
+);
+final _national = _rx(
+  r'(?:national|personal|identity|\bid\b)\s*(?:\bno\b\.?|number|#)\s*[:.]?\s*(\d{6,14})|'
+  r'(?:الرقم\s*الوطني|رقم\s*(?:وطني|الهوية|شخصي))\s*[:.]?\s*(\d{6,14})',
 );
 final _notNumber = _rx(
   r'plate|phone|\btel\b|mobile|chassis|\bvin\b|اللوحة|هاتف',
@@ -534,7 +579,44 @@ String _after(String label, List<String> lines) {
   return '';
 }
 
+final _labelWord = RegExp(
+  r'^(?:(?:full\s*)?name|surname|given\s*names?|الاسم)(?!\p{L})\s*[:：.]?\s*',
+  caseSensitive: false,
+  unicode: true,
+);
+final _titleRx = _rx(
+  r'card|identity|passport|licen[cs]e|permit|بطاقة|هوية|جواز|رخصة',
+);
+final _otherLabel = _rx(
+  r'date|birth|expir|issue|nationality|\bsex\b|gender|address|تاريخ|الجنسية|الجنس|العنوان',
+);
+final _nameRx = RegExp(r"^\p{L}+(?:[ '\-]\p{L}+){0,6}$", unicode: true);
+final _edges = RegExp(r'^[ :：.,;\-–]+|[ :：.,;\-–]+$');
+
+/// The value if it makes sense for that field, else '' (a box is better empty than wrong).
 String _clean(String key, String v) {
+  v = v.replaceAll(_edges, '');
+  if (key == 'nationality') return nationalityCode(v);
+  if (const {
+    'holder',
+    'landlord',
+    'employer',
+    'insurer',
+    'birth_place',
+  }.contains(key)) {
+    v = v.replaceFirst(_labelWord, '').replaceAll(_edges, '');
+    final ok =
+        _nameRx.hasMatch(v) &&
+        !_titleRx.hasMatch(v) &&
+        !_otherLabel.hasMatch(v);
+    return ok && (key != 'holder' || v.split(' ').length >= 2) ? v : '';
+  }
+  if (key == 'address' &&
+      (_titleRx.hasMatch(v) ||
+          _otherLabel.hasMatch(v) ||
+          !RegExp(r'\p{L}{2}', unicode: true).hasMatch(v))) {
+    return '';
+  }
   if (key == 'gender') {
     final g = v.trim().toUpperCase();
     final c = g.isEmpty ? '' : g[0];
@@ -547,15 +629,6 @@ String _clean(String key, String v) {
     final n = digits.replaceAll('+', '').length;
     return n >= 7 && n <= 15 ? digits : '';
   }
-  const noDigits = {
-    'holder',
-    'nationality',
-    'birth_place',
-    'landlord',
-    'employer',
-    'insurer',
-  };
-  if (noDigits.contains(key) && RegExp(r'\d').hasMatch(v)) return '';
   return v;
 }
 
@@ -606,6 +679,11 @@ Map<String, dynamic> readDetails(Object texts, {DateTime? today}) {
     final i = ar.indexOf(c), j = fa.indexOf(c);
     return i >= 0 ? '$i' : (j >= 0 ? '$j' : c);
   }).join();
+  // invisible direction marks
+  text = text.replaceAll(
+    RegExp('[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c\ufeff]'),
+    '',
+  );
   final lines = text.split('\n');
   final found = readMrz(text);
   if (found.isEmpty) {
@@ -703,7 +781,28 @@ Map<String, dynamic> readDetails(Object texts, {DateTime? today}) {
     ..['expires'] = expires
     ..['issued'] = issued;
 
-  // ---- the document's number
+  // ---- the document's number. On an ID card that's the national (personal)
+  // number, not the card's own serial printed by the chip, which goes apart.
+  var national = '${found.remove('_national') ?? ''}';
+  if (found['doc_type'] == 'id_card' || found['doc_type'] == 'residence') {
+    if (national.isEmpty) {
+      final m = _national.firstMatch(text);
+      national = m == null ? '' : (m[1] ?? m[2]!);
+    }
+    if (national.isEmpty) {
+      national =
+          RegExp(r'(?<![\d+])[129]\d{9}(?!\d)').firstMatch(text)?[0] ?? '';
+    }
+    if (national.isNotEmpty) {
+      final had = '${found['number'] ?? ''}';
+      if (had.isNotEmpty && had != national) found['card_number'] = had;
+      found['number'] = national;
+      if ('${found['card_number'] ?? ''}'.isEmpty) {
+        found['card_number'] =
+            RegExp(r'\b[A-Z]{1,3}\d{5,9}\b').firstMatch(text)?[0] ?? '';
+      }
+    }
+  }
   if ('${found['number'] ?? ''}'.isEmpty) {
     for (final m in _number.allMatches(text)) {
       final pre = text.substring(max(0, m.start - 14), m.start);

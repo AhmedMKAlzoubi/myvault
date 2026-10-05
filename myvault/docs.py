@@ -24,6 +24,8 @@ import re
 import uuid
 from pathlib import Path
 
+from functools import lru_cache
+
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -283,7 +285,7 @@ def read_mrz(text: str) -> dict:
 def _td23(b: list[str]) -> dict:
     l1, l2 = b
     out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l1[5:]),
-           "nationality": l2[10:13].strip("<"), "gender": l2[20] if l2[20] in "MF" else ""}
+           "nationality": nationality_code(l2[10:13].strip("<")), "gender": l2[20] if l2[20] in "MF" else ""}
     number = _field(l2[0:9], l2[9], False)
     birth = _field(l2[13:19], l2[19], True)
     expiry = _field(l2[21:27], l2[27], True)
@@ -298,8 +300,10 @@ def _td23(b: list[str]) -> dict:
 
 def _td1(b: list[str]) -> dict:
     l1, l2, l3 = b
+    extra = l1[15:30].strip("<")             # many ID cards keep the national number here
     out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l3),
-           "nationality": l2[15:18].strip("<"), "gender": l2[7] if l2[7] in "MF" else ""}
+           "nationality": nationality_code(l2[15:18].strip("<")), "gender": l2[7] if l2[7] in "MF" else "",
+           "_national": extra if extra.isdigit() and 8 <= len(extra) <= 14 else ""}
     number = _field(l1[5:14], l1[14], False)
     birth = _field(l2[0:6], l2[6], True)
     expiry = _field(l2[8:14], l2[14], True)
@@ -312,12 +316,46 @@ def _td1(b: list[str]) -> dict:
     return out
 
 
+@lru_cache(maxsize=1)
+def countries() -> list[list[str]]:
+    """[code, country, nationality, country in Arabic, nationality in Arabic]."""
+    return json.loads((Path(__file__).resolve().parent / "ui" / "countries.json").read_text("utf-8"))["list"]
+
+
+def _plain_ar(w: str) -> str:
+    w = re.sub(r"^ال", "", w).rstrip("ة")
+    return w.translate(str.maketrans("أإآ", "ااا"))
+
+
+def nationality_code(v: str) -> str:
+    """A nationality or country, in English or Arabic, as its code; "" if it isn't one."""
+    v = v.strip()
+    up = v.upper()
+    codes = {c[0] for c in countries()}
+    if up in codes:
+        return up
+    if up == "D":                       # Germany's code in passports
+        return "DEU"
+    low = v.lower()
+    for code, en, nat, _, _ in countries():
+        if low in (en.lower(), nat.lower()):
+            return code
+    for w in re.findall(r"[^\W\d_]+", v):
+        wl, wa = w.lower(), _plain_ar(w)
+        for code, en, nat, ar, nat_ar in countries():
+            if wl in (en.lower(), nat.lower()) or (len(wa) > 2 and wa in (_plain_ar(ar), _plain_ar(nat_ar))):
+                return code
+    return ""
+
+
 _MONTHS = {m: i for i, m in enumerate(
     "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
 _EXPIRY = re.compile(r"expir|valid\s*(until|thru|through|to)|end\s*date|انتهاء|صالح[ةه]?\s*(حتى|لغاية)|ينتهي", re.I)
 _ISSUE = re.compile(r"issue|start\s*date|إصدار|الإصدار|تحرير", re.I)
 _BIRTH = re.compile(r"birth|born|\bdob\b|ميلاد|الولادة", re.I)
 _NUMBER = re.compile(r"(?:\bno\b\.?|number|\bnum\b\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})", re.I)
+_NATIONAL = re.compile(r"(?:national|personal|identity|\bid\b)\s*(?:\bno\b\.?|number|#)\s*[:.]?\s*(\d{6,14})|"
+                       r"(?:الرقم\s*الوطني|رقم\s*(?:وطني|الهوية|شخصي))\s*[:.]?\s*(\d{6,14})", re.I)
 _NOT_NUMBER = re.compile(r"plate|phone|\btel\b|mobile|chassis|\bvin\b|اللوحة|هاتف", re.I)
 # Most specific first. "Residence" alone is often an ID card's address line, so a
 # residence permit has to say so.
@@ -365,15 +403,29 @@ def _after(label: str, lines: list[str]) -> str:
     return ""
 
 
+_LABEL_WORD = re.compile(r"^(?:(?:full\s*)?name|surname|given\s*names?|الاسم)\b\s*[:：.]?\s*", re.I)
+_TITLE = re.compile(r"card|identity|passport|licen[cs]e|permit|بطاقة|هوية|جواز|رخصة", re.I)
+_OTHER_LABEL = re.compile(r"date|birth|expir|issue|nationality|\bsex\b|gender|address|تاريخ|الجنسية|الجنس|العنوان", re.I)
+_NAME = re.compile(r"^[^\W\d_]+(?:[ '\-][^\W\d_]+){0,6}$")
+
+
 def _clean(key: str, v: str) -> str:
+    """The value if it makes sense for that field, else "" (a box is better empty than wrong)."""
+    v = v.strip(" :：.,;-–")
+    if key == "nationality":
+        return nationality_code(v)
+    if key in ("holder", "landlord", "employer", "insurer", "birth_place"):
+        v = _LABEL_WORD.sub("", v).strip(" :：.,;-–")
+        ok = _NAME.match(v) and not _TITLE.search(v) and not _OTHER_LABEL.search(v)
+        return v if ok and (key != "holder" or len(v.split()) >= 2) else ""
+    if key == "address" and (_TITLE.search(v) or _OTHER_LABEL.search(v) or not re.search(r"[^\W\d_]{2}", v)):
+        return ""
     if key == "gender":
         g = v.strip().upper()[:1]
         return "M" if g == "M" or "ذكر" in v else "F" if g == "F" or "أنثى" in v else ""
     if key == "phone":
         digits = re.sub(r"[^\d+]", "", v)
         return digits if 7 <= len(digits.lstrip("+")) <= 15 else ""
-    if key in ("holder", "nationality", "birth_place", "landlord", "employer", "insurer") and re.search(r"\d", v):
-        return ""
     return v
 
 
@@ -408,6 +460,7 @@ def read_details(text: str | list[str], today: dt.date | None = None) -> dict:
     today = today or dt.date.today()
     text = "\n".join([text] if isinstance(text, str) else text)
     text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    text = re.sub("[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c\ufeff]", "", text)   # invisible direction marks
     lines = text.splitlines()
     found = read_mrz(text)
     if not found:
@@ -461,7 +514,23 @@ def read_details(text: str | list[str], today: dt.date | None = None) -> dict:
         issued = before[-1] if before else None
     found.update(birth_date=birth, expires=expires, issued=issued)
 
-    # ---- the document's number
+    # ---- the document's number. On an ID card that's the national (personal)
+    # number, not the card's own serial printed by the chip, which goes apart.
+    national = found.pop("_national", "")
+    if found.get("doc_type") in ("id_card", "residence"):
+        if not national:
+            m = _NATIONAL.search(text)
+            national = (m.group(1) or m.group(2)) if m else ""
+        if not national:
+            m = re.search(r"(?<![\d+])[129]\d{9}(?!\d)", text)
+            national = m.group(0) if m else ""
+        if national:
+            if found.get("number") and found["number"] != national:
+                found["card_number"] = found["number"]
+            found["number"] = national
+            if not found.get("card_number"):
+                m = re.search(r"\b[A-Z]{1,3}\d{5,9}\b", text)
+                found["card_number"] = m.group(0) if m else ""
     if not found.get("number"):
         for m in _NUMBER.finditer(text):
             if not _NOT_NUMBER.search(text[max(0, m.start() - 14):m.start()]) and re.search(r"\d", m.group(1)):
@@ -509,11 +578,21 @@ def ocr(data: bytes) -> str:
         if max(bitmap.pixel_width, bitmap.pixel_height) > OcrEngine.max_image_dimension:
             raise RuntimeError("That image is too large to read. Try a smaller photo.")
         texts = []
-        for lang in OcrEngine.available_recognizer_languages:   # each installed one, e.g. English and Arabic
+        langs = sorted(OcrEngine.available_recognizer_languages,     # e.g. English and Arabic;
+                       key=lambda lang: not lang.language_tag.startswith("en"))   # English first
+        for lang in langs:
             engine = OcrEngine.try_create_from_language(lang)
-            if engine is not None:
-                result = await engine.recognize_async(bitmap)
-                texts.append("\n".join(line.text for line in result.lines))
+            if engine is None:
+                continue
+            result = await engine.recognize_async(bitmap)
+            if lang.layout_direction == 1:      # right to left: Windows gives the words left to right,
+                # so put them back in reading order, and leave the Latin words to the English reader
+                lines = [" ".join(w.text for w in sorted(line.words, key=lambda w: -w.bounding_rect.x)
+                                  if not re.fullmatch(r"[A-Za-z0-9<:./-]+", w.text))
+                         for line in result.lines]
+            else:
+                lines = [line.text for line in result.lines]
+            texts.append("\n".join(x for x in lines if x.strip()))
         if not texts:
             raise RuntimeError("Windows has no text-reading language installed.")
         return "\n".join(texts)

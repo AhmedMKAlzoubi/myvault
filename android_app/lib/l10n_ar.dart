@@ -495,6 +495,16 @@ const arabic = <String, String>{
   'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.':
       'امسح وجهي البطاقة. يجد الماسح الحواف تلقائيًا، ويمكنك سحب الزوايا لضبطها. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
   'The document scanner isn\'t available.': 'الماسح الضوئي للمستندات غير متاح.',
+  // ---- document checks and choices ----
+  'Choose…': 'اختر…',
+  'Male': 'ذكر',
+  'Female': 'أنثى',
+  'Card number': 'رقم البطاقة',
+  'ID number': 'الرقم الوطني',
+  'Scans can be misread: check every highlighted box against the document before saving.': 'قد تُقرأ المسوحات بشكل خاطئ: طابق كل خانة مميَّزة مع المستند قبل الحفظ.',
+  'From the scan: check it': 'من المسح: تحقّق منها',
+  'Use the camera': 'استخدام الكاميرا',
+  'Too dark? Tap the scanner\'s flash button. Photo too bright or shiny? Pick “No filter” after scanning, tilt the card away from the light, or use the camera instead.': 'الصورة معتمة؟ اضغط زر الفلاش في الماسح. الصورة ساطعة أو لامعة؟ اختر «بلا فلتر» بعد المسح، أو أمِل البطاقة بعيدًا عن الضوء، أو استخدم الكاميرا بدلًا منه.',
 };
 
 const arabicMonths = [

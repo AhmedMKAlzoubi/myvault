@@ -1080,7 +1080,10 @@ class _EntryViewPageState extends State<EntryViewPage> {
         .where((r) => r.$2.isNotEmpty)
         .map((r) {
           final f = r.$1;
-          if (f.options != null) return (f, tr(docs.typeLabel(r.$2)));
+          if (f.options != null) {
+            final o = f.options!.where((o) => o.$1 == r.$2).firstOrNull;
+            return (f, tr(o?.$2 ?? r.$2));
+          }
           return (f, f.date ? fmtDay(r.$2) : r.$2);
         })
         .toList();
@@ -1253,6 +1256,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
 
   final _doc = DocumentDraft();
   final _docKey = GlobalKey();
+  final _auto = <String>{}; // boxes filled in from a scan, until changed
 
   void _save() {
     _e.title = _title.text.trim();
@@ -1362,19 +1366,46 @@ class _EntryEditPageState extends State<EntryEditPage> {
     }
   }
 
+  // A box filled in from a scan is marked until the person changes it.
+  InputDecoration _marked(FieldDef f, InputDecoration d) {
+    if (!_auto.contains(f.key)) return d;
+    const amber = Color(0xFFB7791F);
+    return d.copyWith(
+      helperText: tr('From the scan: check it'),
+      helperStyle: const TextStyle(color: amber),
+      filled: true,
+      fillColor: amber.withValues(alpha: .10),
+    );
+  }
+
   Widget _field(FieldDef f) {
     final c = _c[f.key]!;
     if (f.options != null) {
+      // a value typed before there was a list stays one of the choices
+      final options = [
+        ...f.options!,
+        if (!f.options!.any((o) => o.$1 == c.text)) (c.text, c.text),
+      ];
       return Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: DropdownButtonFormField<String>(
-          initialValue: f.options!.any((o) => o.$1 == c.text) ? c.text : '',
-          decoration: InputDecoration(labelText: tr(f.label)),
+          key: ValueKey(
+            '${f.key}=${c.text}',
+          ), // follows a value read from a scan
+          initialValue: c.text,
+          isExpanded: true,
+          decoration: _marked(f, InputDecoration(labelText: tr(f.label))),
           items: [
-            for (final o in f.options!)
-              DropdownMenuItem(value: o.$1, child: Text(tr(o.$2))),
+            for (final o in options)
+              DropdownMenuItem(
+                value: o.$1,
+                child: Text(tr(o.$2), overflow: TextOverflow.ellipsis),
+              ),
           ],
-          onChanged: (v) => setState(() => c.text = v ?? ''),
+          onChanged: (v) => setState(() {
+            c.text = v ?? '';
+            _auto.remove(f.key);
+          }),
         ),
       );
     }
@@ -1390,18 +1421,29 @@ class _EntryEditPageState extends State<EntryEditPage> {
               firstDate: DateTime(1950),
               lastDate: DateTime(now.year + 30),
             );
-            if (picked != null) setState(() => c.text = docs.isoDay(picked));
+            if (picked != null) {
+              setState(() {
+                c.text = docs.isoDay(picked);
+                _auto.remove(f.key);
+              });
+            }
           },
           child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: tr(f.label),
-              suffixIcon: c.text.isEmpty
-                  ? const Icon(Icons.calendar_today_outlined, size: 20)
-                  : IconButton(
-                      tooltip: tr('Clear'),
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: () => setState(() => c.clear()),
-                    ),
+            decoration: _marked(
+              f,
+              InputDecoration(
+                labelText: tr(f.label),
+                suffixIcon: c.text.isEmpty
+                    ? const Icon(Icons.calendar_today_outlined, size: 20)
+                    : IconButton(
+                        tooltip: tr('Clear'),
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => setState(() {
+                          c.clear();
+                          _auto.remove(f.key);
+                        }),
+                      ),
+              ),
             ),
             isEmpty: c.text.isEmpty,
             child: Text(c.text.isEmpty ? '' : fmtDay(c.text)),
@@ -1427,70 +1469,75 @@ class _EntryEditPageState extends State<EntryEditPage> {
             minLines: 1,
             autocorrect: false,
             enableSuggestions: !f.secret,
-            onChanged: f.gen ? (_) => setState(() {}) : null,
+            onChanged: (_) {
+              if (_auto.remove(f.key) || f.gen) setState(() {});
+            },
             style: TextStyle(
               fontFamily: f.mono || f.secret ? 'monospace' : null,
             ),
-            decoration: InputDecoration(
-              labelText: tr(f.label),
-              suffixIcon: !f.secret
-                  ? null
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            hidden
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 20,
-                          ),
-                          tooltip: tr(hidden ? 'Show' : 'Hide'),
-                          onPressed: () => setState(
-                            () => hidden
-                                ? _shown.add(f.key)
-                                : _shown.remove(f.key),
-                          ),
-                        ),
-                        // Direct paste: doesn't depend on Android's paste bubble.
-                        if (!filled)
+            decoration: _marked(
+              f,
+              InputDecoration(
+                labelText: tr(f.label),
+                suffixIcon: !f.secret
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           IconButton(
-                            icon: const Icon(Icons.content_paste, size: 20),
-                            tooltip: tr('Paste'),
-                            onPressed: () async {
-                              final clip = await Clipboard.getData(
-                                'text/plain',
-                              );
-                              final text = clip?.text ?? '';
-                              if (!mounted) return;
-                              if (text.isEmpty) {
-                                return _snack(
-                                  context,
-                                  tr(
-                                    'The clipboard is empty. Copy the text again, then tap Paste.',
-                                  ),
+                            icon: Icon(
+                              hidden
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              size: 20,
+                            ),
+                            tooltip: tr(hidden ? 'Show' : 'Hide'),
+                            onPressed: () => setState(
+                              () => hidden
+                                  ? _shown.add(f.key)
+                                  : _shown.remove(f.key),
+                            ),
+                          ),
+                          // Direct paste: doesn't depend on Android's paste bubble.
+                          if (!filled)
+                            IconButton(
+                              icon: const Icon(Icons.content_paste, size: 20),
+                              tooltip: tr('Paste'),
+                              onPressed: () async {
+                                final clip = await Clipboard.getData(
+                                  'text/plain',
                                 );
-                              }
-                              setState(() {
-                                c.text = f.multi ? text : text.trim();
-                                if (f.gen) _shown.add(f.key);
-                              });
-                            },
-                          ),
-                        if (f.gen && !filled)
-                          IconButton(
-                            icon: const Icon(Icons.casino_outlined, size: 20),
-                            tooltip: tr('Generate'),
-                            onPressed: _generate,
-                          ),
-                        if (filled)
-                          IconButton(
-                            icon: const Icon(Icons.autorenew, size: 20),
-                            tooltip: tr('Change password'),
-                            onPressed: _changePassword,
-                          ),
-                      ],
-                    ),
+                                final text = clip?.text ?? '';
+                                if (!mounted) return;
+                                if (text.isEmpty) {
+                                  return _snack(
+                                    context,
+                                    tr(
+                                      'The clipboard is empty. Copy the text again, then tap Paste.',
+                                    ),
+                                  );
+                                }
+                                setState(() {
+                                  c.text = f.multi ? text : text.trim();
+                                  if (f.gen) _shown.add(f.key);
+                                });
+                              },
+                            ),
+                          if (f.gen && !filled)
+                            IconButton(
+                              icon: const Icon(Icons.casino_outlined, size: 20),
+                              tooltip: tr('Generate'),
+                              onPressed: _generate,
+                            ),
+                          if (filled)
+                            IconButton(
+                              icon: const Icon(Icons.autorenew, size: 20),
+                              tooltip: tr('Change password'),
+                              onPressed: _changePassword,
+                            ),
+                        ],
+                      ),
+              ),
             ),
           ),
           if (f.gen)
@@ -1558,7 +1605,10 @@ class _EntryEditPageState extends State<EntryEditPage> {
               fill: (k, v) {
                 final c = _c[k];
                 if (c == null || c.text.isNotEmpty) return false;
-                setState(() => c.text = v);
+                setState(() {
+                  c.text = v;
+                  _auto.add(k);
+                });
                 return true;
               },
             ),

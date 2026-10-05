@@ -351,6 +351,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
   final _custom = TextEditingController();
   String _note = '';
   bool _busy = false;
+  bool _check = false; // the note asks to check what was filled in
   DocumentDraft get d => widget.draft;
 
   @override
@@ -410,11 +411,15 @@ class _DocumentEditorState extends State<DocumentEditor> {
         if (widget.fill(key, '$value')) filled.add(key);
       }
       final type = widget.type();
+      _check = filled.isNotEmpty;
       _note = filled.isEmpty
           ? tr(
               "Couldn't find new details in these files. Type them in instead.",
             )
           : [
+              tr(
+                'Scans can be misread: check every highlighted box against the document before saving.',
+              ),
               tr(
                 got['how'] == 'mrz'
                     ? 'Read from the machine-readable zone (the <<< lines) and checked.'
@@ -425,14 +430,16 @@ class _DocumentEditorState extends State<DocumentEditor> {
               ),
               if (got['guessed'] == true && filled.contains('expires'))
                 tr("The expiry date is a guess (it wasn't labelled)."),
-              tr('Check the details before saving.'),
             ].join(' ');
     } on FormatException catch (e) {
       _note = tr(e.message);
+      _check = false;
     } on PlatformException catch (e) {
       _note = tr(e.message ?? "That file couldn't be read.");
+      _check = false;
     } catch (_) {
       _note = tr("That file couldn't be read.");
+      _check = false;
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -455,6 +462,13 @@ class _DocumentEditorState extends State<DocumentEditor> {
         Text(
           tr(
             'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.',
+          ),
+          style: TextStyle(color: e.ink3, fontSize: 12.5),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          tr(
+            "Too dark? Tap the scanner's flash button. Photo too bright or shiny? Pick “No filter” after scanning, tilt the card away from the light, or use the camera instead.",
           ),
           style: TextStyle(color: e.ink3, fontSize: 12.5),
         ),
@@ -481,18 +495,48 @@ class _DocumentEditorState extends State<DocumentEditor> {
           ],
         ),
         if (_note.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(_note, style: TextStyle(color: e.ink2)),
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            padding: _check ? const EdgeInsets.all(10) : EdgeInsets.zero,
+            decoration: _check
+                ? BoxDecoration(
+                    color: const Color(0xFFB7791F).withValues(alpha: .12),
+                    border: Border.all(color: const Color(0xFFB7791F)),
+                    borderRadius: BorderRadius.circular(10),
+                  )
+                : null,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_check)
+                  const Padding(
+                    padding: EdgeInsetsDirectional.only(end: 8),
+                    child: Icon(
+                      Icons.warning_amber_rounded,
+                      size: 20,
+                      color: Color(0xFFB7791F),
+                    ),
+                  ),
+                Expanded(
+                  child: Text(_note, style: TextStyle(color: e.ink2)),
+                ),
+              ],
+            ),
           ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 4,
           children: [
             FilledButton.icon(
               onPressed: () => _add('scan'),
               icon: const Icon(Icons.document_scanner_outlined, size: 18),
               label: Text(tr('Scan document')),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _add('camera'),
+              icon: const Icon(Icons.photo_camera_outlined, size: 18),
+              label: Text(tr('Use the camera')),
             ),
             OutlinedButton.icon(
               onPressed: () => _add('pick'),

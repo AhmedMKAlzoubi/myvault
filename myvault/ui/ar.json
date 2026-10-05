@@ -484,5 +484,11 @@
 "Couldn't find the details in these files. Type them in instead.": "تعذّر العثور على التفاصيل في هذه الملفات. اكتبها بنفسك.",
 "Photos or PDFs of the document: add both sides of a card. They're encrypted the moment you add them, and MyVault reads the details from all of them together, on this PC.": "صور المستند أو ملفات PDF له: أضف وجهي البطاقة. تُشفَّر لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الكمبيوتر.",
 "Notifications come from the installed MyVault while it runs by the clock.": "تصدر الإشعارات عن MyVault المثبّت أثناء عمله بجانب الساعة.",
-"Reminders show as Windows notifications while MyVault runs by the clock. Check they get through (Windows' Do not disturb can hide them):": "تظهر التذكيرات كإشعارات Windows أثناء عمل MyVault بجانب الساعة. تأكد أنها تصل (قد يخفيها وضع «عدم الإزعاج» في Windows):"
+"Reminders show as Windows notifications while MyVault runs by the clock. Check they get through (Windows' Do not disturb can hide them):": "تظهر التذكيرات كإشعارات Windows أثناء عمل MyVault بجانب الساعة. تأكد أنها تصل (قد يخفيها وضع «عدم الإزعاج» في Windows):",
+"Choose…": "اختر…",
+"Male": "ذكر",
+"Female": "أنثى",
+"Card number": "رقم البطاقة",
+"ID number": "الرقم الوطني",
+"Scans can be misread: check every highlighted box against the document before saving.": "قد تُقرأ المسوحات بشكل خاطئ: طابق كل خانة مميَّزة مع المستند قبل الحفظ."
 }

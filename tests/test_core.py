@@ -285,6 +285,11 @@ def test_document_types_are_the_same_on_pc_and_phone():
     for name, t in pc["types"].items():
         assert set(t["fields"]) <= set(pc["fields"]) and "expires" in t["fields"], name
         assert set(t.get("labels", {})) <= set(t["fields"]), name
+    pc = json.loads((ROOT / "myvault" / "ui" / "countries.json").read_text("utf-8"))
+    phone = json.loads((ROOT / "android_app" / "assets" / "countries.json").read_text("utf-8"))
+    assert pc == phone, "copy myvault/ui/countries.json to android_app/assets/countries.json"
+    codes = [c[0] for c in pc["list"]]
+    assert len(codes) == len(set(codes)) and "ISR" not in codes and all(len(c) == 5 for c in pc["list"])
 
 
 def test_documents_reminders_and_sealed_files():
