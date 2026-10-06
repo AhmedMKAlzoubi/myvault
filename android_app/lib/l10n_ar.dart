@@ -623,7 +623,41 @@ const arabic = <String, String>{
   'Deleted 1 entry.': 'حُذف عنصر واحد.',
   'Deleted {0} entries.': 'حُذف {0} من العناصر.',
   'Undo': 'تراجع',
-  'They\'re removed from this phone now, and from your PC at the next sync. You can undo this straight after.': 'تُزال من هذا الهاتف الآن، ومن الكمبيوتر عند المزامنة التالية. يمكنك التراجع عن هذا فورًا بعده.',
+  'They\'re removed from this phone now, and from your PC at the next sync. You can undo this straight after.':
+      'تُزال من هذا الهاتف الآن، ومن الكمبيوتر عند المزامنة التالية. يمكنك التراجع عن هذا فورًا بعده.',
+  // ---- several vaults ----
+  'My vault': 'خزنتي',
+  'Vaults': 'الخزنات',
+  'Vault': 'الخزنة',
+  'Choose a vault, then enter its master password.':
+      'اختر خزنة، ثم أدخل كلمة مرورها الرئيسية.',
+  'A new, empty vault with its own master password. It can be the same as another vault\'s, or different so each vault stays separate.':
+      'خزنة جديدة فارغة بكلمة مرور رئيسية خاصة بها. يمكن أن تكون مثل كلمة مرور خزنة أخرى، أو مختلفة لتبقى كل خزنة منفصلة.',
+  'Vault name, such as Work or Home': 'اسم الخزنة، مثل العمل أو المنزل',
+  'Create vault': 'إنشاء الخزنة',
+  'New vault…': 'خزنة جديدة…',
+  'Give the vault a name, such as Work or Home.':
+      'سمِّ الخزنة، مثل العمل أو المنزل.',
+  'You already have a vault called {0}.': 'لديك بالفعل خزنة باسم {0}.',
+  'Rename': 'إعادة التسمية',
+  'Delete this vault…': 'حذف هذه الخزنة…',
+  'To be sure, type its name and its master password.':
+      'للتأكيد، اكتب اسمها وكلمة مرورها الرئيسية.',
+  'Its master password': 'كلمة مرورها الرئيسية',
+  'Delete for good': 'حذف نهائي',
+  'Type the vault\'s name exactly as it is to delete it.':
+      'اكتب اسم الخزنة كما هو تمامًا لحذفها.',
+  'That isn\'t this vault\'s master password.':
+      'هذه ليست كلمة المرور الرئيسية لهذه الخزنة.',
+  'Switch vault': 'تبديل الخزنة',
+  'Rename this vault': 'إعادة تسمية هذه الخزنة',
+  'Vault name': 'اسم الخزنة',
+  'Delete “{0}” from this phone?': 'حذف «{0}» من هذا الهاتف؟',
+  'Its entries, files and reminders are removed from this phone for good. It isn\'t deleted from your PC: a copy there stays.':
+      'تُزال عناصرها وملفاتها وتذكيراتها من هذا الهاتف نهائيًا. ولا تُحذف من الكمبيوتر: تبقى نسخة هناك.',
+  'Each vault is a separate encrypted file with its own master password (it can be the same as another one), its own files and reminders.':
+      'كل خزنة ملف مشفّر منفصل بكلمة مرور رئيسية خاصة به (يمكن أن تكون مثل كلمة مرور خزنة أخرى)، وملفاته وتذكيراته الخاصة.',
+  'Open now': 'مفتوحة الآن',
 };
 
 const arabicMonths = [

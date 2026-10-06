@@ -125,7 +125,7 @@ class DocsBridge(private val activity: Activity) {
                 })
             }
             "setReminders" -> {
-                ReminderJob.save(activity, call.arguments as String)
+                ReminderJob.save(activity, call.argument<String>("vault") ?: "default", call.argument<String>("json") ?: "[]")
                 result.success(true)
             }
             "notifyAllowed" -> result.success(notifyAllowed())

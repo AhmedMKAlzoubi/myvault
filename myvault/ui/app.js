@@ -215,7 +215,9 @@
   // ---- lock screen ---------------------------------------------------------
   // Several vaults ("Work", "Home"...), each with its own master password: pick
   // one, or make a new one.
-  const vaultName = () => (S.vaults.find((v) => v.id === S.vault) || { name: "My vault" }).name;
+  // the original vault's default name in the app's language; any chosen name as typed
+  const vlabel = (n) => (n === "My vault" ? t("My vault") : n);
+  const vaultName = () => vlabel((S.vaults.find((v) => v.id === S.vault) || { name: "My vault" }).name);
 
   async function showLock(msg = "") {
     const b = await call("boot");
@@ -236,7 +238,7 @@
       "aria-label": "Vault name", placeholder: "Vault name, such as Work or Home" });
     const pick = !creating && S.vaults.length > 1 && h("select", { class: "inp", "aria-label": "Vault",
       onchange: (ev) => { S.vault = ev.target.value; renderLock(); } },
-      S.vaults.map((v) => h("option", { value: v.id, selected: v.id === S.vault || null }, raw(v.name))));
+      S.vaults.map((v) => h("option", { value: v.id, selected: v.id === S.vault || null }, raw(vlabel(v.name)))));
     const pw1 = h("input", { class: "inp", type: "password", id: "pw1", autocomplete: "current-password",
       "aria-label": exists ? "Master password" : "New master password", placeholder: exists ? "Master password" : "Choose a master password" });
     const pw2 = !exists && h("input", { class: "inp", type: "password", id: "pw2", "aria-label": "Type it again",
@@ -254,7 +256,7 @@
         : exists ? (S.vaults.length > 1 ? "Choose a vault, then enter its master password." : "Your vault is sealed. Enter your master password to open it.")
         : "Choose the one password that opens your vault. It's the only one you'll need to remember."),
       name, pick,
-      !creating && S.vaults.length === 1 && cur.exists && h("p", { class: "hint", style: "margin:0" }, raw(cur.name)),
+      !creating && S.vaults.length === 1 && cur.exists && h("p", { class: "hint", style: "margin:0" }, raw(vlabel(cur.name))),
       pw1, pw2, meter,
       !exists && h("p", { class: "warn" }, "There's no reset. If this password is forgotten, nobody can open the vault, not even you. Write it down and keep it somewhere safe."),
       err, go,

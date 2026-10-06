@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
 import 'crypto.dart';
@@ -26,6 +25,7 @@ import 'theme.dart';
 import 'update.dart' as upd;
 import 'update_ui.dart';
 import 'vault.dart';
+import 'vaults.dart';
 import 'version.dart';
 
 Future<void> main() async {
@@ -48,11 +48,9 @@ const _clipboardClear = Duration(seconds: 30);
 @visibleForTesting
 String? vaultPathOverride;
 
-Future<String> vaultFilePath() async {
-  if (vaultPathOverride != null) return vaultPathOverride!;
-  final dir = await getApplicationDocumentsDirectory();
-  return '${dir.path}/vault.dat';
-}
+/// The current vault's file (see vaults.dart).
+Future<String> vaultFilePath() async =>
+    vaultPathOverride ?? await vaultPathOf(currentVault);
 
 final _nav = GlobalKey<NavigatorState>();
 
@@ -64,6 +62,7 @@ Future<Vault> _openVault(String path, String pw, bool exists) =>
 /// Holds the open vault and locks it when the app is backgrounded or idle.
 class Session {
   static Vault? vault;
+  static String vaultName = 'My vault'; // shown on the home page
   static DateTime? _pausedAt;
   static Timer? _idle;
 
@@ -116,12 +115,14 @@ class Session {
     }
   }
 
-  static void lock([String msg = '']) {
+  static void lock([String msg = '', bool create = false]) {
     vault = null;
     _idle?.cancel();
     _Clip.wipe();
     _nav.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => UnlockPage(message: msg)),
+      MaterialPageRoute(
+        builder: (_) => UnlockPage(message: msg, create: create),
+      ),
       (_) => false,
     );
   }
@@ -453,7 +454,8 @@ Widget pwText(BuildContext c, String pw, {double size = 18}) {
 // =====================================================================
 class UnlockPage extends StatefulWidget {
   final String message;
-  const UnlockPage({super.key, this.message = ''});
+  final bool create; // straight to "New vault"
+  const UnlockPage({super.key, this.message = '', this.create = false});
   @override
   State<UnlockPage> createState() => _UnlockPageState();
 }
@@ -465,19 +467,39 @@ class _UnlockPageState extends State<UnlockPage> {
   bool _bio = false; // fingerprint unlock is on
   late String _error = widget.message;
   String _path = '';
+  List<VaultInfo> _vaults = const [];
+  late bool _creating = widget.create; // making a new vault
+  final _name = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     () async {
-      _path = await vaultFilePath();
-      _exists = File(_path).existsSync();
-      if (_exists) _bio = (await bioStatus()).$2;
+      _vaults = await vaultList();
+      final last = (await upd.loadPrefs())['last_vault'];
+      await _pickVault(
+        _vaults.any((v) => v.id == last) ? last as String : defaultVault,
+      );
       if (mounted) setState(() => _loading = false);
       // Straight to the fingerprint, unless it locked itself while in use.
-      if (_bio && widget.message.isEmpty) _withFingerprint();
+      if (_bio && !_creating && widget.message.isEmpty) _withFingerprint();
     }();
   }
+
+  Future<void> _pickVault(String id) async {
+    currentVault = id;
+    _path = await vaultFilePath();
+    _exists = File(_path).existsSync();
+    _bio = _exists && (await bioStatus()).$2;
+    if (mounted) setState(() {});
+  }
+
+  String get _vaultName => _vaults
+      .firstWhere(
+        (v) => v.id == currentVault,
+        orElse: () => const VaultInfo(defaultVault, 'My vault'),
+      )
+      .name;
 
   Future<void> _withFingerprint() async {
     try {
@@ -497,8 +519,11 @@ class _UnlockPageState extends State<UnlockPage> {
   Future<void> _offerFingerprint(String pw) async {
     final (can, on) = await bioStatus();
     final prefs = await upd.loadPrefs();
-    if (!can || on || prefs['bio_offered'] == true || !mounted) return;
-    prefs['bio_offered'] = true;
+    final asked = currentVault == defaultVault
+        ? 'bio_offered'
+        : 'bio_offered_$currentVault';
+    if (!can || on || prefs[asked] == true || !mounted) return;
+    prefs[asked] = true;
     await upd.savePrefs(prefs);
     if (!mounted) return;
     final yes = await showDialog<bool>(
@@ -527,10 +552,22 @@ class _UnlockPageState extends State<UnlockPage> {
 
   Future<void> _submit() async {
     final pw = _pw1.text;
+    final name = _name.text.trim();
+    if (_creating && name.isEmpty) {
+      return setState(
+        () => _error = tr('Give the vault a name, such as Work or Home.'),
+      );
+    }
+    if (_creating &&
+        _vaults.any((v) => v.name.toLowerCase() == name.toLowerCase())) {
+      return setState(
+        () => _error = tr('You already have a vault called $name.'),
+      );
+    }
     if (pw.isEmpty) {
       return setState(() => _error = tr('Enter your master password.'));
     }
-    if (!_exists) {
+    if (!_exists || _creating) {
       if (pw.length < 8) {
         return setState(
           () => _error = tr(
@@ -542,6 +579,10 @@ class _UnlockPageState extends State<UnlockPage> {
         return setState(() => _error = tr("The two passwords don't match."));
       }
     }
+    if (_creating) {
+      await _pickVault(await newVault(name));
+      _vaults = await vaultList();
+    }
     await _open(pw);
   }
 
@@ -552,9 +593,13 @@ class _UnlockPageState extends State<UnlockPage> {
     });
     try {
       final vault = await _openVault(_path, pw, _exists);
+      final prefs = await upd.loadPrefs();
+      prefs['last_vault'] = currentVault; // offered first next time
+      await upd.savePrefs(prefs);
       if (!fingerprint && _exists && autofillRequest == null) {
         await _offerFingerprint(pw);
       }
+      Session.vaultName = _vaultName;
       Session.open(vault);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -628,7 +673,15 @@ class _UnlockPageState extends State<UnlockPage> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      _exists
+                      _creating
+                          ? tr(
+                              "A new, empty vault with its own master password. It can be the same as another vault's, or different so each vault stays separate.",
+                            )
+                          : _exists && _vaults.length > 1
+                          ? tr(
+                              'Choose a vault, then enter its master password.',
+                            )
+                          : _exists
                           ? tr(
                               'Your vault is sealed. Enter your master password to open it.',
                             )
@@ -638,6 +691,38 @@ class _UnlockPageState extends State<UnlockPage> {
                       style: TextStyle(color: e.ink2, height: 1.4),
                     ),
                     const SizedBox(height: 18),
+                    if (_creating) ...[
+                      TextField(
+                        controller: _name,
+                        autofocus: true,
+                        maxLength: 40,
+                        decoration: InputDecoration(
+                          labelText: tr('Vault name, such as Work or Home'),
+                          counterText: '',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (_vaults.length > 1) ...[
+                      DropdownButtonFormField<String>(
+                        key: ValueKey(currentVault),
+                        initialValue: currentVault,
+                        isExpanded: true,
+                        decoration: InputDecoration(labelText: tr('Vault')),
+                        items: [
+                          for (final v in _vaults)
+                            DropdownMenuItem(
+                              value: v.id,
+                              child: Text(vaultLabel(v.name)),
+                            ),
+                        ],
+                        onChanged: _busy
+                            ? null
+                            : (id) {
+                                if (id != null) _pickVault(id);
+                              },
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     TextField(
                       controller: _pw1,
                       obscureText: true,
@@ -649,10 +734,13 @@ class _UnlockPageState extends State<UnlockPage> {
                               : 'Choose a master password',
                         ),
                       ),
-                      onChanged: _exists ? null : (_) => setState(() {}),
-                      onSubmitted: (_) => _exists ? _submit() : null,
+                      onChanged: _exists && !_creating
+                          ? null
+                          : (_) => setState(() {}),
+                      onSubmitted: (_) =>
+                          _exists && !_creating ? _submit() : null,
                     ),
-                    if (!_exists) ...[
+                    if (!_exists || _creating) ...[
                       const SizedBox(height: 10),
                       TextField(
                         controller: _pw2,
@@ -692,11 +780,15 @@ class _UnlockPageState extends State<UnlockPage> {
                       onPressed: _busy ? null : _submit,
                       child: Text(
                         _busy
-                            ? (_exists ? tr('Opening…') : tr('Creating…'))
+                            ? (_exists && !_creating
+                                  ? tr('Opening…')
+                                  : tr('Creating…'))
+                            : _creating
+                            ? tr('Create vault')
                             : (_exists ? tr('Unlock') : tr('Create my vault')),
                       ),
                     ),
-                    if (_bio) ...[
+                    if (_bio && !_creating) ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         onPressed: _busy ? null : _withFingerprint,
@@ -704,6 +796,18 @@ class _UnlockPageState extends State<UnlockPage> {
                         label: Text(tr('Use fingerprint')),
                       ),
                     ],
+                    if (_creating ||
+                        _vaults.any((v) => v.id == currentVault) && _exists)
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _creating = !_creating;
+                                _error = '';
+                                if (!_creating) _pickVault(currentVault);
+                              }),
+                        child: Text(tr(_creating ? 'Back' : 'New vault…')),
+                      ),
                   ],
                 ),
               ),
@@ -896,6 +1000,11 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const GeneratorPage()));
+      case 'vaults':
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const VaultsPage()));
+        if (mounted) setState(() {});
       case 'health':
         await Navigator.of(
           context,
@@ -987,9 +1096,21 @@ class _HomePageState extends State<HomePage> {
             : AppBar(
                 title: Row(
                   children: [
-                    EnvelopeMark(width: 24),
-                    SizedBox(width: 10),
-                    Text(tr('MyVault')),
+                    const EnvelopeMark(width: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tr('MyVault')),
+                          Text(
+                            vaultLabel(Session.vaultName),
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: e.ink3),
+                          ),
+                        ],
+                      ),
+                    ),
                   ],
                 ),
                 actions: [
@@ -1010,6 +1131,7 @@ class _HomePageState extends State<HomePage> {
                         value: 'gen',
                         child: Text(tr('Password generator')),
                       ),
+                      PopupMenuItem(value: 'vaults', child: Text(tr('Vaults'))),
                       PopupMenuItem(
                         value: 'health',
                         child: Text(tr('Password health')),
@@ -3083,6 +3205,212 @@ class _AutoLockPageState extends State<AutoLockPage> {
               'Shorter is safer. "Immediately" also locks when you briefly switch apps to copy something.',
             ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =====================================================================
+//  Vaults: several, each with its own master password
+// =====================================================================
+class VaultsPage extends StatefulWidget {
+  const VaultsPage({super.key});
+  @override
+  State<VaultsPage> createState() => _VaultsPageState();
+}
+
+class _VaultsPageState extends State<VaultsPage> {
+  List<VaultInfo> _vaults = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    vaultList().then((v) {
+      if (mounted) setState(() => _vaults = v);
+    });
+  }
+
+  Future<void> _rename() async {
+    final c = TextEditingController(text: Session.vaultName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Rename this vault')),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          maxLength: 40,
+          decoration: InputDecoration(labelText: tr('Vault name')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(d),
+            child: Text(tr('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(d, c.text.trim()),
+            child: Text(tr('Rename')),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    if (_vaults.any(
+      (v) => v.id != currentVault && v.name.toLowerCase() == name.toLowerCase(),
+    )) {
+      return _snack(context, tr('You already have a vault called $name.'));
+    }
+    await saveVaults([
+      for (final v in _vaults) v.id == currentVault ? VaultInfo(v.id, name) : v,
+    ]);
+    Session.vaultName = name;
+    _vaults = await vaultList();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _delete() async {
+    final typed = TextEditingController(), pw = TextEditingController();
+    String error = '';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, set) => AlertDialog(
+          title: Text(tr('Delete “${Session.vaultName}” from this phone?')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  tr(
+                    "Its entries, files and reminders are removed from this phone for good. It isn't deleted from your PC: a copy there stays.",
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  tr('To be sure, type its name and its master password.'),
+                  style: TextStyle(color: Envelope.of(d).ink3, fontSize: 12.5),
+                ),
+                TextField(
+                  controller: typed,
+                  decoration: InputDecoration(labelText: Session.vaultName),
+                ),
+                TextField(
+                  controller: pw,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: tr('Its master password'),
+                  ),
+                ),
+                if (error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      error,
+                      style: TextStyle(color: Envelope.of(d).red),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(d),
+              child: Text(tr('Keep it')),
+            ),
+            TextButton(
+              onPressed: () {
+                final t = typed.text.trim();
+                if (t != Session.vaultName &&
+                    t != vaultLabel(Session.vaultName)) {
+                  return set(
+                    () => error = tr(
+                      "Type the vault's name exactly as it is to delete it.",
+                    ),
+                  );
+                }
+                if (pw.text != Session.vault?.password) {
+                  return set(
+                    () =>
+                        error = tr("That isn't this vault's master password."),
+                  );
+                }
+                Navigator.pop(d, true);
+              },
+              child: Text(
+                tr('Delete for good'),
+                style: TextStyle(color: Envelope.of(d).red),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final gone = currentVault;
+    Session.lock();
+    await clearReminders(gone); // its reminders stop too
+    await bioDisable(); // and its fingerprint key
+    await deleteVault(gone);
+    currentVault = defaultVault;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(tr('Vaults'))),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 30),
+        children: [
+          Text(
+            tr(
+              'Each vault is a separate encrypted file with its own master password (it can be the same as another one), its own files and reminders.',
+            ),
+            style: TextStyle(color: e.ink2),
+          ),
+          const SizedBox(height: 10),
+          for (final v in _vaults)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                v.id == currentVault ? Icons.lock_open : Icons.lock_outline,
+              ),
+              title: Text(vaultLabel(v.name)),
+              subtitle: v.id == currentVault ? Text(tr('Open now')) : null,
+            ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _rename,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: Text(tr('Rename')),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Session.lock('', true),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(tr('New vault…')),
+              ),
+              if (_vaults.length > 1)
+                OutlinedButton.icon(
+                  onPressed: () => Session.lock(),
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: Text(tr('Switch vault')),
+                ),
+              OutlinedButton.icon(
+                onPressed: _delete,
+                icon: Icon(Icons.delete_outline, size: 18, color: e.red),
+                label: Text(
+                  tr('Delete this vault…'),
+                  style: TextStyle(color: e.red),
+                ),
+              ),
+            ],
           ),
         ],
       ),

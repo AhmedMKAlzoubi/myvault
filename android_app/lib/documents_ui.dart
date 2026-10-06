@@ -14,6 +14,7 @@ import 'l10n_ar.dart' show arabicMonths;
 import 'theme.dart';
 import 'update.dart' as upd;
 import 'vault.dart';
+import 'vaults.dart';
 
 const _ch = MethodChannel('myvault/docs');
 
@@ -63,7 +64,19 @@ Widget expiryText(BuildContext context, String iso) {
 /// Hand the reminder schedule to Android (ReminderJob). Called after every save.
 Future<void> pushReminders(Vault v) async {
   try {
-    await _ch.invokeMethod('setReminders', jsonEncode(schedule(v.entries)));
+    await _ch.invokeMethod('setReminders', {
+      'vault': currentVault, // each vault keeps its own reminders
+      'json': jsonEncode(schedule(v.entries)),
+    });
+  } on MissingPluginException {
+    // tests: no Android side
+  }
+}
+
+/// A deleted vault's reminders stop.
+Future<void> clearReminders(String vault) async {
+  try {
+    await _ch.invokeMethod('setReminders', {'vault': vault, 'json': '[]'});
   } on MissingPluginException {
     // tests: no Android side
   }

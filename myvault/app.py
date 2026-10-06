@@ -163,7 +163,7 @@ class Api:
         self._need()
         vid = paths.current()
         name = next(v["name"] for v in paths.vaults() if v["id"] == vid)
-        if str(typed_name or "").strip() != name:
+        if str(typed_name or "").strip() not in (name, i18n.tr(name)):     # as shown, too
             return {"ok": False, "error": "Type the vault's name exactly as it is to delete it."}
         try:
             Vault.open(paths.vault_path(), password)

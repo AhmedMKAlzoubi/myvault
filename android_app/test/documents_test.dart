@@ -126,7 +126,8 @@ void main() {
     final file = docs.fileRefs(saved).single;
     expect(file.name, 'passport.jpg');
     expect(docs.haveFile(v, file.id), isTrue);
-    final sent = jsonDecode(calls['setReminders'] as String) as List;
+    final sent =
+        jsonDecode((calls['setReminders'] as Map)['json'] as String) as List;
     expect(sent.first['text'], 'Passport expires in 3 months.');
     expect(
       jsonEncode(sent).contains('L898902C3'),
