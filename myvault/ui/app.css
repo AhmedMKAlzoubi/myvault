@@ -418,7 +418,9 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 .totp-left { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .totp-left.soon { color: var(--red); }
 /* choosing several entries */
-.pickbar { display: flex; gap: 8px; align-items: center; padding: 0 12px 8px; font-size: 12.5px; min-height: 0; }
+.pickbar { display: grid; gap: 6px; padding: 0 12px 8px; font-size: 12.5px; min-height: 0; }
+.pickbar-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.pickbar-row .spacer { flex: 1; }
 .pickbar:empty { display: none; }
 .pickbar .btn { height: 28px; }
 .info { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
@@ -429,6 +431,7 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 .linkbtn:hover { text-decoration: underline; }
 .linkbtn:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; border-radius: 3px; }
 .item .pick { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--tint); pointer-events: none; }
+.item.picking { grid-template-columns: 16px 28px minmax(0, 1fr); }      /* the tick box, then the usual two */
 .item.picked { background: var(--tint-wash); }
 /* which vault is open, under "MyVault" in the rail; click to switch */
 .vault-switch { all: unset; cursor: pointer; display: block; font-size: 12px; color: var(--ink-3); max-width: 100%;

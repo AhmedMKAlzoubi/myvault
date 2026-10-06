@@ -667,37 +667,57 @@ const arabic = <String, String>{
   '1 entry will sync again.': 'سيُزامَن عنصر واحد من جديد.',
   '{0} entries will sync again.': 'ستُزامَن {0} من العناصر من جديد.',
   'Sync anyway': 'المزامنة على أي حال',
-  'Sync anyway merges the two vaults\' entries into both. Usually it\'s better to open the same vault on both devices.': '«المزامنة على أي حال» تدمج عناصر الخزنتين في كلتيهما. والأفضل عادةً فتح الخزنة نفسها على الجهازين.',
-  'Untick what shouldn\'t sync this time. It stays as it is on this phone; new entries from your PC still arrive.': 'أزل التحديد عمّا لا يجب مزامنته هذه المرة. يبقى كما هو على هذا الهاتف، وتصل العناصر الجديدة من الكمبيوتر كالمعتاد.',
-  'Kept on this phone, so they never sync: {0}.': 'محفوظة على هذا الهاتف فقط، فلا تُزامَن أبدًا: {0}.',
+  'Sync anyway merges the two vaults\' entries into both. Usually it\'s better to open the same vault on both devices.':
+      '«المزامنة على أي حال» تدمج عناصر الخزنتين في كلتيهما. والأفضل عادةً فتح الخزنة نفسها على الجهازين.',
+  'Untick what shouldn\'t sync this time. It stays as it is on this phone; new entries from your PC still arrive.':
+      'أزل التحديد عمّا لا يجب مزامنته هذه المرة. يبقى كما هو على هذا الهاتف، وتصل العناصر الجديدة من الكمبيوتر كالمعتاد.',
+  'Kept on this phone, so they never sync: {0}.':
+      'محفوظة على هذا الهاتف فقط، فلا تُزامَن أبدًا: {0}.',
   'Keep on this phone only': 'الإبقاء على هذا الهاتف فقط',
-  'It never goes to your PC when you sync, and a copy from the PC never replaces it.': 'لا يذهب إلى الكمبيوتر أبدًا عند المزامنة، ولا تحلّ محله نسخة من الكمبيوتر أبدًا.',
+  'It never goes to your PC when you sync, and a copy from the PC never replaces it.':
+      'لا يذهب إلى الكمبيوتر أبدًا عند المزامنة، ولا تحلّ محله نسخة من الكمبيوتر أبدًا.',
   'Kept on this phone: not synced': 'محفوظ على هذا الهاتف فقط: لا يُزامَن',
-  '1 entry is kept on this phone: it won\'t sync.': 'عنصر واحد محفوظ على هذا الهاتف فقط: لن يُزامَن.',
-  '{0} entries are kept on this phone: they won\'t sync.': '{0} من العناصر محفوظة على هذا الهاتف فقط: لن تُزامَن.',
-  'The PC has “{0}” open, which isn\'t the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.': 'الكمبيوتر يفتح «{0}»، وهي ليست الخزنة المفتوحة على هذا الهاتف. افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» لدمجهما.',
+  '1 entry is kept on this phone: it won\'t sync.':
+      'عنصر واحد محفوظ على هذا الهاتف فقط: لن يُزامَن.',
+  '{0} entries are kept on this phone: they won\'t sync.':
+      '{0} من العناصر محفوظة على هذا الهاتف فقط: لن تُزامَن.',
+  'The PC has “{0}” open, which isn\'t the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.':
+      'الكمبيوتر يفتح «{0}»، وهي ليست الخزنة المفتوحة على هذا الهاتف. افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» لدمجهما.',
   // ---- unlocking the PC from the phone ----
-  'That\'s the PC\'s unlock code. Scan it from Sync with PC to open the PC\'s vault.': 'هذا رمز فتح الكمبيوتر. امسحه من «المزامنة مع الكمبيوتر» لفتح خزنة الكمبيوتر.',
+  'That\'s the PC\'s unlock code. Scan it from Sync with PC to open the PC\'s vault.':
+      'هذا رمز فتح الكمبيوتر. امسحه من «المزامنة مع الكمبيوتر» لفتح خزنة الكمبيوتر.',
   'That\'s a sync code, not an unlock code.': 'هذا رمز مزامنة، وليس رمز فتح.',
   'Open “{0}” on {1}?': 'فتح «{0}» على {1}؟',
-  'This phone sends the vault\'s master password to that PC over the code\'s one-time encrypted link.': 'يرسل هذا الهاتف كلمة المرور الرئيسية للخزنة إلى ذلك الكمبيوتر عبر الاتصال المشفّر الخاص بهذا الرمز، والذي يُستخدم مرة واحدة.',
-  'This phone and that PC haven\'t synced this vault yet, so MyVault can\'t check it\'s the same vault. Only go on if it\'s your PC and “{0}” has the same master password as “{1}” on this phone.': 'لم يُزامِن هذا الهاتف وذلك الكمبيوتر هذه الخزنة من قبل، فلا يستطيع MyVault التأكد من أنها الخزنة نفسها. تابع فقط إن كان هذا كمبيوترك وكانت كلمة المرور الرئيسية لـ«{0}» هي نفسها لـ«{1}» على هذا الهاتف.',
+  'This phone sends the vault\'s master password to that PC over the code\'s one-time encrypted link.':
+      'يرسل هذا الهاتف كلمة المرور الرئيسية للخزنة إلى ذلك الكمبيوتر عبر الاتصال المشفّر الخاص بهذا الرمز، والذي يُستخدم مرة واحدة.',
+  'This phone and that PC haven\'t synced this vault yet, so MyVault can\'t check it\'s the same vault. Only go on if it\'s your PC and “{0}” has the same master password as “{1}” on this phone.':
+      'لم يُزامِن هذا الهاتف وذلك الكمبيوتر هذه الخزنة من قبل، فلا يستطيع MyVault التأكد من أنها الخزنة نفسها. تابع فقط إن كان هذا كمبيوترك وكانت كلمة المرور الرئيسية لـ«{0}» هي نفسها لـ«{1}» على هذا الهاتف.',
   'Open it': 'فتحها',
   'A different vault': 'خزنة مختلفة',
-  'The PC is showing “{0}”, not “{1}” that\'s open on this phone, so MyVault won\'t send this phone\'s password. Choose the same vault on the PC, or create one there from this phone\'s: the same name, master password and entries. The PC\'s own vault stays as it is.': 'يعرض الكمبيوتر «{0}»، وليس «{1}» المفتوحة على هذا الهاتف، لذا لن يرسل MyVault كلمة مرور هذا الهاتف. اختر الخزنة نفسها على الكمبيوتر، أو أنشئ هناك خزنة من خزنة هذا الهاتف: بالاسم نفسه وكلمة المرور الرئيسية نفسها والعناصر نفسها. وتبقى خزنة الكمبيوتر كما هي.',
+  'The PC is showing “{0}”, not “{1}” that\'s open on this phone, so MyVault won\'t send this phone\'s password. Choose the same vault on the PC, or create one there from this phone\'s: the same name, master password and entries. The PC\'s own vault stays as it is.':
+      'يعرض الكمبيوتر «{0}»، وليس «{1}» المفتوحة على هذا الهاتف، لذا لن يرسل MyVault كلمة مرور هذا الهاتف. اختر الخزنة نفسها على الكمبيوتر، أو أنشئ هناك خزنة من خزنة هذا الهاتف: بالاسم نفسه وكلمة المرور الرئيسية نفسها والعناصر نفسها. وتبقى خزنة الكمبيوتر كما هي.',
   'Create on PC': 'الإنشاء على الكمبيوتر',
   'The master passwords differ': 'كلمتا المرور الرئيسيتان مختلفتان',
-  '“{0}” on the PC doesn\'t open with this phone\'s master password. Going on creates a new vault on the PC with this phone\'s name and master password, and syncs this phone\'s entries into it. The PC\'s own vault stays as it is.': 'لا تُفتح «{0}» على الكمبيوتر بكلمة المرور الرئيسية لهذا الهاتف. المتابعة تُنشئ خزنة جديدة على الكمبيوتر باسم هذا الهاتف وكلمة مروره الرئيسية، وتُزامِن عناصر هذا الهاتف إليها. وتبقى خزنة الكمبيوتر كما هي.',
+  '“{0}” on the PC doesn\'t open with this phone\'s master password. Going on creates a new vault on the PC with this phone\'s name and master password, and syncs this phone\'s entries into it. The PC\'s own vault stays as it is.':
+      'لا تُفتح «{0}» على الكمبيوتر بكلمة المرور الرئيسية لهذا الهاتف. المتابعة تُنشئ خزنة جديدة على الكمبيوتر باسم هذا الهاتف وكلمة مروره الرئيسية، وتُزامِن عناصر هذا الهاتف إليها. وتبقى خزنة الكمبيوتر كما هي.',
   'Sync now?': 'المزامنة الآن؟',
-  'The PC is open. Its copy of the vault and this phone\'s aren\'t the same.': 'الكمبيوتر مفتوح. نسخته من الخزنة ليست مطابقة لنسخة هذا الهاتف.',
+  'The PC is open. Its copy of the vault and this phone\'s aren\'t the same.':
+      'الكمبيوتر مفتوح. نسخته من الخزنة ليست مطابقة لنسخة هذا الهاتف.',
   'Sync': 'مزامنة',
-  'Made “{0}” on the PC and synced this phone\'s entries into it.': 'أُنشئت «{0}» على الكمبيوتر وزُومنت عناصر هذا الهاتف إليها.',
-  'The PC is open. Not synced: sync any time from here.': 'الكمبيوتر مفتوح. لم تتم المزامنة: يمكنك المزامنة في أي وقت من هنا.',
-  'The PC is open and synced. 1 entry updated on this phone.': 'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.',
-  'The PC is open and synced. 1 entry updated on this phone.{0}': 'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.{0}',
-  'The PC is open and synced. {0} entries updated on this phone.': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.',
-  'The PC is open and synced. {0} entries updated on this phone.{1}': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.{1}',
-  'The PC is open. Everything was already in sync.': 'الكمبيوتر مفتوح. كان كل شيء متزامنًا من قبل.',
+  'Made “{0}” on the PC and synced this phone\'s entries into it.':
+      'أُنشئت «{0}» على الكمبيوتر وزُومنت عناصر هذا الهاتف إليها.',
+  'The PC is open. Not synced: sync any time from here.':
+      'الكمبيوتر مفتوح. لم تتم المزامنة: يمكنك المزامنة في أي وقت من هنا.',
+  'The PC is open and synced. 1 entry updated on this phone.':
+      'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.',
+  'The PC is open and synced. 1 entry updated on this phone.{0}':
+      'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.{0}',
+  'The PC is open and synced. {0} entries updated on this phone.':
+      'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.',
+  'The PC is open and synced. {0} entries updated on this phone.{1}':
+      'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.{1}',
+  'The PC is open. Everything was already in sync.':
+      'الكمبيوتر مفتوح. كان كل شيء متزامنًا من قبل.',
   // ---- copies of a vault ----
   'A copy of this vault': 'نسخة من هذه الخزنة',
   'Save encrypted copy': 'حفظ نسخة مشفّرة',
@@ -709,14 +729,19 @@ const arabic = <String, String>{
   'That copy is damaged.': 'هذه النسخة تالفة.',
   'That copy is too big.': 'هذه النسخة كبيرة جدًا.',
   'A readable copy isn\'t encrypted': 'النسخة المقروءة غير مشفّرة',
-  'Anyone who gets the file can read every password, key and document in it. Keep it out of email and cloud storage, and delete it when you\'re done.': 'أي شخص يحصل على الملف يستطيع قراءة كل كلمة مرور ومفتاح ومستند فيه. أبقِها بعيدة عن البريد والتخزين السحابي، واحذفها عند الانتهاء.',
+  'Anyone who gets the file can read every password, key and document in it. Keep it out of email and cloud storage, and delete it when you\'re done.':
+      'أي شخص يحصل على الملف يستطيع قراءة كل كلمة مرور ومفتاح ومستند فيه. أبقِها بعيدة عن البريد والتخزين السحابي، واحذفها عند الانتهاء.',
   'This vault\'s master password': 'كلمة المرور الرئيسية لهذه الخزنة',
   'Copy saved.': 'حُفظت النسخة.',
   'Couldn\'t save the copy.': 'تعذّر حفظ النسخة.',
-  'Uninstalling MyVault deletes its vaults from this phone (Android may offer to keep the app\'s data). Save a copy first to keep somewhere else, or to move to another device.': 'إزالة MyVault تحذف خزائنه من هذا الهاتف (قد يعرض أندرويد الاحتفاظ ببيانات التطبيق). احفظ نسخة أولًا للاحتفاظ بها في مكان آخر، أو للانتقال إلى جهاز آخر.',
-  'Encrypted: the copy is locked with this vault\'s master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it\'s safe to keep in cloud storage. Add it back with “Add a vault from a copy…” on the unlock screen, on this phone, another phone or your PC.': 'مشفّرة: النسخة مقفلة بكلمة المرور الرئيسية لهذه الخزنة، تمامًا كما يحفظها MyVault. لا يستطيع أحد قراءتها دون كلمة المرور تلك، ولا حتى أنت، لذا يمكن حفظها بأمان في التخزين السحابي. أعدها عبر «إضافة خزنة من نسخة…» في شاشة الفتح، على هذا الهاتف أو هاتف آخر أو الكمبيوتر.',
-  'Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents\' photos and PDFs. Use it to move to another app or to print, then delete it.': 'مقروءة (غير مشفّرة): يُحفظ كل شيء في ملفات عادية يستطيع أي أحد فتحها: entries.json وlogins.csv (يمكن لمديري كلمات المرور الآخرين استيرادها) وصور مستنداتك وملفات PDF. استخدمها للانتقال إلى تطبيق آخر أو للطباعة، ثم احذفها.',
-  'That\'s a readable copy. Only encrypted copies can be added as a vault.': 'هذه نسخة مقروءة. لا تُضاف كخزنة إلا النسخ المشفّرة.',
+  'Uninstalling MyVault deletes its vaults from this phone (Android may offer to keep the app\'s data). Save a copy first to keep somewhere else, or to move to another device.':
+      'إزالة MyVault تحذف خزائنه من هذا الهاتف (قد يعرض أندرويد الاحتفاظ ببيانات التطبيق). احفظ نسخة أولًا للاحتفاظ بها في مكان آخر، أو للانتقال إلى جهاز آخر.',
+  'Encrypted: the copy is locked with this vault\'s master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it\'s safe to keep in cloud storage. Add it back with “Add a vault from a copy…” on the unlock screen, on this phone, another phone or your PC.':
+      'مشفّرة: النسخة مقفلة بكلمة المرور الرئيسية لهذه الخزنة، تمامًا كما يحفظها MyVault. لا يستطيع أحد قراءتها دون كلمة المرور تلك، ولا حتى أنت، لذا يمكن حفظها بأمان في التخزين السحابي. أعدها عبر «إضافة خزنة من نسخة…» في شاشة الفتح، على هذا الهاتف أو هاتف آخر أو الكمبيوتر.',
+  'Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents\' photos and PDFs. Use it to move to another app or to print, then delete it.':
+      'مقروءة (غير مشفّرة): يُحفظ كل شيء في ملفات عادية يستطيع أي أحد فتحها: entries.json وlogins.csv (يمكن لمديري كلمات المرور الآخرين استيرادها) وصور مستنداتك وملفات PDF. استخدمها للانتقال إلى تطبيق آخر أو للطباعة، ثم احذفها.',
+  'That\'s a readable copy. Only encrypted copies can be added as a vault.':
+      'هذه نسخة مقروءة. لا تُضاف كخزنة إلا النسخ المشفّرة.',
 };
 
 const arabicMonths = [

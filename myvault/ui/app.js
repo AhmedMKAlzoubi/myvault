@@ -229,6 +229,8 @@
   function renderLock(msg = "", creating = false) {
     stopSync();
     S.selected = null;
+    S.picking = false;
+    S.picked.clear();
     const cur = S.vaults.find((v) => v.id === S.vault) || S.vaults[0];
     S.vault = cur.id;
     const exists = !creating && cur.exists;
@@ -357,7 +359,7 @@
       onkeydown: (e) => {
         if (e.key === "ArrowDown") { e.preventDefault(); moveSel(1); }
         if (e.key === "Enter") { const first = visible()[0]; if (first) openEntry(first.id); }
-        if (e.key === "Escape") { e.target.value = ""; S.query = ""; renderList(); }
+        if (e.key === "Escape" && e.target.value) { e.preventDefault(); e.target.value = ""; S.query = ""; renderList(); }   // (empty: Esc leaves selecting)
       } });
     const shell = h("div", { class: "shell" },
       h("aside", { class: "rail", "aria-label": "Vault" },
@@ -459,7 +461,7 @@
       return;
     }
     renderPickbar();
-    ul.replaceChildren(...items.map((e) => h("li", { class: "item" + (S.picking && S.picked.has(e.id) ? " picked" : ""),
+    ul.replaceChildren(...items.map((e) => h("li", { class: "item" + (S.picking ? " picking" : "") + (S.picking && S.picked.has(e.id) ? " picked" : ""),
       role: "option", "data-id": e.id,
       "aria-selected": String(S.picking ? S.picked.has(e.id) : S.selected === e.id),
       onclick: () => S.picking ? pick(e.id) : guard(() => openEntry(e.id)) },
@@ -486,14 +488,22 @@
     }
     const shown = visible().map((e) => e.id);
     const all = shown.length > 0 && shown.every((id) => S.picked.has(id));
-    bar.replaceChildren(h("b", {}, `${S.picked.size} selected`), h("span", { class: "spacer" }),
-      h("button", { type: "button", class: "linkbtn", onclick: () => {
-        shown.forEach((id) => (all ? S.picked.delete(id) : S.picked.add(id))); renderList();
-      } }, all ? "Select none" : "Select all"),
-      btn("Don't sync", () => setLocal(true), "sm", "", { disabled: !S.picked.size || null, title: "Keep them on this PC only" }),
-      btn("Sync again", () => setLocal(false), "sm", "", { disabled: !S.picked.size || null }),
-      btn("Delete…", () => S.picked.size && askDeleteMany(), "danger sm", "trash", { disabled: !S.picked.size || null }),
-      btn("Done", () => { S.picking = false; S.picked.clear(); renderList(); }, "sm"));
+    bar.replaceChildren(
+      h("div", { class: "pickbar-row" }, h("b", {}, `${S.picked.size} selected`),
+        h("button", { type: "button", class: "linkbtn", onclick: () => {
+          shown.forEach((id) => (all ? S.picked.delete(id) : S.picked.add(id))); renderList();
+        } }, all ? "Select none" : "Select all"),
+        h("span", { class: "spacer" }),
+        btn("Done", stopPicking, "sm primary", "", { title: "Leave selecting (Esc)" })),
+      h("div", { class: "pickbar-row" },
+        btn("Delete…", () => S.picked.size && askDeleteMany(), "danger sm", "trash", { disabled: !S.picked.size || null }),
+        // whichever applies: they're all kept here already, or not
+        S.picked.size && [...S.picked].every((id) => S.list.find((e) => e.id === id)?.local_only)
+          ? btn("Sync again", () => setLocal(false), "sm")
+          : btn("Don't sync", () => setLocal(true), "sm", "", { disabled: !S.picked.size || null, title: "Keep them on this PC only" })));
+  }
+  function stopPicking() {
+    S.picking = false; S.picked.clear(); renderList();
   }
   async function setLocal(on) {
     const r = await call("set_local_only", [...S.picked], on);
@@ -1810,6 +1820,7 @@
     else if (ctrl && e.key.toLowerCase() === "l") { e.preventDefault(); onLocked(); }
     else if (ctrl && e.key.toLowerCase() === "s" && S.view === "edit") { e.preventDefault(); $("form.page").save(); }
     else if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); }
+    else if (e.key === "Escape" && S.picking && !e.defaultPrevented) stopPicking();
   });
   // Caps Lock warning on any password field (the browser only reports the
   // state on key/pointer events, so the last one seen is used on focus).

@@ -128,7 +128,9 @@ class Session {
     );
   }
 
-  static void paused() => _pausedAt = DateTime.now();
+  // (not while MyVault itself opened another app for a result: see docs.forResult)
+  static void paused() =>
+      _pausedAt = docs.awayForResult > 0 ? null : DateTime.now();
   static void resumed() {
     final p = _pausedAt;
     _pausedAt = null;
@@ -1934,7 +1936,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
       ],
   ];
 
-  final _doc = DocumentDraft();
+  late final _doc = DocumentDraft.of(_e, isNew: widget.isNew);
   final _docKey = GlobalKey();
   late bool _local = _e.localOnly; // kept on this phone only
   final _auto = <String>{}; // boxes filled in from a scan, until changed

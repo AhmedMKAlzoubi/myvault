@@ -95,7 +95,7 @@ Future<Uint8List> zip(Map<String, Uint8List> files) async =>
 
 /// The picked copy's members, or null if nothing was picked.
 Future<Map<String, Uint8List>?> pickCopy() async {
-  final bytes = await _ch.invokeMethod<Uint8List>('pickCopy');
+  final bytes = await forResult(_ch.invokeMethod<Uint8List>('pickCopy'));
   if (bytes == null) return null;
   try {
     return (await _ch.invokeMapMethod<String, Uint8List>('unzip', {
@@ -156,9 +156,11 @@ Future<String> addCopy(Map<String, Uint8List> files) async {
 
 /// Zip [files] and let the person choose where to save it.
 Future<bool> saveCopy(Map<String, Uint8List> files, String name) async =>
-    await _ch.invokeMethod<bool>('saveCopy', {
-      'bytes': await zip(files),
-      'mime': 'application/zip',
-      'name': name,
-    }) ??
+    await forResult<bool?>(
+      _ch.invokeMethod<bool>('saveCopy', {
+        'bytes': await zip(files),
+        'mime': 'application/zip',
+        'name': name,
+      }),
+    ) ??
     false;

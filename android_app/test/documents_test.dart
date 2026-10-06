@@ -140,6 +140,113 @@ void main() {
     Session.lock();
   });
 
+  testWidgets('on a phone-sized screen, a scan stays after scrolling', (
+    t,
+  ) async {
+    // The page's list only builds what's near the screen. The files used to
+    // be filled in by their own section, so scrolling up to check the fields
+    // and back down to Save brought the section back empty: no photos saved.
+    t.view.physicalSize = const Size(400, 500);
+    t.view.devicePixelRatio = 1;
+    addTearDown(t.view.reset);
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('myvault/docs'),
+      (call) async => switch (call.method) {
+        'pick' => [
+          {
+            'name': 'front.jpg',
+            'bytes': Uint8List.fromList([
+              0xff,
+              0xd8,
+              0xff,
+              ...List.filled(500, 3),
+            ]),
+          },
+        ],
+        'ocr' => '',
+        _ => true,
+      },
+    );
+    final dir = Directory.systemTemp.createTempSync('mv_doc_keep');
+    final v = (await t.runAsync(
+      () async => Vault.create('${dir.path}/vault.dat', 'doc-keep-pass'),
+    ))!;
+    Session.open(v);
+    await t.pumpWidget(
+      MaterialApp(
+        theme: buildTheme(Envelope.light, Brightness.light),
+        home: EntryEditPage(entry: Entry(kind: 'document'), isNew: true),
+      ),
+    );
+    await t.enterText(find.widgetWithText(TextField, 'Name'), 'ID card');
+    FocusManager.instance.primaryFocus
+        ?.unfocus(); // or it keeps the page at the top
+    await t.pump();
+    final list = find.byType(ListView);
+    Future<void> bring(String text) async {
+      // into the middle of the screen, scrolling the page's list
+      final pos = t
+          .state<ScrollableState>(
+            find.descendant(of: list, matching: find.byType(Scrollable)).first,
+          )
+          .position;
+      for (var i = 0; i < 30 && find.text(text).evaluate().isEmpty; i++) {
+        pos.jumpTo(pos.pixels + 300);
+        await t.pump();
+      }
+      pos.jumpTo(pos.pixels + t.getCenter(find.text(text)).dy - 250);
+      await t.pumpAndSettle();
+    }
+
+    await bring('Choose files');
+    await t.runAsync(() async {
+      await t.tap(find.text('Choose files'));
+      await Future.delayed(const Duration(milliseconds: 300));
+    });
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsOneWidget);
+    t
+        .state<ScrollableState>(
+          find.descendant(of: list, matching: find.byType(Scrollable)).first,
+        )
+        .position
+        .jumpTo(0); // up to the top, to check the fields
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsNothing); // its section is gone
+    await bring('Save');
+    await t.runAsync(() async {
+      await t.tap(find.text('Save'));
+      await Future.delayed(const Duration(milliseconds: 200));
+    });
+    await t.pump();
+    final saved = v.activeEntries().single;
+    expect(docs.fileRefs(saved).single.name, 'front.jpg');
+    expect(docs.cleanup(v), 0); // so the photo isn't deleted at the next unlock
+    Session.lock();
+  });
+
+  testWidgets("coming back from the camera doesn't lock the vault", (t) async {
+    t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('myvault/clipboard'),
+      (call) async => null,
+    );
+    final dir = Directory.systemTemp.createTempSync('mv_away');
+    Session.vault = (await t.runAsync(
+      () async => Vault.create('${dir.path}/vault.dat', 'away-pass-1'),
+    ))!;
+    final before = Session.backgroundSeconds;
+    addTearDown(() => Session.backgroundSeconds = before);
+    Session.backgroundSeconds = 0; // "lock as soon as I leave"
+    docs.awayForResult = 1; // the camera app is open for MyVault
+    Session.paused();
+    docs.awayForResult = 0;
+    Session.resumed();
+    expect(Session.vault, isNotNull); // the scan isn't lost
+    Session.paused(); // leaving MyVault any other way still locks it
+    Session.resumed();
+    expect(Session.vault, isNull);
+  });
+
   testWidgets(
     'the crop screen starts on the found corners and sends the moved ones',
     (t) async {

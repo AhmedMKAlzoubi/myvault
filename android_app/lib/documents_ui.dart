@@ -84,7 +84,7 @@ Future<void> clearReminders(String vault) async {
 
 /// Photos the phone took or files you picked, as (name, bytes).
 Future<List<(String, Uint8List)>> _getFiles(String how) async {
-  final got = await _ch.invokeListMethod<dynamic>(how) ?? [];
+  final got = await forResult(_ch.invokeListMethod<dynamic>(how)) ?? [];
   return [
     for (final m in got.cast<Map>()) ('${m['name']}', m['bytes'] as Uint8List),
   ];
@@ -750,11 +750,13 @@ Future<void> downloadFiles(
       fileName = '$base.${kinds[fmt]!.$1}';
       mime = kinds[fmt]!.$2;
     }
-    final done = await _ch.invokeMethod<bool>('saveCopy', {
-      'bytes': bytes,
-      'name': fileName,
-      'mime': mime,
-    });
+    final done = await forResult(
+      _ch.invokeMethod<bool>('saveCopy', {
+        'bytes': bytes,
+        'name': fileName,
+        'mime': mime,
+      }),
+    );
     if (done == true && context.mounted) _snack(context, 'Saved.');
   } on FormatException catch (e) {
     if (context.mounted) _snack(context, e.message);
@@ -925,12 +927,6 @@ class FilesEditor extends StatefulWidget {
 class _FilesEditorState extends State<FilesEditor> {
   DocumentDraft get d => widget.draft;
 
-  @override
-  void initState() {
-    super.initState();
-    d.files = fileRefs(widget.entry);
-  }
-
   Future<void> _add(String how) async {
     try {
       final added = [
@@ -1033,10 +1029,18 @@ class DocumentEditor extends StatefulWidget {
 }
 
 /// What the editor has collected; the page writes it into the entry on save.
+/// What the edit page is changing in an entry's files and reminders. It's
+/// filled once when the page opens: the page's list builds (and disposes) its
+/// parts as they scroll in and out of view, so they mustn't fill it.
 class DocumentDraft {
-  List<FileRef> files = [];
-  Set<int> days = {};
+  List<FileRef> files;
+  Set<int> days;
   final name = TextEditingController();
+  DocumentDraft.of(Entry e, {bool isNew = false})
+    : files = fileRefs(e),
+      days = isNew ? {30, 7} : remindDays(e).toSet() {
+    name.text = e.fields['remind_name'] ?? '';
+  }
   void writeTo(Entry e) {
     setFileRefs(e, files);
     e.fields['remind'] = (days.toList()..sort((a, b) => b - a)).join(',');
@@ -1052,14 +1056,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
   bool _busy = false;
   bool _check = false; // the note asks to check what was filled in
   DocumentDraft get d => widget.draft;
-
-  @override
-  void initState() {
-    super.initState();
-    d.files = fileRefs(widget.entry);
-    d.days = widget.isNew ? {30, 7} : remindDays(widget.entry).toSet();
-    d.name.text = widget.entry.fields['remind_name'] ?? '';
-  }
 
   Future<void> _add(String how) async {
     try {

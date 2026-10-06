@@ -649,5 +649,7 @@
 "Its encrypted file and documents. Uninstalling MyVault leaves them here: keep this path somewhere safe, and reinstalling opens the vault again. Useless without its master password.": "ملفها المشفّر ومستنداتها. إزالة MyVault تتركها هنا: احفظ هذا المسار في مكان آمن، وعند إعادة التثبيت تُفتح الخزنة من جديد. لا فائدة منها دون كلمة مرورها الرئيسية.",
 "That's a readable copy. Use Import passwords for its logins.csv instead.": "هذه نسخة مقروءة. استخدم «استيراد كلمات المرور» مع ملف logins.csv الذي فيها بدلًا من ذلك.",
 "Couldn't save the copy: {0}": "تعذّر حفظ النسخة: {0}",
-"Couldn't add the copy: {0}": "تعذّرت إضافة النسخة: {0}"
+"Couldn't add the copy: {0}": "تعذّرت إضافة النسخة: {0}",
+"Done": "تم",
+"Leave selecting (Esc)": "إنهاء التحديد (Esc)"
 }
