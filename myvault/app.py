@@ -124,8 +124,68 @@ class Api:
 
     # ---- unlock / lock -----------------------------------------------------
     def boot(self) -> dict:
-        return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
-                "version": __version__, "autolock": _autolock_minutes()}
+        vid = paths.current() if self._vault is not None else _last_vault()
+        return {"exists": paths.vault_path(vid).exists(), "unlocked": self._vault is not None,
+                "version": __version__, "autolock": _autolock_minutes(),
+                "vault": vid, "vaults": self.vaults()}
+
+    # ---- several vaults ----------------------------------------------------
+    def vaults(self) -> list[dict]:
+        return [{**v, "exists": paths.vault_path(v["id"]).exists()} for v in paths.vaults()]
+
+    def create_vault(self, name: str, password: str) -> dict:
+        """A new, empty vault with its own master password (it can be the same as
+        another vault's), opened straight away."""
+        name = str(name or "").strip()[:40]
+        if not name:
+            return {"ok": False, "error": "Give the vault a name, such as Work or Home."}
+        if name.casefold() in (v["name"].casefold() for v in paths.vaults()):
+            return {"ok": False, "error": f"You already have a vault called {name}."}
+        if len(password) < 8:
+            return {"ok": False, "error": "Use at least 8 characters."}
+        self.lock()
+        return self.unlock(password, paths.new_vault(name))
+
+    def rename_vault(self, name: str) -> dict:
+        self._need()
+        name = str(name or "").strip()[:40]
+        listed = paths.vaults()
+        if not name:
+            return {"ok": False, "error": "Give the vault a name, such as Work or Home."}
+        if any(v["name"].casefold() == name.casefold() and v["id"] != paths.current() for v in listed):
+            return {"ok": False, "error": f"You already have a vault called {name}."}
+        paths.save_vaults([{**v, "name": name} if v["id"] == paths.current() else v for v in listed])
+        return {"ok": True, "vaults": self.vaults()}
+
+    def delete_vault(self, typed_name: str, password: str) -> dict:
+        """Delete the open vault from this PC: its file, files, backups and
+        reminders. Only with its exact name typed and its master password."""
+        self._need()
+        vid = paths.current()
+        name = next(v["name"] for v in paths.vaults() if v["id"] == vid)
+        if str(typed_name or "").strip() != name:
+            return {"ok": False, "error": "Type the vault's name exactly as it is to delete it."}
+        try:
+            Vault.open(paths.vault_path(), password)
+        except crypto.WrongPasswordError:
+            return {"ok": False, "error": "That isn't this vault's master password."}
+        except crypto.VaultFormatError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.lock()
+        home = paths.vault_home(vid)
+        if vid == paths.DEFAULT:              # the original vault shares its folder with the settings
+            for f in (home / paths.VAULT_FILE, home / "reminders.json"):
+                f.unlink(missing_ok=True)
+            for d in (home / "files", home / "backups"):
+                shutil.rmtree(d, ignore_errors=True)
+            paths.save_vaults([{**v, "name": "My vault"} if v["id"] == vid else v for v in paths.vaults()])
+        else:
+            shutil.rmtree(home, ignore_errors=True)
+            paths.save_vaults([v for v in paths.vaults() if v["id"] != vid])
+        cfg = config.load()
+        cfg.pop("last_vault", None)
+        config.save(cfg)
+        return {"ok": True}
 
     def language_state(self) -> dict:
         return {"pick": i18n.choice(), "lang": i18n.language()}
@@ -149,7 +209,13 @@ class Api:
             config.save(cfg)
         return self.autolock_state()
 
-    def unlock(self, password: str) -> dict:
+    def unlock(self, password: str, vault: str = "") -> dict:
+        vid = str(vault or _last_vault())
+        if not any(v["id"] == vid for v in paths.vaults()):
+            return {"ok": False, "error": "That vault isn't here any more."}
+        if self._vault is not None and paths.current() != vid:
+            self.lock()
+        paths.select(vid)
         path = paths.vault_path()
         try:
             with self._lock:
@@ -164,6 +230,9 @@ class Api:
         except crypto.VaultFormatError as exc:
             return {"ok": False, "error": str(exc)}
         self._last_activity = time.time()
+        cfg = config.load()
+        cfg["last_vault"] = vid                    # offered first next time
+        config.save(cfg)
         self._vault.on_save = self._saved
         self._saved()
         try:
@@ -968,6 +1037,12 @@ def _daily_backup() -> None:
     shutil.copy2(src, target)
     for old in sorted(d.glob("vault-*.dat"))[:-BACKUP_DAYS]:
         old.unlink()
+
+
+def _last_vault() -> str:
+    """The vault opened last (the lock screen offers it first)."""
+    last = config.load().get("last_vault")
+    return last if any(v["id"] == last for v in paths.vaults()) else paths.DEFAULT
 
 
 def _autolock_minutes() -> int:

@@ -233,6 +233,10 @@ class Vault {
   double updatedAt;
   List<Entry> entries;
 
+  /// The same vault on your PC and phone shares this id (set at their first
+  /// sync), so a sync never mixes two different vaults.
+  String vaultId = '';
+
   Vault(this.path, this.password)
     : deviceId = _uuid(),
       updatedAt = _now(),
@@ -245,6 +249,7 @@ class Vault {
     final v = Vault(path, password);
     v.deviceId = (data['device_id'] ?? v.deviceId) as String;
     v.updatedAt = (data['updated_at'] as num?)?.toDouble() ?? _now();
+    v.vaultId = '${data['vault_id'] ?? ''}';
     v.entries = ((data['entries'] ?? []) as List)
         .map((e) => Entry.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -263,6 +268,7 @@ class Vault {
       'content_version': 2,
       'device_id': deviceId,
       'updated_at': updatedAt,
+      'vault_id': vaultId,
       'entries': entries.map((e) => e.toJson()).toList(),
     };
     final blob = encryptBytes(

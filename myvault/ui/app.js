@@ -209,35 +209,62 @@
 
   // ---- state ----------------------------------------------------------------
   const S = { list: [], filter: "all", query: "", selected: null, view: "home", dirty: false,
-    pending: null, exists: true, syncTimer: null, version: "",
+    pending: null, exists: true, syncTimer: null, version: "", vaults: [], vault: "default",
     picking: false, picked: new Set() };       // choosing several entries (to delete them)
 
   // ---- lock screen ---------------------------------------------------------
-  function renderLock(exists, msg = "") {
+  // Several vaults ("Work", "Home"...), each with its own master password: pick
+  // one, or make a new one.
+  const vaultName = () => (S.vaults.find((v) => v.id === S.vault) || { name: "My vault" }).name;
+
+  async function showLock(msg = "") {
+    const b = await call("boot");
+    S.vaults = b.vaults;
+    S.vault = b.vault;
+    renderLock(msg);
+  }
+
+  function renderLock(msg = "", creating = false) {
     stopSync();
-    S.exists = exists;
     S.selected = null;
+    const cur = S.vaults.find((v) => v.id === S.vault) || S.vaults[0];
+    S.vault = cur.id;
+    const exists = !creating && cur.exists;
+    const fresh = !creating && !cur.exists;          // a vault with no file yet (the very first one)
     const app = $("#app");
+    const name = creating && h("input", { class: "inp", id: "vname", maxlength: 40, autocomplete: "off",
+      "aria-label": "Vault name", placeholder: "Vault name, such as Work or Home" });
+    const pick = !creating && S.vaults.length > 1 && h("select", { class: "inp", "aria-label": "Vault",
+      onchange: (ev) => { S.vault = ev.target.value; renderLock(); } },
+      S.vaults.map((v) => h("option", { value: v.id, selected: v.id === S.vault || null }, raw(v.name))));
     const pw1 = h("input", { class: "inp", type: "password", id: "pw1", autocomplete: "current-password",
       "aria-label": exists ? "Master password" : "New master password", placeholder: exists ? "Master password" : "Choose a master password" });
     const pw2 = !exists && h("input", { class: "inp", type: "password", id: "pw2", "aria-label": "Type it again",
       placeholder: "Type it again" });
     const meter = !exists && strengthLine();
     const err = h("p", { class: "err", role: "alert" }, msg);
-    const go = h("button", { class: "btn primary", type: "submit" }, exists ? "Unlock" : "Create my vault");
+    const label = exists ? "Unlock" : creating ? "Create vault" : "Create my vault";
+    const go = h("button", { class: "btn primary", type: "submit" }, label);
     if (meter) pw1.addEventListener("input", () => meter.set(pw1.value));
 
     const form = h("form", { class: "window", autocomplete: "off" },
       h("div", { class: "brand" }, mark(), h("h1", {}, "MyVault")),
-      h("p", { class: "lede" }, exists
-        ? "Your vault is sealed. Enter your master password to open it."
+      h("p", { class: "lede" }, creating
+        ? "A new, empty vault with its own master password. It can be the same as another vault's, or different so each vault stays separate."
+        : exists ? (S.vaults.length > 1 ? "Choose a vault, then enter its master password." : "Your vault is sealed. Enter your master password to open it.")
         : "Choose the one password that opens your vault. It's the only one you'll need to remember."),
+      name, pick,
+      !creating && S.vaults.length === 1 && cur.exists && h("p", { class: "hint", style: "margin:0" }, raw(cur.name)),
       pw1, pw2, meter,
       !exists && h("p", { class: "warn" }, "There's no reset. If this password is forgotten, nobody can open the vault, not even you. Write it down and keep it somewhere safe."),
-      err, go);
+      err, go,
+      h("div", { style: "display:flex;justify-content:center" }, creating
+        ? h("button", { type: "button", class: "linkbtn", onclick: () => renderLock() }, "Back")
+        : !fresh && h("button", { type: "button", class: "linkbtn", onclick: () => renderLock("", true) }, "New vault…")));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       err.textContent = "";
+      if (creating && !name.value.trim()) return (err.textContent = t("Give the vault a name, such as Work or Home."));
       if (!pw1.value) return (err.textContent = t("Enter your master password."));
       if (!exists) {
         if (pw1.value.length < 8) return (err.textContent = t("Use at least 8 characters. A short sentence works well."));
@@ -245,10 +272,10 @@
       }
       go.disabled = true;
       go.textContent = t(exists ? "Opening…" : "Creating…");
-      const r = await call("unlock", pw1.value);
+      const r = creating ? await call("create_vault", name.value, pw1.value) : await call("unlock", pw1.value, S.vault);
       if (r.ok) return enterMain();
       go.disabled = false;
-      go.textContent = t(exists ? "Unlock" : "Create my vault");
+      go.textContent = t(label);
       err.textContent = t(r.error);
       pw1.select();
     });
@@ -256,13 +283,13 @@
       h("div", { class: "tint-field", "aria-hidden": "true" }), h("div", { class: "lock-seal" }), form,
       h("p", { class: "lock-foot" }, h("span", {}, "Encrypted, and stored only on this computer"))));
     app.removeAttribute("aria-busy");
-    setTimeout(() => pw1.focus(), 30);
+    setTimeout(() => (name || pw1).focus(), 30);
   }
 
   function onLocked(msg = "") {
     if ($(".lock")) return;
     call("lock").catch(() => {});
-    renderLock(true, msg);
+    showLock(msg);
   }
 
   // ---- shell --------------------------------------------------------------
@@ -276,6 +303,9 @@
   ];
 
   async function enterMain() {
+    const b = await call("boot");          // which vault is open now
+    S.vaults = b.vaults;
+    S.vault = b.vault;
     const search = h("input", { class: "inp", type: "search", id: "search", placeholder: "Search", "aria-label": "Search entries",
       oninput: (e) => { S.query = e.target.value; renderList(); },
       onkeydown: (e) => {
@@ -285,7 +315,10 @@
       } });
     const shell = h("div", { class: "shell" },
       h("aside", { class: "rail", "aria-label": "Vault" },
-        h("div", { class: "rail-head" }, mark(), h("b", {}, "MyVault"),
+        h("div", { class: "rail-head" }, mark(),
+          h("div", { style: "min-width:0;flex:1" }, h("b", {}, "MyVault"),
+            h("button", { type: "button", class: "vault-switch", title: "Switch vault", onclick: () => guard(() => onLocked()) },
+              raw(vaultName()))),
           iconBtn("lock", "Lock now (Ctrl+L)", () => onLocked())),
         h("div", { class: "search" }, icon("search"), search, h("kbd", {}, "Ctrl F")),
         h("div", { class: "filters", role: "tablist", "aria-label": "Filter by type", id: "filters" }),
@@ -1411,6 +1444,47 @@
     return panel;
   }
 
+  function vaultsPanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Vaults"));
+    const paint = (msg) => {
+      const name = h("input", { class: "inp", value: vaultName(), maxlength: 40, "aria-label": "This vault's name", style: "max-width:240px" });
+      const slot = h("div", { "aria-live": "polite" }, msg || null);
+      panel.replaceChildren(h("h3", {}, "Vaults"),
+        h("p", { class: "prose", style: "margin:0" }, S.vaults.length > 1
+          ? `You have ${S.vaults.length} vaults. Each is a separate encrypted file with its own master password; this one is open.`
+          : "You can keep separate vaults, such as Work and Home, each with its own master password."),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" }, name, btn("Rename", async () => {
+          const r = await call("rename_vault", name.value);
+          if (!r.ok) return slot.replaceChildren(h("p", { class: "err" }, r.error));
+          S.vaults = r.vaults;
+          document.querySelector(".vault-switch")?.replaceChildren(raw(vaultName()));
+          paint(h("div", { class: "result" }, "Renamed."));
+        }, "sm")),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn("New vault…", () => guard(() => call("lock").then(() => renderLock("", true))), "sm", "plus"),
+          btn("Delete this vault…", () => askDelete(slot), "danger sm", "trash")),
+        slot);
+    };
+    const askDelete = (slot) => {
+      const typed = h("input", { class: "inp", autocomplete: "off", "aria-label": "Type the vault's name", placeholder: vaultName(), style: "max-width:240px" });
+      const pw = h("input", { class: "inp", type: "password", "aria-label": "Its master password", placeholder: "Its master password", style: "max-width:240px" });
+      const err = h("p", { class: "err", role: "alert" });
+      slot.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px;margin-top:10px" },
+        h("span", {}, h("b", {}, `Delete “${vaultName()}” from this PC? `),
+          "Its entries, files, backups and reminders are removed from this PC for good. It isn't deleted from your phone: a copy there stays."),
+        h("span", { class: "hint", style: "margin:0" }, "To be sure, type its name and its master password."),
+        typed, pw, err,
+        h("div", { class: "inp-row" }, btn("Delete for good", async () => {
+          const r = await call("delete_vault", typed.value, pw.value);
+          if (!r.ok) return (err.textContent = t(r.error));
+          showLock();
+        }, "danger solid sm", "trash"), btn("Keep it", () => slot.replaceChildren(), "sm"))));
+      typed.focus();
+    };
+    paint();
+    return panel;
+  }
+
   function importPanel() {
     const out = h("div", { "aria-live": "polite" });
     const start = async () => {
@@ -1560,6 +1634,7 @@
     sheet(h("section", { class: "page" },
       toolHead("gear", "Settings", `MyVault ${S.version}`),
       languagePanel(),
+      vaultsPanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Change master password"),
         h("div", { style: "max-width:340px" }, cur),
@@ -1649,6 +1724,8 @@
   window.addEventListener("pywebviewready", async () => {
     const b = await call("boot");
     S.version = b.version;
-    if (b.unlocked) enterMain(); else renderLock(b.exists);
+    S.vaults = b.vaults;
+    S.vault = b.vault;
+    if (b.unlocked) enterMain(); else renderLock();
   });
 })();

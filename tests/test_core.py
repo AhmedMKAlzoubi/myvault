@@ -672,6 +672,37 @@ def test_export_pdf_word_and_pictures():
     assert "word/document.xml" in z.namelist() and z.read("word/document.xml").count(b"<w:drawing>") == 2
 
 
+def test_several_vaults_each_with_its_own_password():
+    import datetime as dt
+    from myvault import app, docs, paths
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert [v["id"] for v in api.boot()["vaults"]] == ["default"] and not api.boot()["exists"]
+        assert api.unlock("home-pass-1")["ok"]                       # creates "My vault"
+        api.save_entry({"kind": "login", "title": "Netflix", "password": "x"})
+        soon = (dt.date.today() + dt.timedelta(days=3)).isoformat()
+        api.save_entry({"kind": "document", "title": "Passport", "fields": {"doc_type": "passport", "expires": soon, "remind": "7"}})
+        r = api.create_vault("Work", "work-pass-1")
+        assert r["ok"] and paths.current() != "default"
+        work = paths.current()
+        assert api.entries() == []                                     # a separate vault
+        api.save_entry({"kind": "login", "title": "Jira", "password": "y"})
+        assert not api.create_vault("work", "zzzzzzzz")["ok"]          # names are unique
+        assert api.create_vault("Same key", "home-pass-1")["ok"]       # the same password is allowed
+        assert {v["name"] for v in api.vaults()} == {"My vault", "Work", "Same key"}
+        assert api.unlock("home-pass-1", work)["ok"] is False           # each opens only with its own
+        assert api.unlock("work-pass-1", work)["ok"] and [e["title"] for e in api.entries()] == ["Jira"]
+        assert docs.files_dir().parent == paths.vault_home(work)        # its own files folder
+        assert any(r["name"] == "" and r["type"] == "passport" for r in docs.load_schedule())  # every vault's reminders
+        assert api.boot()["vault"] == work                             # offered first next time
+        assert not api.delete_vault("work", "work-pass-1")["ok"]       # exact name
+        assert not api.delete_vault("Work", "wrong-pass")["ok"]        # and the password
+        assert api.delete_vault("Work", "work-pass-1")["ok"]
+        assert "Work" not in {v["name"] for v in api.vaults()} and not (Path(d) / "MyVault" / "vaults" / work).exists()
+        assert api.unlock("home-pass-1", "default")["ok"] and [e["title"] for e in api.entries()][0] in ("Netflix", "Passport")
+
+
 def test_delete_several_then_undo():
     from myvault import app
     with tempfile.TemporaryDirectory() as d:
