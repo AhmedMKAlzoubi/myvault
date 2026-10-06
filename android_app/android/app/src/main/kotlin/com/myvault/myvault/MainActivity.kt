@@ -16,12 +16,13 @@ import android.view.WindowManager
 import androidx.core.content.FileProvider
 import java.io.File
 import java.security.MessageDigest
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val docs by lazy { DocsBridge(this) }
+    private val biometric by lazy { BiometricBridge(this) }
 
     /** Only ever hand Android's installer an APK that is this very app: the same
      *  package name and the same signing certificate as the installed MyVault.
@@ -105,12 +106,16 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
-        // Updates: hand a downloaded/received APK to Android's own installer.
-        // Android refuses it unless it's signed with the same key as this app.
         // Personal documents: photos, files, reading text, reminders (see DocsBridge).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/docs").setMethodCallHandler { call, result ->
             docs.handle(call, result)
         }
+        // Unlock with a fingerprint or face (BiometricBridge).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/biometric").setMethodCallHandler { call, result ->
+            biometric.handle(call, result)
+        }
+        // Updates: hand a downloaded/received APK to Android's own installer.
+        // Android refuses it unless it's signed with the same key as this app.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "myvault/update").setMethodCallHandler { call, result ->
             if (call.method == "openDoc") {
                 // Only MyVault's own published documents, never an arbitrary URL.
@@ -143,7 +148,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    @Deprecated("FlutterActivity still routes results here")
+    @Deprecated("Flutter still routes results here")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (!docs.onActivityResult(requestCode, resultCode, data)) super.onActivityResult(requestCode, resultCode, data)
     }

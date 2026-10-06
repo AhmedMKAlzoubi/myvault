@@ -3,7 +3,8 @@ library;
 
 import 'package:flutter/material.dart';
 
-import 'docs.dart' show docTypes;
+import 'docs.dart';
+import 'l10n.dart';
 import 'vault.dart';
 
 class FieldDef {
@@ -103,6 +104,7 @@ const kindDefs = <String, KindDef>{
       FieldDef('username', 'Username', top: true),
       FieldDef('email', 'Email', top: true, type: TextInputType.emailAddress),
       FieldDef('password', 'Password', top: true, secret: true, gen: true),
+      FieldDef('totp', '2FA secret', secret: true, mono: true),
     ],
     [
       FieldDef('app', 'App name', top: true),
@@ -153,14 +155,7 @@ const kindDefs = <String, KindDef>{
     'Documents',
     'Passport, ID, visa, licence or contract, with a reminder before it expires.',
     Icons.badge_outlined,
-    [
-      FieldDef('doc_type', 'Type', options: docTypes),
-      FieldDef('holder', 'Name on the document'),
-      FieldDef('number', 'Document number', secret: true),
-      FieldDef('country', 'Issued by'),
-      FieldDef('issued', 'Issue date', date: true),
-      FieldDef('expires', 'Expiry date', date: true),
-    ],
+    [], // depend on the document's type: docFieldDefs()
   ),
 };
 
@@ -183,3 +178,51 @@ String subtitleOf(Entry e) {
       ].firstWhere((s) => s.isNotEmpty, orElse: () => e.website);
   }
 }
+
+/// A document's fields: its type's, then any other detail it has, so nothing
+/// is ever hidden. [has] says whether a field holds something.
+List<FieldDef> docFieldDefs(String type, bool Function(String key) has) {
+  final own = typeFieldKeys(type);
+  final keys = [
+    ...own,
+    for (final k in docSchemaFields.keys)
+      if (!own.contains(k) && has(k)) k,
+  ];
+  return [
+    FieldDef('doc_type', 'Type', options: docTypes),
+    for (final k in keys) _docField(k, type),
+  ];
+}
+
+/// Every field a document can have (the edit page keeps a box for each).
+List<FieldDef> allDocFieldDefs() => docFieldDefs('', (_) => true);
+
+FieldDef _docField(String key, String type) {
+  final d = docSchemaFields[key] as Map;
+  return FieldDef(
+    key,
+    docLabel(key, type),
+    secret: d['secret'] == true,
+    multi: d['multi'] == true,
+    mono: d['mono'] == true,
+    date: d['date'] == true,
+    type: switch (d['type']) {
+      'tel' => TextInputType.phone,
+      'email' => TextInputType.emailAddress,
+      _ => null,
+    },
+    options: switch (d['options']) {
+      'countries' => [('', 'Choose…'), ...nations()],
+      final List o => [
+        ('', 'Choose…'),
+        for (final x in o) ('${(x as List)[0]}', '${x[1]}'),
+      ],
+      _ => null,
+    },
+  );
+}
+
+/// Nationalities by name in the app's language (assets/countries.json).
+List<(String, String)> nations() =>
+    [for (final c in countries) (c[0], isArabic ? c[4] : c[2])]
+      ..sort((a, b) => a.$2.compareTo(b.$2));

@@ -83,6 +83,12 @@ What's in it:
 | Reveal | Secret values stay under a printed "security tint" until you choose to show them, and cover themselves again after 20 seconds. |
 | Copy | Copied secrets skip Windows clipboard history (Win+V) and cloud clipboard, and clear after 30 seconds. |
 | Generator | Uppercase, lowercase, numbers and symbols toggles, avoid look-alike characters, length slider from 6 to 128, strength meter. |
+| 2FA codes | Paste a site's two-factor setup key or `otpauth://` link into a login's **2FA secret**, and the login shows the current 6-digit code, counting down, ready to copy. No separate authenticator app needed. |
+| Password history | When you change a login's password, the old one is kept under **Previous passwords** (the last 10), in case the change didn't go through on the site. |
+| Password health | Lists weak and reused passwords. **Check for leaked passwords** (only when you press it) asks Have I Been Pwned using just the first 5 characters of each password's SHA-1 hash; see [PRIVACY.md](PRIVACY.md). |
+| Files on any entry | Attach photos or PDFs to any entry (a login's recovery codes, say), encrypted like document files. |
+| Import | **Settings → Import passwords** takes a CSV export from Chrome, Edge, Firefox, Bitwarden, LastPass, 1Password, KeePass and most others, and skips logins you already have. |
+| Daily backups | Once a day MyVault copies the encrypted vault file to `%LOCALAPPDATA%\MyVault\backups`, keeping 14 days. **Settings → Automatic backups → Restore** brings back entries deleted since then. |
 | Auto-lock | After 5 minutes without use (change it in Settings), or at once with `Ctrl L` or the tray icon. |
 | Runs in the background | The X button hides MyVault to the notification area by the clock, so browser fill keeps working with no taskbar button. Click the icon to open it; right-click it to lock or quit. With **Start with Windows** on, it starts there, locked. |
 | Keyboard | `Ctrl F` search, `Ctrl N` new login, `Ctrl S` save, `Ctrl L` lock, arrow keys in the list. |
@@ -100,6 +106,14 @@ The phone app has the same entry types, reveal and generator. It locks after 30
 seconds in the background or 5 minutes idle (change both under **menu › Auto-lock**),
 blocks screenshots and the recent-apps preview, marks copied secrets as sensitive,
 and is excluded from Google cloud backup.
+
+It also has **2FA codes** (scan the site's setup QR code into a login's 2FA
+secret), **Previous passwords**, **files on any entry** and **menu › Password
+health**, like the Windows app. **Fingerprint unlock:** after you unlock with
+the password, MyVault offers to open with your fingerprint or face next time
+(Android 10 and later; switch it under **menu › Auto-lock**). The master password
+is kept encrypted by an Android Keystore key that only a strong biometric opens,
+and it stops working if fingerprints are added or removed.
 
 **Autofill in other apps:** open **menu › Autofill in other apps › Turn on** and
 pick MyVault. Then:
@@ -175,10 +189,16 @@ each one expires.
   machine-readable zone (the `<<<` lines), which MyVault reads and checks with its
   check digits. For other documents it looks for dates labelled "expiry",
   "valid until", "تاريخ الانتهاء" and so on. Windows uses its built-in text reader;
-  the phone uses Google's on-device one, built into the app. You check the details
-  before saving, and can always type them in yourself. (The phone's reader handles
-  Latin letters and numbers, not Arabic script; on Windows, Arabic works when
-  Windows' Arabic language is installed.)
+  the phone uses [Tesseract](https://github.com/tesseract-ocr/tesseract) (open
+  source, built into the app, English and Arabic). You check the details before
+  saving, and can always type them in yourself. On Windows, Arabic works when
+  Windows' Arabic language is installed.
+- **Scanning on the phone:** **Scan document** opens your camera app (with its
+  own flash), then MyVault finds the card's edges; drag the corners if needed,
+  and it's cut out and straightened. **Add another page** goes straight on to the
+  next one (a card's back), **Done** finishes.
+- **Removing a photo or file** asks first, and only happens when you save:
+  until then **Put it back** undoes it, and leaving without saving keeps it.
 - **Reminders:** pick any mix of 1 day, 3 days, 1 week, 2 weeks, 1 month, 2, 3 or
   6 months, 1 year, or your own number of days, and you're also reminded on the
   day. A notification says only the type, or a short name you choose ("Sara's
@@ -332,6 +352,12 @@ Arabic. To add a language, add a file like these and a choice in the settings.
 MyVault is free software under the [GNU General Public License v3.0](LICENSE).
 You may use, study, change and share it. If you share a changed version, you
 must also share its source under GPL-3.0. Copyright (C) 2026 Ahmed Mohammed.
+
+The phone app includes open-source parts under their own licences:
+[Tesseract](https://github.com/tesseract-ocr/tesseract) and its
+[tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast) English and Arabic
+models (Apache 2.0, via Tesseract4Android), [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp)
+(Apache 2.0, via flutter_zxing, MIT).
 
 ## Privacy, terms and security
 

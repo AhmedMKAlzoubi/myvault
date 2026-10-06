@@ -24,6 +24,8 @@ import re
 import uuid
 from pathlib import Path
 
+from functools import lru_cache
+
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -125,7 +127,7 @@ def refs(entry_fields: dict) -> list[dict]:
 
 def cleanup(entries) -> int:
     """Delete stored files no live document refers to (removed, or entry deleted)."""
-    keep = {r["id"] for e in entries if not e.deleted and e.kind == "document" for r in refs(e.fields)}
+    keep = {r["id"] for e in entries if not e.deleted for r in refs(e.fields)}   # any entry can have files
     gone = 0
     for p in files_dir().glob("*.bin"):
         if p.stem not in keep:
@@ -267,29 +269,63 @@ def _kind(code: str) -> str:
     return {"P": "passport", "V": "visa"}.get(c, "id_card" if c in "IAC" else "other")
 
 
+def _composite(block: list[str], width: int) -> bool:
+    """The zone's last check digit, over all its other checked fields."""
+    l1, l2 = block[0], block[1]
+    if width == 30:
+        s, d = l1[5:30] + l2[0:7] + l2[8:15] + l2[18:29], l2[29]
+    else:
+        s, d = l2[0:10] + l2[13:20] + l2[21:width - 1], l2[width - 1]
+    d = d.translate(_FIX_DIGIT)
+    return d.isdigit() and _check(s) == int(d)
+
+
+def _variants(line: str, width: int):
+    """A line read with one character too many (or too few): each way to fix it."""
+    if len(line) > width:
+        for j in range(len(line)):
+            yield line[:j] + line[j + 1:]
+    elif len(line) < width:
+        for j in range(len(line) + 1):
+            yield line[:j] + "<" + line[j:]
+
+
 def read_mrz(text: str) -> dict:
     lines = _mrz_lines(text)
+    fit = lambda ln, width: ln.ljust(width, "<")[:width]
+    first = None           # a zone whose dates check out but not everything: if nothing better
     for width, rows in ((44, 2), (36, 2), (30, 3)):
-        fit = [ln.ljust(width, "<")[:width] for ln in lines if abs(len(ln) - width) <= 3]
-        for i in range(len(fit) - rows + 1):
-            block = fit[i:i + rows]
-            got = (_td1 if rows == 3 else _td23)(block)
-            if got.get("expires"):
-                got["how"] = "mrz"
-                return got
-    return {}
+        cands = [ln for ln in lines if abs(len(ln) - width) <= 3]
+        parse = _td1 if rows == 3 else _td23
+        for i in range(len(cands) - rows + 1):
+            raw = cands[i:i + rows]
+            plain = [fit(x, width) for x in raw]
+            # The reader sometimes adds or drops one character, which shifts the
+            # rest of the line: the version that passes the last check digit wins.
+            tries = [plain] + [plain[:r] + [fit(v, width)] + plain[r + 1:]
+                               for r in range(rows) for v in _variants(raw[r], width)]
+            for block in tries:
+                got = parse(block)
+                if not got.get("expires"):
+                    continue
+                # (a TD1 zone's third line is the name: letters only)
+                if _composite(block, width) and (rows == 2 or re.fullmatch("[A-Z<]+", block[2])):
+                    return {**got, "how": "mrz"}
+                first = first or got
+    return {**first, "how": "mrz"} if first else {}
 
 
 def _td23(b: list[str]) -> dict:
     l1, l2 = b
+    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l1[5:]),
+           "nationality": nationality_code(l2[10:13].strip("<")), "gender": l2[20] if l2[20] in "MF" else ""}
     number = _field(l2[0:9], l2[9], False)
     birth = _field(l2[13:19], l2[19], True)
     expiry = _field(l2[21:27], l2[27], True)
-    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l1[5:])}
     if number:
         out["number"] = number.strip("<")
     if birth:
-        out["birth"] = _yymmdd(birth, False)
+        out["birth_date"] = _yymmdd(birth, False)
     if expiry:
         out["expires"] = _yymmdd(expiry, True)
     return out
@@ -297,30 +333,136 @@ def _td23(b: list[str]) -> dict:
 
 def _td1(b: list[str]) -> dict:
     l1, l2, l3 = b
+    extra = l1[15:30].strip("<")             # many ID cards keep the national number here
+    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l3),
+           "nationality": nationality_code(l2[15:18].strip("<")), "gender": l2[7] if l2[7] in "MF" else "",
+           "_national": extra if extra.isdigit() and 8 <= len(extra) <= 14 else ""}
     number = _field(l1[5:14], l1[14], False)
     birth = _field(l2[0:6], l2[6], True)
     expiry = _field(l2[8:14], l2[14], True)
-    out = {"doc_type": _kind(l1[:2]), "country": l1[2:5].strip("<"), "holder": _name(l3)}
     if number:
         out["number"] = number.strip("<")
     if birth:
-        out["birth"] = _yymmdd(birth, False)
+        out["birth_date"] = _yymmdd(birth, False)
     if expiry:
         out["expires"] = _yymmdd(expiry, True)
     return out
 
 
+@lru_cache(maxsize=1)
+def countries() -> list[list[str]]:
+    """[code, country, nationality, country in Arabic, nationality in Arabic]."""
+    return json.loads((Path(__file__).resolve().parent / "ui" / "countries.json").read_text("utf-8"))["list"]
+
+
+def _plain_ar(w: str) -> str:
+    w = re.sub(r"^ال", "", w).rstrip("ة")
+    return w.translate(str.maketrans("أإآ", "ااا"))
+
+
+def nationality_code(v: str) -> str:
+    """A nationality or country, in English or Arabic, as its code; "" if it isn't one."""
+    v = v.strip()
+    up = v.upper()
+    codes = {c[0] for c in countries()}
+    if up in codes:
+        return up
+    if up == "D":                       # Germany's code in passports
+        return "DEU"
+    low = v.lower()
+    for code, en, nat, _, _ in countries():
+        if low in (en.lower(), nat.lower()):
+            return code
+    for w in re.findall(r"[^\W\d_]+", v):
+        wl, wa = w.lower(), _plain_ar(w)
+        for code, en, nat, ar, nat_ar in countries():
+            if wl in (en.lower(), nat.lower()) or (len(wa) > 2 and wa in (_plain_ar(ar), _plain_ar(nat_ar))):
+                return code
+    return ""
+
+
 _MONTHS = {m: i for i, m in enumerate(
-    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+    ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"], 1)}
 _EXPIRY = re.compile(r"expir|valid\s*(until|thru|through|to)|end\s*date|انتهاء|صالح[ةه]?\s*(حتى|لغاية)|ينتهي", re.I)
 _ISSUE = re.compile(r"issue|start\s*date|إصدار|الإصدار|تحرير", re.I)
-_BIRTH = re.compile(r"birth|born|dob|ميلاد|الولادة", re.I)
-_NUMBER = re.compile(r"(?:no\.?|number|num\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})", re.I)
-_TYPES = [("passport", r"passport|جواز"), ("visa", r"\bvisa\b|تأشيرة"),
-          ("driving_license", r"driv\w*\s*licen[cs]e|رخصة\s*(ال)?قيادة|رخصة\s*سوق"),
-          ("car_registration", r"vehicle|registration|رخصة\s*(ال)?مركبة|ترخيص"),
-          ("rental", r"lease|tenan|rent|إيجار|استئجار"), ("residence", r"residen|إقامة"),
-          ("insurance", r"insurance|تأمين"), ("id_card", r"identity|national\s*id|\bid\s*card|هوية|بطاقة\s*شخصية")]
+_BIRTH = re.compile(r"birth|born|\bdob\b|ميلاد|الولادة", re.I)
+_NUMBER = re.compile(r"(?:\bno\b\.?|number|\bnum\b\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})", re.I)
+_NATIONAL = re.compile(r"(?:national|personal|identity|\bid\b)\s*(?:\bno\b\.?|number|#)\s*[:.]?\s*(\d{6,14})|"
+                       r"(?:الرقم\s*الوطني|رقم\s*(?:وطني|الهوية|شخصي))\s*[:.]?\s*(\d{6,14})", re.I)
+_NOT_NUMBER = re.compile(r"plate|phone|\btel\b|mobile|chassis|\bvin\b|اللوحة|هاتف", re.I)
+# Most specific first. "Residence" alone is often an ID card's address line, so a
+# residence permit has to say so.
+_TYPES = [("passport", r"\bpassport\b|جواز\s*(ال)?سفر"), ("visa", r"\bvisa\b|تأشيرة"),
+          ("driving_license", r"driv\w*\s*licen[cs]e|driver'?s\s*licen|رخصة\s*(ال)?قيادة|رخصة\s*سوق"),
+          ("car_registration", r"vehicle\s*(registration|licen[cs]e)|registration\s*certificate|\bchassis\b|"
+                               r"رخصة\s*(ال)?مركبة|رخصة\s*سيارة|تسجيل\s*(ال)?مركبة"),
+          ("residence", r"residen(ce|cy|t)\s*(permit|card)|تصريح\s*إقامة|(?<![ء-ي])إقامة(?![ء-ي])"),
+          ("id_card", r"identity|national\s*(id|number|no)|\bid\s*card|personal\s*(id|card|number)|هوية|"
+                      r"بطاقة\s*(ال)?(شخصية|تعريف)|الرقم\s*الوطني"),
+          ("rental", r"\blease\b|tenan|rental\s*(agreement|contract)|إيجار|استئجار|المؤجر|المستأجر"),
+          ("insurance", r"insurance|\bpolicy\b|تأمين")]
+# Details read from "Label: value" lines (the value may also be on the next line).
+_LABELS = {
+    "holder": r"\b(full\s*)?name\b|الاسم",
+    "nationality": r"nationality|الجنسية",
+    "gender": r"\bsex\b|gender|الجنس",
+    "birth_place": r"place\s*of\s*birth|birth\s*place|مكان\s*(ال)?(ولادة|الميلاد)",
+    "address": r"address|place\s*of\s*residence|العنوان|مكان\s*الإقامة",
+    "landlord": r"landlord|lessor|المؤجر",
+    "employer": r"sponsor|employer|الكفيل|صاحب\s*العمل",
+    "insurer": r"insurer|insurance\s*company|شركة\s*التأمين",
+    "licence_class": r"\bclass\b|\bcategory\b|الفئة",
+    "plate": r"plate(\s*(\bno\b\.?|number))?|رقم\s*اللوحة",
+    "vehicle": r"make\s*(and|&)\s*model|\bmodel\b|الطراز",
+    "visa_type": r"visa\s*type|type\s*of\s*visa|نوع\s*التأشيرة",
+    "rent": r"monthly\s*rent|rent\s*amount|قيمة\s*الإيجار|الأجرة",
+    "country": r"issuing\s*(country|authority|state)|issued\s*by|place\s*of\s*issue|جهة\s*الإصدار|مكان\s*الإصدار",
+    "phone": r"phone|mobile|\btel\b|هاتف|موبايل|جوال",
+}
+
+
+def _after(label: str, lines: list[str]) -> str:
+    """The value after a label on its line, or on the next line if it's alone."""
+    rx = re.compile(label, re.I)
+    for i, line in enumerate(lines):
+        m = rx.search(line)
+        if not m:
+            continue
+        rest = re.sub(r"^[\s:：.#\-–]+", "", line[m.end():]).strip()
+        if not rest and i + 1 < len(lines):
+            rest = lines[i + 1].strip()
+        if rest:
+            return rest[:80]
+    return ""
+
+
+_LABEL_WORD = re.compile(r"^(?:(?:full\s*)?name|surname|given\s*names?|الاسم)\b\s*[:：.]?\s*", re.I)
+_TITLE = re.compile(r"card|identity|passport|licen[cs]e|permit|بطاقة|هوية|جواز|رخصة", re.I)
+_OTHER_LABEL = re.compile(r"date|birth|expir|issue|nationality|\bsex\b|gender|address|تاريخ|الجنسية|الجنس|العنوان", re.I)
+_NAME = re.compile(r"^[^\W\d_]+(?:[ '\-][^\W\d_]+){0,6}$")
+
+
+def _clean(key: str, v: str) -> str:
+    """The value if it makes sense for that field, else "" (a box is better empty than wrong)."""
+    v = v.strip(" :：.,;-–")
+    if key == "nationality":
+        return nationality_code(v)
+    if key in ("holder", "landlord", "employer", "insurer", "birth_place"):
+        v = _LABEL_WORD.sub("", v).strip(" :：.,;-–")
+        ok = _NAME.match(v) and not _TITLE.search(v) and not _OTHER_LABEL.search(v)
+        return v if ok and (key != "holder" or len(v.split()) >= 2) else ""
+    if key == "address":
+        if re.search("[ء-ي]", v):        # Latin words in an Arabic address are misreadings
+            v = " ".join(w for w in v.split() if not re.fullmatch("[A-Za-z]+[.,،]?", w))
+        if _TITLE.search(v) or _OTHER_LABEL.search(v) or not re.search(r"[^\W\d_]{2}", v):
+            return ""
+    if key == "gender":
+        g = v.strip().upper()[:1]
+        return "M" if g == "M" or "ذكر" in v else "F" if g == "F" or "أنثى" in v else ""
+    if key == "phone":
+        digits = re.sub(r"[^\d+]", "", v)
+        return digits if 7 <= len(digits.lstrip("+")) <= 15 else ""
+    return v
 
 
 def _dates(text: str):
@@ -343,43 +485,97 @@ def _dates(text: str):
                 continue
 
 
-def read_details(text: str, today: dt.date | None = None) -> dict:
-    """Best guesses from a document's text; the person checks them before saving."""
+def read_details(text: str | list[str], today: dt.date | None = None) -> dict:
+    """Best guesses from a document's text (one string per page or side, e.g. an
+    ID card's front and back). The person checks them before saving.
+
+    Dates follow the order every document has: birth < issue < expiry. A label
+    next to a date is used when it fits that order; when it doesn't (labels and
+    values in separate columns, or labels the reader couldn't read), the order
+    decides. A birth date is never taken for an expiry date."""
     today = today or dt.date.today()
+    text = "\n".join([text] if isinstance(text, str) else text)
     text = text.translate(str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"))
+    text = re.sub("[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c\ufeff]", "", text)   # invisible direction marks
+    lines = text.splitlines()
     found = read_mrz(text)
-    if found:
-        found.pop("birth", None)
-        found.setdefault("issued", "")
-    else:
+    if not found:
         found = {"how": "text"}
-    for kind, rx in _TYPES:
-        if "doc_type" not in found and re.search(rx, text, re.I):
-            found["doc_type"] = kind
-    labelled = {}
+        for kind, rx in _TYPES:
+            if re.search(rx, text, re.I):
+                found["doc_type"] = kind
+                break
+    elif found["doc_type"] == "id_card" and re.search(_TYPES[4][1], text, re.I):
+        found["doc_type"] = "residence"
+    for key, label in _LABELS.items():
+        if not found.get(key):
+            found[key] = _clean(key, _after(label, lines))
+    m = re.search(r"[\w.+-]+@[\w-]+\.[\w.]+", text)
+    found["email"] = m.group(0) if m else ""
+    m = re.search(r"\b(?=[A-HJ-NPR-Z0-9]*\d)(?=[A-HJ-NPR-Z0-9]*[A-Z])[A-HJ-NPR-Z0-9]{17}\b", text)
+    found["vin"] = m.group(0) if m else ""
+
+    # ---- dates
+    seen = []
     for pos, iso in _dates(text):
-        # The nearest label before the date, on its line or the one above.
+        if not 1900 <= int(iso[:4]) <= today.year + 30:
+            continue
         before = text[max(0, pos - 50):pos]
         hits = [(m.end(), label) for label, rx in (("expires", _EXPIRY), ("issued", _ISSUE), ("birth", _BIRTH))
                 for m in rx.finditer(before)]
-        if hits:
-            labelled.setdefault(max(hits)[1], iso)
+        seen.append((iso, max(hits)[1] if hits else None))
+    first = lambda lab: next((d for d, label in seen if label == lab), None)   # noqa: E731
+    days = sorted({d for d, _ in seen})
+    now = today.isoformat()
+    old = today.replace(year=today.year - 12).isoformat()       # birth dates are at least this old
+    recent = today.replace(year=today.year - 15).isoformat()    # expiry dates aren't older than this
+    birth = found.get("birth_date") or first("birth")
+    if birth and birth > now:
+        birth = None
+    if not birth and days and days[0] <= old:
+        birth = days[0]
+    after_birth = lambda d: d != birth and (not birth or d > birth)          # noqa: E731
+    expires = found.get("expires")
+    if not expires:
+        labelled = first("expires")
+        if labelled and after_birth(labelled):
+            expires = labelled
         else:
-            labelled.setdefault("other", []).append(iso)
-    if not found.get("expires"):
-        if "expires" in labelled:
-            found["expires"] = labelled["expires"]
-        else:                                    # no label: the latest date still to come
-            future = sorted(d for d in labelled.get("other", []) if d > today.isoformat())
-            if future:
-                found["expires"] = future[-1]
-                found["guessed"] = True
-    if not found.get("issued") and "issued" in labelled:
-        found["issued"] = labelled["issued"]
-    if "number" not in found:
-        m = _NUMBER.search(text)
-        if m and re.search(r"\d", m.group(1)):
-            found["number"] = m.group(1)
+            later = [d for d in days if after_birth(d) and d >= recent]
+            if later:
+                expires, found["guessed"] = later[-1], True
+    issued = first("issued")
+    if not (issued and after_birth(issued) and (not expires or issued < expires)):
+        before = [d for d in days if after_birth(d) and d <= now and expires and d < expires]
+        issued = before[-1] if before else None
+    found.update(birth_date=birth, expires=expires, issued=issued)
+
+    # ---- the document's number. On an ID card that's the national (personal)
+    # number, not the card's own serial printed by the chip, which goes apart.
+    national = found.pop("_national", "")
+    if found.get("doc_type") in ("id_card", "residence"):
+        if not national:
+            m = _NATIONAL.search(text)
+            national = (m.group(1) or m.group(2)) if m else ""
+        if not national:
+            m = re.search(r"(?<![\d+])[129]\d{9}(?!\d)", text)
+            national = m.group(0) if m else ""
+        if national:
+            if found.get("number") and found["number"] != national:
+                found["card_number"] = found["number"]
+            found["number"] = national
+            if not found.get("card_number"):
+                m = re.search(r"\b[A-Z]{1,3}\d{5,9}\b", text)
+                found["card_number"] = m.group(0) if m else ""
+    if not found.get("number"):
+        for m in _NUMBER.finditer(text):
+            if not _NOT_NUMBER.search(text[max(0, m.start() - 14):m.start()]) and re.search(r"\d", m.group(1)):
+                found["number"] = m.group(1)
+                break
+    if not found.get("number"):                  # unlabelled: a national number or a passport-style one
+        m = re.search(r"(?<![\d+])(?:[129]\d{9}|\b[A-Z]{1,2}\d{6,8})(?![\dA-Z])", text)
+        if m:
+            found["number"] = m.group(0)
     return {k: v for k, v in found.items() if v not in ("", None)}
 
 
@@ -418,11 +614,21 @@ def ocr(data: bytes) -> str:
         if max(bitmap.pixel_width, bitmap.pixel_height) > OcrEngine.max_image_dimension:
             raise RuntimeError("That image is too large to read. Try a smaller photo.")
         texts = []
-        for lang in OcrEngine.available_recognizer_languages:   # each installed one, e.g. English and Arabic
+        langs = sorted(OcrEngine.available_recognizer_languages,     # e.g. English and Arabic;
+                       key=lambda lang: not lang.language_tag.startswith("en"))   # English first
+        for lang in langs:
             engine = OcrEngine.try_create_from_language(lang)
-            if engine is not None:
-                result = await engine.recognize_async(bitmap)
-                texts.append("\n".join(line.text for line in result.lines))
+            if engine is None:
+                continue
+            result = await engine.recognize_async(bitmap)
+            if lang.layout_direction == 1:      # right to left: Windows gives the words left to right,
+                # so put them back in reading order, and leave the Latin words to the English reader
+                lines = [" ".join(w.text for w in sorted(line.words, key=lambda w: -w.bounding_rect.x)
+                                  if not re.fullmatch(r"[A-Za-z0-9<:./-]+", w.text))
+                         for line in result.lines]
+            else:
+                lines = [line.text for line in result.lines]
+            texts.append("\n".join(x for x in lines if x.strip()))
         if not texts:
             raise RuntimeError("Windows has no text-reading language installed.")
         return "\n".join(texts)

@@ -106,7 +106,9 @@ Future<int> importCaptures(Vault v) async {
     }
     if (existing != null) {
       if (existing.password == pw) continue;
+      final old = existing.password;
       existing.password = pw;
+      keepOldPassword(existing, old);
       v.update(existing);
     } else {
       final isEmail = login.contains('@');

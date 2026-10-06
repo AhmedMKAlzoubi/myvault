@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:myvault/docs.dart' show loadDocSchema;
 import 'package:myvault/documents_ui.dart';
 import 'package:myvault/l10n.dart';
 import 'package:myvault/l10n_ar.dart';
@@ -47,6 +48,8 @@ Widget _app(Widget home) => MaterialApp(
 );
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async => loadDocSchema()); // the shared document types
   setUp(() => language.value = 'ar');
   tearDown(() => language.value = 'auto');
 

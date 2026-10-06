@@ -462,6 +462,139 @@ const arabic = <String, String>{
   'That file isn\'t on this device yet. Sync with the device that has it.':
       'هذا الملف ليس على هذا الجهاز بعد. زامِن مع الجهاز الذي يحويه.',
   'That file is damaged.': 'هذا الملف تالف.',
+  // ---- document fields and scanning ----
+  'Date of birth': 'تاريخ الميلاد',
+  'Place of birth': 'مكان الولادة',
+  'Sex': 'الجنس',
+  'Address': 'العنوان',
+  'Nationality': 'الجنسية',
+  'Licence class': 'فئة الرخصة',
+  'Visa type': 'نوع التأشيرة',
+  'Sponsor or employer': 'الكفيل أو صاحب العمل',
+  'Plate number': 'رقم اللوحة',
+  'Make and model': 'الصنع والطراز',
+  'Chassis number (VIN)': 'رقم الشاصي (VIN)',
+  'Landlord': 'المؤجر',
+  'Rent': 'الأجرة',
+  'Insurer': 'شركة التأمين',
+  'Owner': 'المالك',
+  'Registration number': 'رقم التسجيل',
+  'Tenant': 'المستأجر',
+  'Contract number': 'رقم العقد',
+  'Start date': 'تاريخ البدء',
+  'End date': 'تاريخ الانتهاء',
+  'Insured': 'المؤمَّن عليه',
+  'Policy number': 'رقم الوثيقة',
+  'Add a photo or PDF of the document first.':
+      'أضف صورة أو ملف PDF للمستند أولًا.',
+  'Send a test notification': 'إرسال إشعار تجريبي',
+  'This is how a document reminder looks.': 'هكذا يبدو تذكير المستند.',
+  'Couldn\'t find new details in these files. Type them in instead.':
+      'لم أجد تفاصيل جديدة في هذه الملفات. اكتبها بنفسك.',
+  'Scan document': 'مسح المستند ضوئيًا',
+  'Scan both sides of a card. The scanner finds the edges for you; drag the corners to adjust. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.':
+      'امسح وجهي البطاقة. يجد الماسح الحواف تلقائيًا، ويمكنك سحب الزوايا لضبطها. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
+  'The document scanner isn\'t available.': 'الماسح الضوئي للمستندات غير متاح.',
+  // ---- document checks and choices ----
+  'Choose…': 'اختر…',
+  'Male': 'ذكر',
+  'Female': 'أنثى',
+  'Card number': 'رقم البطاقة',
+  'ID number': 'الرقم الوطني',
+  'Scans can be misread: check every highlighted box against the document before saving.':
+      'قد تُقرأ المسوحات بشكل خاطئ: طابق كل خانة مميَّزة مع المستند قبل الحفظ.',
+  'From the scan: check it': 'من المسح: تحقّق منها',
+  'Use the camera': 'استخدام الكاميرا',
+  'Too dark? Tap the scanner\'s flash button. Photo too bright or shiny? Pick “No filter” after scanning, tilt the card away from the light, or use the camera instead.':
+      'الصورة معتمة؟ اضغط زر الفلاش في الماسح. الصورة ساطعة أو لامعة؟ اختر «بلا فلتر» بعد المسح، أو أمِل البطاقة بعيدًا عن الضوء، أو استخدم الكاميرا بدلًا منه.',
+  // ---- 2FA, password health, fingerprint ----
+  '2FA secret': 'مفتاح التحقق بخطوتين',
+  '2FA code': 'رمز التحقق بخطوتين',
+  'Copy 2FA code': 'نسخ رمز التحقق بخطوتين',
+  'Previous passwords ({0})': 'كلمات المرور السابقة ({0})',
+  'Until {0}': 'حتى {0}',
+  'Only time-based codes (TOTP) are supported.':
+      'الرموز المعتمدة على الوقت (TOTP) فقط مدعومة.',
+  'That 2FA link isn\'t valid.': 'رابط التحقق بخطوتين هذا غير صالح.',
+  'That isn\'t a 2FA secret. Paste the setup key or the otpauth:// link.':
+      'هذا ليس مفتاح تحقق بخطوتين. الصق مفتاح الإعداد أو رابط otpauth://.',
+  'Once you save, the old one moves to Previous passwords. Change it on the website or app as well, or you can\'t sign in.':
+      'بعد الحفظ تنتقل كلمة المرور القديمة إلى «كلمات المرور السابقة». غيّرها في الموقع أو التطبيق أيضًا، وإلا فلن تتمكن من تسجيل الدخول.',
+  'Password health': 'صحة كلمات المرور',
+  'No logins with a password yet.': 'لا توجد تسجيلات دخول بكلمة مرور بعد.',
+  'All {0} passwords look good: none is weak or reused.':
+      'كلمات المرور كلها ({0}) جيدة: لا توجد كلمة ضعيفة أو مكررة.',
+  '{0} logins checked: {1} weak, {2} reused.':
+      'فُحص {0} من تسجيلات الدخول: {1} ضعيفة، {2} مكررة.',
+  'Weak passwords': 'كلمات مرور ضعيفة',
+  'Short or simple, so they\'re easy to guess. Change each on its site, then here: Edit › Change password › Generate one.':
+      'قصيرة أو بسيطة، فيسهل تخمينها. غيّر كل واحدة في موقعها ثم هنا: تعديل › تغيير كلمة المرور › إنشاء واحدة.',
+  'Reused passwords': 'كلمات مرور مكررة',
+  'If one of these sites leaks its passwords, the same password opens the others. Give each site its own.':
+      'إذا سُرّبت كلمات المرور من أحد هذه المواقع، فستفتح كلمة المرور نفسها المواقع الأخرى. اجعل لكل موقع كلمة مرور خاصة به.',
+  'Same password, group {0}': 'كلمة المرور نفسها، المجموعة {0}',
+  'Leaked passwords': 'كلمات مرور مسرّبة',
+  'Check whether any of your passwords appears in known data leaks, using Have I Been Pwned (haveibeenpwned.com).':
+      'تحقّق مما إذا كانت أي من كلمات مرورك موجودة في تسريبات بيانات معروفة، باستخدام خدمة Have I Been Pwned ‏(haveibeenpwned.com).',
+  'Check for leaked passwords': 'البحث عن كلمات مرور مسرّبة',
+  'Found in known leaks: {0} of {1} passwords. Change these first, on the site and then here.':
+      'موجودة في تسريبات معروفة: {0} من {1} كلمة مرور. غيّر هذه أولًا، في الموقع ثم هنا.',
+  'Checked {0} passwords: none of them is in a known leak.':
+      'فُحصت {0} كلمة مرور: لا توجد أي منها في تسريب معروف.',
+  'Seen in leaks {0} times': 'ظهرت في التسريبات {0} مرة',
+  'Couldn\'t reach the leak check service. Check your internet connection.':
+      'تعذّر الوصول إلى خدمة فحص التسريبات. تحقّق من اتصالك بالإنترنت.',
+  'Photos or PDFs that belong with this entry. They\'re encrypted the moment you add them.':
+      'صور أو ملفات PDF تخص هذا العنصر. تُشفَّر لحظة إضافتها.',
+  'Only the first 5 characters of a scrambled copy (SHA-1 hash) of each password are sent, never the password itself, and the match is made on this phone. Nothing is checked until you choose to.':
+      'تُرسل أول 5 أحرف فقط من نسخة مُبعثرة (بصمة SHA-1) لكل كلمة مرور، وليس كلمة المرور نفسها أبدًا، وتتم المطابقة على هذا الهاتف. لا يُفحص شيء حتى تختار ذلك.',
+  'Scan the QR code': 'مسح رمز QR',
+  'Point the camera at the QR code the site shows when you turn on two-factor sign-in.':
+      'وجّه الكاميرا إلى رمز QR الذي يعرضه الموقع عند تفعيل تسجيل الدخول بخطوتين.',
+  'That QR code isn\'t a 2FA setup code.':
+      'رمز QR هذا ليس رمز إعداد للتحقق بخطوتين.',
+  '2FA secret added. Save to keep it.':
+      'أُضيف مفتاح التحقق بخطوتين. احفظ للاحتفاظ به.',
+  'Use the password': 'استخدام كلمة المرور',
+  'Turn on fingerprint unlock': 'تفعيل الفتح بالبصمة',
+  'Unlock MyVault': 'فتح MyVault',
+  'This phone\'s fingerprints changed, so enter your master password once. Then turn fingerprint unlock on again in the menu › Auto-lock.':
+      'تغيّرت بصمات هذا الهاتف، فأدخل كلمة مرورك الرئيسية مرة واحدة. ثم فعّل الفتح بالبصمة من جديد من القائمة › القفل التلقائي.',
+  'Unlock with your fingerprint?': 'الفتح ببصمتك؟',
+  'Next time, open MyVault with your fingerprint or face instead of typing the master password. Your password stays encrypted on this phone, and you can turn this off in the menu › Auto-lock.':
+      'في المرة القادمة، افتح MyVault ببصمتك أو وجهك بدلًا من كتابة كلمة المرور الرئيسية. تبقى كلمة مرورك مشفّرة على هذا الهاتف، ويمكنك إيقاف ذلك من القائمة › القفل التلقائي.',
+  'Not now': 'ليس الآن',
+  'Use fingerprint': 'استخدام البصمة',
+  'Unlock with fingerprint or face': 'الفتح بالبصمة أو الوجه',
+  'Your master password is kept encrypted on this phone by a key that only your fingerprint or face opens. If fingerprints are added or removed, you\'ll type the password once more.':
+      'تُحفظ كلمة مرورك الرئيسية مشفّرة على هذا الهاتف بمفتاح لا تفتحه إلا بصمتك أو وجهك. إذا أُضيفت بصمات أو أُزيلت، فستكتب كلمة المرور مرة أخرى.',
+  // ---- MyVault's own scanner ----
+  'Crop the document': 'قصّ المستند',
+  'Turn': 'تدوير',
+  'Drag the corners onto the document\'s corners. MyVault cuts it out and straightens it, which also helps it read the details.':
+      'اسحب الزوايا إلى زوايا المستند. يقصّه MyVault ويقوّمه، وهذا يساعده أيضًا على قراءة التفاصيل.',
+  'Retake': 'إعادة الالتقاط',
+  'Use this': 'استخدام هذه',
+  'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.':
+      'امسح وجهي البطاقة: التقط الصورة بالكاميرا (استخدم الفلاش إذا كان المكان معتمًا)، ثم اسحب الزوايا إلى زوايا البطاقة. تُشفَّر الملفات لحظة إضافتها، ويقرأ MyVault التفاصيل منها كلها معًا على هذا الهاتف.',
+  'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.':
+      'الصورة ساطعة أو لامعة؟ أمِل البطاقة بعيدًا عن الضوء، أو أطفئ الفلاش.',
+  'That photo couldn\'t be used.': 'تعذّر استخدام هذه الصورة.',
+  'Allow the camera for MyVault to take a photo (Android settings › Apps › MyVault › Permissions).':
+      'اسمح لـ MyVault باستخدام الكاميرا لالتقاط صورة (إعدادات Android › التطبيقات › MyVault › الأذونات).',
+  // ---- email check ----
+  '“{0}” isn\'t a complete email address. It needs a name, @ and the full domain, such as name@gmail.com.':
+      '«{0}» ليس عنوان بريد إلكتروني كاملًا. يحتاج إلى اسم و@ والنطاق كاملًا، مثل name@gmail.com.',
+  // ---- several pages, removing files ----
+  'Put it back': 'إعادتها',
+  'Removed “{0}”.': 'أُزيل «{0}».',
+  'Remove': 'إزالة',
+  'Remove this file?': 'إزالة هذا الملف؟',
+  '“{0}” leaves this entry when you save. Until then you can put it back, and leaving without saving keeps it.':
+      'يُزال «{0}» من هذا العنصر عند الحفظ. حتى ذلك الحين يمكنك إعادته، والخروج دون حفظ يُبقيه.',
+  'Crop page {0}': 'قصّ الصفحة {0}',
+  'Add another page': 'إضافة صفحة أخرى',
+  'Done': 'تم',
 };
 
 const arabicMonths = [

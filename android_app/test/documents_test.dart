@@ -8,11 +8,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:myvault/docs.dart' as docs;
+import 'package:myvault/documents_ui.dart';
 import 'package:myvault/main.dart';
 import 'package:myvault/theme.dart';
 import 'package:myvault/vault.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  setUpAll(() async => docs.loadDocSchema()); // the shared document types
   testWidgets('pick a scan, details fill in, save keeps files and reminders', (
     t,
   ) async {
@@ -85,6 +88,23 @@ void main() {
     ); // holder filled from the zone
     expect(find.text('15 Apr 2030'), findsOneWidget); // expiry, shown as a date
 
+    // Removing the file asks first, and can be put back.
+    final removeBtn = find.byTooltip('Remove file');
+    expect(removeBtn, findsOneWidget);
+    await t.tap(removeBtn);
+    await t.pumpAndSettle();
+    await t.tap(find.text('Keep it'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsOneWidget); // still there
+    await t.tap(find.byTooltip('Remove file'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Remove'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsNothing);
+    await t.tap(find.text('Put it back'));
+    await t.pumpAndSettle();
+    expect(find.byTooltip('Remove file'), findsOneWidget); // back
+
     await t.tap(find.text('3 months'));
     await t.pump();
     await t.runAsync(() async {
@@ -118,4 +138,74 @@ void main() {
     ); // asked once there were reminders
     Session.lock();
   });
+
+  testWidgets(
+    'the crop screen starts on the found corners and sends the moved ones',
+    (t) async {
+      final photo = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAACgAAAAeCAIAAADRv8uKAAAAR0lEQVR4nO3QMREAIBTD0E/9K0EEM7JYqYF0aQy8u6x79iRSRJ3CYCKxv8JY4iivMJY4yiuMJY7yCmOJo7zCWOIorzBWbPUDudACbNfyhxsAAAAASUVORK5CYII=',
+      );
+      List<double>? sent;
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('myvault/docs'),
+        (call) async {
+          if (call.method == 'detect') return [.1, .1, .9, .1, .9, .9, .1, .9];
+          if (call.method == 'warp') {
+            sent = [
+              for (final x in call.arguments['points'] as List)
+                (x as num).toDouble(),
+            ];
+            return Uint8List.fromList([1, 2, 3]);
+          }
+          return null;
+        },
+      );
+      CropResult? result;
+      await t.pumpWidget(
+        MaterialApp(
+          theme: buildTheme(Envelope.light, Brightness.light),
+          home: Builder(
+            builder: (c) => TextButton(
+              onPressed: () async =>
+                  result = await Navigator.of(c).push<CropResult>(
+                    MaterialPageRoute(builder: (_) => CropPage(photo: photo)),
+                  ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await t.tap(find.text('open'));
+      await t.runAsync(() async {
+        for (var i = 0; i < 40 && find.text('Done').evaluate().isEmpty; i++) {
+          await Future.delayed(const Duration(milliseconds: 25));
+          await t.pump();
+        }
+        await Future.delayed(
+          const Duration(milliseconds: 100),
+        ); // the photo decodes
+        await t.pump();
+      });
+      await t.pumpAndSettle();
+      // Drag the top-left corner down and right a little.
+      final handles = find.byType(GestureDetector);
+      await t.drag(handles.first, const Offset(30, 20));
+      await t.pump();
+      await t.tap(find.text('Done'));
+      await t.pumpAndSettle();
+      expect(result?.photo, Uint8List.fromList([1, 2, 3]));
+      expect(result?.more, isFalse); // Done: no more pages
+      expect(sent, hasLength(8));
+      expect(sent![0], greaterThan(.1)); // moved right
+      expect(sent![1], greaterThan(.1)); // and down
+      expect(sent!.sublist(2), [
+        .9,
+        .1,
+        .9,
+        .9,
+        .1,
+        .9,
+      ]); // the others where found
+    },
+  );
 }

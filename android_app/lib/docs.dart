@@ -17,29 +17,83 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pointycastle/export.dart';
 
 import 'l10n.dart';
 import 'vault.dart';
 
-const docTypes = <(String, String)>[
+// Document types and their fields: assets/doc_types.json, the same file as the
+// Windows app's myvault/ui/doc_types.json. Loaded once at start (loadDocSchema).
+Map<String, dynamic> _schema = {
+  'fields': <String, dynamic>{},
+  'types': <String, dynamic>{},
+};
+Future<void> loadDocSchema() async {
+  _schema =
+      jsonDecode(await rootBundle.loadString('assets/doc_types.json'))
+          as Map<String, dynamic>;
+  countries = [
+    for (final c
+        in (jsonDecode(await rootBundle.loadString('assets/countries.json'))
+                as Map)['list']
+            as List)
+      [for (final x in c as List) '$x'],
+  ];
+}
+
+/// [code, country, nationality, country in Arabic, nationality in Arabic]:
+/// assets/countries.json, the same file as the Windows app's.
+List<List<String>> countries = [];
+
+String _plainAr(String w) => w
+    .replaceFirst(RegExp('^ال'), '')
+    .replaceFirst(RegExp(r'ة+$'), '')
+    .replaceAll(RegExp('[أإآ]'), 'ا');
+
+/// A nationality or country, in English or Arabic, as its code; '' if it isn't one.
+String nationalityCode(String v) {
+  v = v.trim();
+  final up = v.toUpperCase(), low = v.toLowerCase();
+  if (countries.any((c) => c[0] == up)) return up;
+  if (up == 'D') return 'DEU'; // Germany's code in passports
+  for (final c in countries) {
+    if (low == c[1].toLowerCase() || low == c[2].toLowerCase()) return c[0];
+  }
+  for (final m in RegExp(r'\p{L}+', unicode: true).allMatches(v)) {
+    final wl = m[0]!.toLowerCase(), wa = _plainAr(m[0]!);
+    for (final c in countries) {
+      if (wl == c[1].toLowerCase() ||
+          wl == c[2].toLowerCase() ||
+          (wa.length > 2 && (wa == _plainAr(c[3]) || wa == _plainAr(c[4])))) {
+        return c[0];
+      }
+    }
+  }
+  return '';
+}
+
+Map<String, dynamic> get docSchemaFields =>
+    _schema['fields'] as Map<String, dynamic>;
+Map<String, dynamic> get _typeMap => _schema['types'] as Map<String, dynamic>;
+List<(String, String)> get docTypes => [
   ('', 'Choose a type'),
-  ('passport', 'Passport'),
-  ('id_card', 'ID card'),
-  ('residence', 'Residence permit'),
-  ('visa', 'Visa'),
-  ('driving_license', 'Driving licence'),
-  ('car_registration', 'Car registration'),
-  ('rental', 'Rental contract'),
-  ('insurance', 'Insurance'),
-  ('other', 'Document'),
+  for (final t in _typeMap.entries) (t.key, '${(t.value as Map)['label']}'),
 ];
-String typeLabel(String? k) => docTypes
-    .firstWhere(
-      (t) => t.$1 == k && k!.isNotEmpty,
-      orElse: () => ('', 'Document'),
-    )
-    .$2;
+String typeLabel(String? k) =>
+    '${(_typeMap[k ?? ''] as Map?)?['label'] ?? 'Document'}';
+List<String> typeFieldKeys(String type) => [
+  for (final k
+      in ((_typeMap[type] ?? _typeMap['other'] ?? {'fields': []})
+              as Map)['fields']
+          as List)
+    '$k',
+];
+
+/// The field's name on this type of document ("Owner" on a car registration).
+String docLabel(String key, String type) => key == 'doc_type'
+    ? 'Type'
+    : '${((_typeMap[type] as Map?)?['labels'] as Map?)?[key] ?? (docSchemaFields[key] as Map?)?['label'] ?? key}';
 
 const leads = <(int, String)>[
   (1, '1 day'),
@@ -256,12 +310,11 @@ Future<void> storeBlob(Vault v, FileRef r, Uint8List blob) async {
 
 /// Files of live documents, by id.
 Map<String, FileRef> liveRefs(Vault v) => {
-  for (final e in v.activeEntries())
-    if (e.kind == 'document')
-      for (final r in fileRefs(e)) r.id: r,
+  for (final e in v.activeEntries()) // any entry can have files
+    for (final r in fileRefs(e)) r.id: r,
 };
 
-/// Delete stored files no live document refers to.
+/// Delete stored files no live entry refers to.
 int cleanup(Vault v) {
   final keep = liveRefs(v).keys.toSet();
   var gone = 0;
@@ -382,24 +435,35 @@ Map<String, dynamic> _td23(List<String> b) {
     'doc_type': _kind(l1.substring(0, 2)),
     'country': l1.substring(2, 5).replaceAll('<', ''),
     'holder': _name(l1.substring(5)),
+    'nationality': nationalityCode(l2.substring(10, 13).replaceAll('<', '')),
+    'gender': 'MF'.contains(l2[20]) ? l2[20] : '',
   };
   final number = _field(l2.substring(0, 9), l2[9], false);
+  final birth = _field(l2.substring(13, 19), l2[19], true);
   final expiry = _field(l2.substring(21, 27), l2[27], true);
   if (number != null) out['number'] = number.replaceAll('<', '');
+  if (birth != null) out['birth_date'] = _yymmdd(birth, false);
   if (expiry != null) out['expires'] = _yymmdd(expiry, true);
   return out;
 }
 
 Map<String, dynamic> _td1(List<String> b) {
   final l1 = b[0], l2 = b[1], l3 = b[2];
+  // many ID cards keep the national number in the extra data
+  final extra = l1.substring(15, 30).replaceAll(RegExp(r'^<+|<+$'), '');
   final out = <String, dynamic>{
     'doc_type': _kind(l1.substring(0, 2)),
     'country': l1.substring(2, 5).replaceAll('<', ''),
     'holder': _name(l3),
+    'nationality': nationalityCode(l2.substring(15, 18).replaceAll('<', '')),
+    'gender': 'MF'.contains(l2[7]) ? l2[7] : '',
+    '_national': RegExp(r'^\d{8,14}$').hasMatch(extra) ? extra : '',
   };
   final number = _field(l1.substring(5, 14), l1[14], false);
+  final birth = _field(l2.substring(0, 6), l2[6], true);
   final expiry = _field(l2.substring(8, 14), l2[14], true);
   if (number != null) out['number'] = number.replaceAll('<', '');
+  if (birth != null) out['birth_date'] = _yymmdd(birth, false);
   if (expiry != null) out['expires'] = _yymmdd(expiry, true);
   return out;
 }
@@ -414,48 +478,212 @@ Map<String, dynamic> readMrz(String text) {
       lines.add(l);
     }
   }
+  String fit(String l, int width) => l.padRight(width, '<').substring(0, width);
+  // a zone whose dates check out but not everything: if nothing better
+  Map<String, dynamic>? first;
   for (final (width, rows) in [(44, 2), (36, 2), (30, 3)]) {
-    final fit = [
+    final cands = [
       for (final l in lines)
-        if ((l.length - width).abs() <= 3)
-          l.padRight(width, '<').substring(0, width),
+        if ((l.length - width).abs() <= 3) l,
     ];
-    for (var i = 0; i + rows <= fit.length; i++) {
-      final block = fit.sublist(i, i + rows);
-      final got = rows == 3 ? _td1(block) : _td23(block);
-      if ('${got['expires'] ?? ''}'.isNotEmpty) return {...got, 'how': 'mrz'};
+    for (var i = 0; i + rows <= cands.length; i++) {
+      final raw = cands.sublist(i, i + rows);
+      final plain = [for (final x in raw) fit(x, width)];
+      // The reader sometimes adds or drops one character, which shifts the
+      // rest of the line: the version that passes the last check digit wins.
+      final tries = [
+        plain,
+        for (var r = 0; r < rows; r++)
+          for (final v in _variants(raw[r], width))
+            [...plain.sublist(0, r), fit(v, width), ...plain.sublist(r + 1)],
+      ];
+      for (final block in tries) {
+        final got = rows == 3 ? _td1(block) : _td23(block);
+        if ('${got['expires'] ?? ''}'.isEmpty) continue;
+        // (a TD1 zone's third line is the name: letters only)
+        if (_composite(block, width) &&
+            (rows == 2 || RegExp(r'^[A-Z<]+$').hasMatch(block[2]))) {
+          return {...got, 'how': 'mrz'};
+        }
+        first ??= got;
+      }
     }
   }
-  return {};
+  return first == null ? {} : {...first, 'how': 'mrz'};
 }
 
+/// The zone's last check digit, over all its other checked fields.
+bool _composite(List<String> b, int width) {
+  final l1 = b[0], l2 = b[1];
+  final s = width == 30
+      ? l1.substring(5, 30) +
+            l2.substring(0, 7) +
+            l2.substring(8, 15) +
+            l2.substring(18, 29)
+      : l2.substring(0, 10) +
+            l2.substring(13, 20) +
+            l2.substring(21, width - 1);
+  final d = int.tryParse(_fixDigits(l2[width - 1]));
+  return d != null && _check(s) == d;
+}
+
+/// A line read with one character too many (or too few): each way to fix it.
+Iterable<String> _variants(String line, int width) sync* {
+  if (line.length > width) {
+    for (var j = 0; j < line.length; j++) {
+      yield line.substring(0, j) + line.substring(j + 1);
+    }
+  } else if (line.length < width) {
+    for (var j = 0; j <= line.length; j++) {
+      yield '${line.substring(0, j)}<${line.substring(j)}';
+    }
+  }
+}
+
+// The same rules as myvault/docs.py: keep the two in step (the shared cases in
+// test_fixtures/read_cases.json check both).
 const _months = {
   'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6, //
   'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12,
 };
-final _expiry = RegExp(
+RegExp _rx(String s) => RegExp(s, caseSensitive: false);
+final _expiry = _rx(
   r'expir|valid\s*(until|thru|through|to)|end\s*date|انتهاء|صالح[ةه]?\s*(حتى|لغاية)|ينتهي',
-  caseSensitive: false,
 );
-final _issue = RegExp(
-  r'issue|start\s*date|إصدار|الإصدار|تحرير',
-  caseSensitive: false,
+final _issue = _rx(r'issue|start\s*date|إصدار|الإصدار|تحرير');
+final _birth = _rx(r'birth|born|\bdob\b|ميلاد|الولادة');
+final _number = _rx(
+  r'(?:\bno\b\.?|number|\bnum\b\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})',
 );
-final _birth = RegExp(r'birth|born|dob|ميلاد|الولادة', caseSensitive: false);
-final _number = RegExp(
-  r'(?:no\.?|number|num\.?|رقم)\s*[:.#]?\s*([A-Z0-9][A-Z0-9-]{4,17})',
-  caseSensitive: false,
+final _national = _rx(
+  r'(?:national|personal|identity|\bid\b)\s*(?:\bno\b\.?|number|#)\s*[:.]?\s*(\d{6,14})|'
+  r'(?:الرقم\s*الوطني|رقم\s*(?:وطني|الهوية|شخصي))\s*[:.]?\s*(\d{6,14})',
 );
+final _notNumber = _rx(
+  r'plate|phone|\btel\b|mobile|chassis|\bvin\b|اللوحة|هاتف',
+);
+// Most specific first. "Residence" alone is often an ID card's address line, so a
+// residence permit has to say so.
+const _residence =
+    r'residen(ce|cy|t)\s*(permit|card)|تصريح\s*إقامة|(?<![ء-ي])إقامة(?![ء-ي])';
 final _types = [
-  ('passport', r'passport|جواز'),
+  ('passport', r'\bpassport\b|جواز\s*(ال)?سفر'),
   ('visa', r'\bvisa\b|تأشيرة'),
-  ('driving_license', r'driv\w*\s*licen[cs]e|رخصة\s*(ال)?قيادة|رخصة\s*سوق'),
-  ('car_registration', r'vehicle|registration|رخصة\s*(ال)?مركبة|ترخيص'),
-  ('rental', r'lease|tenan|rent|إيجار|استئجار'),
-  ('residence', r'residen|إقامة'),
-  ('insurance', r'insurance|تأمين'),
-  ('id_card', r'identity|national\s*id|\bid\s*card|هوية|بطاقة\s*شخصية'),
+  (
+    'driving_license',
+    r"driv\w*\s*licen[cs]e|driver'?s\s*licen|رخصة\s*(ال)?قيادة|رخصة\s*سوق",
+  ),
+  (
+    'car_registration',
+    r'vehicle\s*(registration|licen[cs]e)|registration\s*certificate|\bchassis\b|رخصة\s*(ال)?مركبة|رخصة\s*سيارة|تسجيل\s*(ال)?مركبة',
+  ),
+  ('residence', _residence),
+  (
+    'id_card',
+    r'identity|national\s*(id|number|no)|\bid\s*card|personal\s*(id|card|number)|هوية|بطاقة\s*(ال)?(شخصية|تعريف)|الرقم\s*الوطني',
+  ),
+  (
+    'rental',
+    r'\blease\b|tenan|rental\s*(agreement|contract)|إيجار|استئجار|المؤجر|المستأجر',
+  ),
+  ('insurance', r'insurance|\bpolicy\b|تأمين'),
 ];
+// Details read from "Label: value" lines (the value may also be on the next line).
+const _labels = {
+  'holder': r'\b(full\s*)?name\b|الاسم',
+  'nationality': r'nationality|الجنسية',
+  'gender': r'\bsex\b|gender|الجنس',
+  'birth_place':
+      r'place\s*of\s*birth|birth\s*place|مكان\s*(ال)?(ولادة|الميلاد)',
+  'address': r'address|place\s*of\s*residence|العنوان|مكان\s*الإقامة',
+  'landlord': r'landlord|lessor|المؤجر',
+  'employer': r'sponsor|employer|الكفيل|صاحب\s*العمل',
+  'insurer': r'insurer|insurance\s*company|شركة\s*التأمين',
+  'licence_class': r'\bclass\b|\bcategory\b|الفئة',
+  'plate': r'plate(\s*(\bno\b\.?|number))?|رقم\s*اللوحة',
+  'vehicle': r'make\s*(and|&)\s*model|\bmodel\b|الطراز',
+  'visa_type': r'visa\s*type|type\s*of\s*visa|نوع\s*التأشيرة',
+  'rent': r'monthly\s*rent|rent\s*amount|قيمة\s*الإيجار|الأجرة',
+  'country':
+      r'issuing\s*(country|authority|state)|issued\s*by|place\s*of\s*issue|جهة\s*الإصدار|مكان\s*الإصدار',
+  'phone': r'phone|mobile|\btel\b|هاتف|موبايل|جوال',
+};
+
+/// The value after a label on its line, or on the next line if it's alone.
+String _after(String label, List<String> lines) {
+  final rx = _rx(label);
+  for (var i = 0; i < lines.length; i++) {
+    final m = rx.firstMatch(lines[i]);
+    if (m == null) continue;
+    var rest = lines[i]
+        .substring(m.end)
+        .replaceFirst(RegExp(r'^[\s:：.#\-–]+'), '')
+        .trim();
+    if (rest.isEmpty && i + 1 < lines.length) rest = lines[i + 1].trim();
+    if (rest.isNotEmpty) return rest.length > 80 ? rest.substring(0, 80) : rest;
+  }
+  return '';
+}
+
+final _labelWord = RegExp(
+  r'^(?:(?:full\s*)?name|surname|given\s*names?|الاسم)(?!\p{L})\s*[:：.]?\s*',
+  caseSensitive: false,
+  unicode: true,
+);
+final _titleRx = _rx(
+  r'card|identity|passport|licen[cs]e|permit|بطاقة|هوية|جواز|رخصة',
+);
+final _otherLabel = _rx(
+  r'date|birth|expir|issue|nationality|\bsex\b|gender|address|تاريخ|الجنسية|الجنس|العنوان',
+);
+final _nameRx = RegExp(r"^\p{L}+(?:[ '\-]\p{L}+){0,6}$", unicode: true);
+final _edges = RegExp(r'^[ :：.,;\-–]+|[ :：.,;\-–]+$');
+
+/// The value if it makes sense for that field, else '' (a box is better empty than wrong).
+String _clean(String key, String v) {
+  v = v.replaceAll(_edges, '');
+  if (key == 'nationality') return nationalityCode(v);
+  if (const {
+    'holder',
+    'landlord',
+    'employer',
+    'insurer',
+    'birth_place',
+  }.contains(key)) {
+    v = v.replaceFirst(_labelWord, '').replaceAll(_edges, '');
+    final ok =
+        _nameRx.hasMatch(v) &&
+        !_titleRx.hasMatch(v) &&
+        !_otherLabel.hasMatch(v);
+    return ok && (key != 'holder' || v.split(' ').length >= 2) ? v : '';
+  }
+  if (key == 'address' && RegExp('[\u0621-\u064A]').hasMatch(v)) {
+    // Latin words in an Arabic address are misreadings
+    v = v
+        .split(RegExp(r'\s+'))
+        .where((w) => !RegExp(r'^[A-Za-z]+[.,،]?$').hasMatch(w))
+        .join(' ');
+  }
+  if (key == 'address' &&
+      (_titleRx.hasMatch(v) ||
+          _otherLabel.hasMatch(v) ||
+          !RegExp(r'\p{L}{2}', unicode: true).hasMatch(v))) {
+    return '';
+  }
+  if (key == 'gender') {
+    final g = v.trim().toUpperCase();
+    final c = g.isEmpty ? '' : g[0];
+    return c == 'M' || v.contains('ذكر')
+        ? 'M'
+        : (c == 'F' || v.contains('أنثى') ? 'F' : '');
+  }
+  if (key == 'phone') {
+    final digits = v.replaceAll(RegExp(r'[^\d+]'), '');
+    final n = digits.replaceAll('+', '').length;
+    return n >= 7 && n <= 15 ? digits : '';
+  }
+  return v;
+}
 
 Iterable<(int, String)> _dates(String text) sync* {
   final pats = <(RegExp, List<String?> Function(Match))>[
@@ -490,25 +718,56 @@ Iterable<(int, String)> _dates(String text) sync* {
   }
 }
 
-/// Best guesses from a document's text; the person checks them before saving.
-Map<String, dynamic> readDetails(String text, {DateTime? today}) {
+/// Best guesses from a document's text: one string per page or side (an ID
+/// card's front and back). The person checks them before saving.
+///
+/// Dates follow the order every document has: birth < issue < expiry. A label
+/// next to a date is used when it fits that order; when it doesn't, the order
+/// decides. A birth date is never taken for an expiry date.
+Map<String, dynamic> readDetails(Object texts, {DateTime? today}) {
   final t = today ?? DateTime.now();
+  var text = texts is List ? texts.join('\n') : '$texts';
   const ar = '٠١٢٣٤٥٦٧٨٩', fa = '۰۱۲۳۴۵۶۷۸۹';
   text = text.split('').map((c) {
     final i = ar.indexOf(c), j = fa.indexOf(c);
     return i >= 0 ? '$i' : (j >= 0 ? '$j' : c);
   }).join();
+  // invisible direction marks
+  text = text.replaceAll(
+    RegExp('[\u200e\u200f\u202a-\u202e\u2066-\u2069\u061c\ufeff]'),
+    '',
+  );
+  final lines = text.split('\n');
   final found = readMrz(text);
-  if (found.isEmpty) found['how'] = 'text';
-  for (final (kind, rx) in _types) {
-    if (!found.containsKey('doc_type') &&
-        RegExp(rx, caseSensitive: false).hasMatch(text)) {
-      found['doc_type'] = kind;
+  if (found.isEmpty) {
+    found['how'] = 'text';
+    for (final (kind, rx) in _types) {
+      if (_rx(rx).hasMatch(text)) {
+        found['doc_type'] = kind;
+        break;
+      }
+    }
+  } else if (found['doc_type'] == 'id_card' && _rx(_residence).hasMatch(text)) {
+    found['doc_type'] = 'residence';
+  }
+  for (final MapEntry(:key, :value) in _labels.entries) {
+    if ('${found[key] ?? ''}'.isEmpty) {
+      found[key] = _clean(key, _after(value, lines));
     }
   }
-  final labelled = <String, String>{};
-  final other = <String>[];
+  found['email'] =
+      RegExp(r'[\w.+-]+@[\w-]+\.[\w.]+').firstMatch(text)?[0] ?? '';
+  found['vin'] =
+      RegExp(
+        r'\b(?=[A-HJ-NPR-Z0-9]*\d)(?=[A-HJ-NPR-Z0-9]*[A-Z])[A-HJ-NPR-Z0-9]{17}\b',
+      ).firstMatch(text)?[0] ??
+      '';
+
+  // ---- dates
+  final seen = <(String, String?)>[];
   for (final (pos, iso) in _dates(text)) {
+    final y = int.parse(iso.substring(0, 4));
+    if (y < 1900 || y > t.year + 30) continue;
     final before = text.substring(max(0, pos - 50), pos);
     (int, String)? best;
     for (final (label, rx) in [
@@ -520,30 +779,98 @@ Map<String, dynamic> readDetails(String text, {DateTime? today}) {
         if (best == null || m.end > best.$1) best = (m.end, label);
       }
     }
-    if (best != null) {
-      labelled.putIfAbsent(best.$2, () => iso);
-    } else {
-      other.add(iso);
-    }
+    seen.add((iso, best?.$2));
   }
-  if ('${found['expires'] ?? ''}'.isEmpty) {
-    if (labelled.containsKey('expires')) {
-      found['expires'] = labelled['expires'];
+  String? first(String label) {
+    for (final (d, l) in seen) {
+      if (l == label) return d;
+    }
+    return null;
+  }
+
+  final days = {for (final (d, _) in seen) d}.toList()..sort();
+  final now = isoDay(t);
+  final old = isoDay(DateTime(t.year - 12, t.month, t.day));
+  final recent = isoDay(DateTime(t.year - 15, t.month, t.day));
+  String? birth = found['birth_date'] as String? ?? first('birth');
+  if (birth != null && birth.compareTo(now) > 0) birth = null;
+  if (birth == null && days.isNotEmpty && days.first.compareTo(old) <= 0) {
+    birth = days.first;
+  }
+  bool afterBirth(String d) =>
+      d != birth && (birth == null || d.compareTo(birth) > 0);
+  String? expires = found['expires'] as String?;
+  if (expires == null) {
+    final labelled = first('expires');
+    if (labelled != null && afterBirth(labelled)) {
+      expires = labelled;
     } else {
-      final future = other.where((d) => d.compareTo(isoDay(t)) > 0).toList()
-        ..sort();
-      if (future.isNotEmpty) {
-        found['expires'] = future.last;
+      final later = [
+        for (final d in days)
+          if (afterBirth(d) && d.compareTo(recent) >= 0) d,
+      ];
+      if (later.isNotEmpty) {
+        expires = later.last;
         found['guessed'] = true;
       }
     }
   }
-  if ('${found['issued'] ?? ''}'.isEmpty && labelled.containsKey('issued')) {
-    found['issued'] = labelled['issued'];
+  String? issued = first('issued');
+  if (!(issued != null &&
+      afterBirth(issued) &&
+      (expires == null || issued.compareTo(expires) < 0))) {
+    final before = [
+      for (final d in days)
+        if (afterBirth(d) &&
+            d.compareTo(now) <= 0 &&
+            expires != null &&
+            d.compareTo(expires) < 0)
+          d,
+    ];
+    issued = before.isEmpty ? null : before.last;
   }
-  if (!found.containsKey('number')) {
-    final m = _number.firstMatch(text);
-    if (m != null && RegExp(r'\d').hasMatch(m[1]!)) found['number'] = m[1];
+  found
+    ..['birth_date'] = birth
+    ..['expires'] = expires
+    ..['issued'] = issued;
+
+  // ---- the document's number. On an ID card that's the national (personal)
+  // number, not the card's own serial printed by the chip, which goes apart.
+  var national = '${found.remove('_national') ?? ''}';
+  if (found['doc_type'] == 'id_card' || found['doc_type'] == 'residence') {
+    if (national.isEmpty) {
+      final m = _national.firstMatch(text);
+      national = m == null ? '' : (m[1] ?? m[2]!);
+    }
+    if (national.isEmpty) {
+      national =
+          RegExp(r'(?<![\d+])[129]\d{9}(?!\d)').firstMatch(text)?[0] ?? '';
+    }
+    if (national.isNotEmpty) {
+      final had = '${found['number'] ?? ''}';
+      if (had.isNotEmpty && had != national) found['card_number'] = had;
+      found['number'] = national;
+      if ('${found['card_number'] ?? ''}'.isEmpty) {
+        found['card_number'] =
+            RegExp(r'\b[A-Z]{1,3}\d{5,9}\b').firstMatch(text)?[0] ?? '';
+      }
+    }
+  }
+  if ('${found['number'] ?? ''}'.isEmpty) {
+    for (final m in _number.allMatches(text)) {
+      final pre = text.substring(max(0, m.start - 14), m.start);
+      if (!_notNumber.hasMatch(pre) && RegExp(r'\d').hasMatch(m[1]!)) {
+        found['number'] = m[1];
+        break;
+      }
+    }
+  }
+  if ('${found['number'] ?? ''}'.isEmpty) {
+    // unlabelled: a national number or a passport-style one
+    final m = RegExp(
+      r'(?<![\d+])(?:[129]\d{9}|\b[A-Z]{1,2}\d{6,8})(?![\dA-Z])',
+    ).firstMatch(text);
+    if (m != null) found['number'] = m[0];
   }
   found.removeWhere((k, v) => v == null || v == '');
   return found;

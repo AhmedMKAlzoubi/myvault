@@ -20,6 +20,7 @@ Android app can sync without ever changing the file format.
 from __future__ import annotations
 
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -92,7 +93,42 @@ class Entry:
         e = cls(**{k: v for k, v in data.items() if k in known})
         if e.kind not in KINDS:
             e.kind = "login"
+        if e.deleted:
+            e.wipe()        # also cleans deletion markers made by older versions
         return e
+
+    def wipe(self) -> None:
+        """A deleted entry's marker keeps only what sync needs to pass the deletion
+        on (id, kind, dates): nothing of what was in it."""
+        blank = Entry(id=self.id, kind=self.kind, created_at=self.created_at,
+                      updated_at=self.updated_at, deleted=True)
+        self.__dict__.update(blank.__dict__)
+
+
+HISTORY_KEEP = 10
+
+# An email address with a name, an @ and a full domain (gmail.com, not gmail).
+EMAIL = re.compile(r"[^@\s]+@[^@\s.]+(\.[^@\s.]+)*\.[^@\s.]{2,}")
+
+
+def email_problem(e: "Entry") -> str:
+    """Why the entry's email address can't be right, or "" (same rule as the phone)."""
+    for value in (e.email, e.fields.get("email", "")):
+        if value and not EMAIL.fullmatch(value.strip()):
+            return f"“{value.strip()}” isn't a complete email address. It needs a name, @ and the full domain, such as name@gmail.com."
+    return ""
+
+
+def keep_old_password(e: Entry, old: str) -> None:
+    """When a login's password changes, the old one goes into its history
+    (fields["password_history"], newest first). Same as keepOldPassword() on the phone."""
+    if not old or old == e.password:
+        return
+    try:
+        past = json.loads(e.fields.get("password_history") or "[]")
+    except ValueError:
+        past = []
+    e.fields["password_history"] = json.dumps([{"password": old, "until": _now()}, *past][:HISTORY_KEEP])
 
 
 class Vault:
@@ -172,8 +208,6 @@ class Vault:
         entry = self.get(entry_id)
         if entry:
             # Soft-delete (tombstone) so a future sync can propagate the deletion.
-            entry.deleted = True
-            entry.password = ""
-            entry.fields = {}
+            entry.wipe()
             entry.touch()
             self.save()

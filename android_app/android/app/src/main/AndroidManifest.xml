@@ -1,6 +1,8 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- QR sync needs local network sockets. No other network access is used.
-         CAMERA (for scanning sync codes and paper backups) comes from mobile_scanner. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Network: QR sync over your WiFi, the optional update check, and the
+         leaked-password check when you ask for it. CAMERA (QR codes) comes from
+         the camera plugin flutter_zxing uses. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <!-- Updates: lets MyVault open Android's installer for a verified update.
          Android still asks you, and only accepts APKs signed with MyVault's key. -->
@@ -8,6 +10,14 @@
     <!-- Document reminders: show them, and keep the daily check across restarts. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <!-- Unlocking with a fingerprint or face, if you turn it on. -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <!-- The QR scanner's camera plugin and its gallery picker ask for these, for
+         video recording and gallery videos that MyVault never uses: left out. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove"/>
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove"/>
     <application
         android:label="MyVault"
         android:allowBackup="false"

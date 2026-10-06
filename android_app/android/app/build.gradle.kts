@@ -43,9 +43,19 @@ android {
         }
     }
 
+    // "direct": GitHub releases, which update themselves (signed with MyVault's key).
+    // "play": Google Play, which does the updates, so the updater is left out.
+    flavorDimensions += "channel"
+    productFlavors {
+        create("direct") { dimension = "channel" }
+        create("play") { dimension = "channel" }
+    }
+
     buildTypes {
         release {
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
+            // Tesseract's native code calls back into its Java classes by name.
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -62,7 +72,10 @@ flutter {
 
 dependencies {
     implementation("androidx.core:core:1.13.1")   // FileProvider, for installing updates
-    // Reading document text on the phone: Google ML Kit with the model bundled
-    // in the app, so it works offline and nothing is downloaded or sent.
-    implementation("com.google.mlkit:text-recognition:16.0.1")
+    // Reading document text on the phone: Tesseract (open source, Apache 2.0), with
+    // its English and Arabic models in assets/tessdata. Offline, and no Google
+    // services: nothing about you or the app is sent anywhere.
+    implementation("cz.adaptech.tesseract4android:tesseract4android:4.8.0")
+    // Unlock with a fingerprint or face (Android's Keystore + BiometricPrompt).
+    implementation("androidx.biometric:biometric:1.1.0")
 }

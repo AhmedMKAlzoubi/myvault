@@ -5,7 +5,7 @@ import 'dart:isolate';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
@@ -13,11 +13,14 @@ import 'crypto.dart';
 import 'docs.dart' as docs;
 import 'documents_ui.dart';
 import 'generator.dart';
+import 'health.dart';
+import 'otp.dart';
 import 'kinds.dart';
 import 'l10n.dart';
 import 'l10n_ar.dart' show arabicMonths;
 import 'paper.dart' as paper;
 import 'autofill.dart';
+import 'biometric.dart';
 import 'sync.dart' as qrsync;
 import 'theme.dart';
 import 'update.dart' as upd;
@@ -35,6 +38,7 @@ Future<void> main() async {
     // first run: follow the phone's language
   }
   await loadAutofillRequest();
+  await docs.loadDocSchema();
   runApp(const MyVaultApp());
 }
 
@@ -458,6 +462,7 @@ class _UnlockPageState extends State<UnlockPage> {
   final _pw1 = TextEditingController();
   final _pw2 = TextEditingController();
   bool _exists = false, _loading = true, _busy = false;
+  bool _bio = false; // fingerprint unlock is on
   late String _error = widget.message;
   String _path = '';
 
@@ -467,8 +472,57 @@ class _UnlockPageState extends State<UnlockPage> {
     () async {
       _path = await vaultFilePath();
       _exists = File(_path).existsSync();
+      if (_exists) _bio = (await bioStatus()).$2;
       if (mounted) setState(() => _loading = false);
+      // Straight to the fingerprint, unless it locked itself while in use.
+      if (_bio && widget.message.isEmpty) _withFingerprint();
     }();
+  }
+
+  Future<void> _withFingerprint() async {
+    try {
+      final pw = await bioUnlock();
+      if (pw != null) await _open(pw, fingerprint: true);
+    } on PlatformException {
+      setState(() {
+        _bio = false;
+        _error = tr(
+          "This phone's fingerprints changed, so enter your master password once. Then turn fingerprint unlock on again in the menu › Auto-lock.",
+        );
+      });
+    }
+  }
+
+  /// After a password unlock, offer the fingerprint once.
+  Future<void> _offerFingerprint(String pw) async {
+    final (can, on) = await bioStatus();
+    final prefs = await upd.loadPrefs();
+    if (!can || on || prefs['bio_offered'] == true || !mounted) return;
+    prefs['bio_offered'] = true;
+    await upd.savePrefs(prefs);
+    if (!mounted) return;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Unlock with your fingerprint?')),
+        content: Text(
+          tr(
+            'Next time, open MyVault with your fingerprint or face instead of typing the master password. Your password stays encrypted on this phone, and you can turn this off in the menu › Auto-lock.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: Text(tr('Not now')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(tr('Turn on')),
+          ),
+        ],
+      ),
+    );
+    if (yes == true) await bioEnable(pw);
   }
 
   Future<void> _submit() async {
@@ -488,12 +542,19 @@ class _UnlockPageState extends State<UnlockPage> {
         return setState(() => _error = tr("The two passwords don't match."));
       }
     }
+    await _open(pw);
+  }
+
+  Future<void> _open(String pw, {bool fingerprint = false}) async {
     setState(() {
       _busy = true;
       _error = '';
     });
     try {
       final vault = await _openVault(_path, pw, _exists);
+      if (!fingerprint && _exists && autofillRequest == null) {
+        await _offerFingerprint(pw);
+      }
       Session.open(vault);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -504,8 +565,11 @@ class _UnlockPageState extends State<UnlockPage> {
         ),
       );
     } on WrongPasswordException {
+      // the password the fingerprint kept is out of date
+      if (fingerprint) await bioDisable();
       setState(() {
         _busy = false;
+        _bio = false;
         _error = tr("That isn't the master password. Try again.");
       });
     } on VaultFormatException catch (e) {
@@ -632,6 +696,14 @@ class _UnlockPageState extends State<UnlockPage> {
                             : (_exists ? tr('Unlock') : tr('Create my vault')),
                       ),
                     ),
+                    if (_bio) ...[
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _withFingerprint,
+                        icon: const Icon(Icons.fingerprint),
+                        label: Text(tr('Use fingerprint')),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -744,6 +816,11 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const GeneratorPage()));
+      case 'health':
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const HealthPage()));
+        if (mounted) setState(() {});
       case 'paper':
         await Navigator.of(
           context,
@@ -818,6 +895,10 @@ class _HomePageState extends State<HomePage> {
                 child: Text(tr('Password generator')),
               ),
               PopupMenuItem(
+                value: 'health',
+                child: Text(tr('Password health')),
+              ),
+              PopupMenuItem(
                 value: 'paper',
                 child: Text(tr('Restore from paper')),
               ),
@@ -830,7 +911,8 @@ class _HomePageState extends State<HomePage> {
                 value: 'autofill',
                 child: Text(tr('Autofill in other apps')),
               ),
-              PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
+              if (!upd.storeBuild)
+                PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
               PopupMenuItem(value: 'documents', child: Text(tr('Documents'))),
               PopupMenuItem(value: 'language', child: Text(tr('Language'))),
               PopupMenuItem(value: 'about', child: Text(tr('About & privacy'))),
@@ -1068,12 +1150,22 @@ class _EntryViewPageState extends State<EntryViewPage> {
   Widget build(BuildContext context) {
     final e = Envelope.of(context);
     final k = kindOf(x);
-    final rows = [...k.fields, ...k.more]
+    final fields = x.kind == 'document'
+        ? docFieldDefs(
+            x.fields['doc_type'] ?? '',
+            (key) => (x.fields[key] ?? '').isNotEmpty,
+          )
+        : [...k.fields, ...k.more];
+    final rows = fields
+        .where((f) => f.key != 'totp')
         .map((f) => (f, f.read(x)))
         .where((r) => r.$2.isNotEmpty)
         .map((r) {
           final f = r.$1;
-          if (f.options != null) return (f, tr(docs.typeLabel(r.$2)));
+          if (f.options != null) {
+            final o = f.options!.where((o) => o.$1 == r.$2).firstOrNull;
+            return (f, tr(o?.$2 ?? r.$2));
+          }
           return (f, f.date ? fmtDay(r.$2) : r.$2);
         })
         .toList();
@@ -1140,10 +1232,34 @@ class _EntryViewPageState extends State<EntryViewPage> {
           const SizedBox(height: 18),
           Divider(color: e.rule),
           for (final r in rows) _row(r.$1, r.$2),
+          if ((x.fields['totp'] ?? '').isNotEmpty)
+            TotpRow(secret: x.fields['totp']!),
           if (x.kind != 'note' && x.notes.isNotEmpty)
             _row(const FieldDef('notes', 'Notes', multi: true), x.notes),
+          if (passwordHistory(x).isNotEmpty)
+            Theme(
+              data: Theme.of(
+                context,
+              ).copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: Text(
+                  tr('Previous passwords (${passwordHistory(x).length})'),
+                  style: TextStyle(color: e.ink2, fontSize: 14),
+                ),
+                children: [
+                  for (final (pw, until) in passwordHistory(x))
+                    _row(
+                      FieldDef('old', 'Until ${date(until)}', secret: true),
+                      pw,
+                    ),
+                ],
+              ),
+            ),
           if (x.kind == 'document')
-            DocumentSection(vault: Session.vault!, entry: x),
+            DocumentSection(vault: Session.vault!, entry: x)
+          else if (docs.fileRefs(x).isNotEmpty)
+            FilesView(vault: Session.vault!, entry: x),
           if (custom.isNotEmpty) ...[
             const SizedBox(height: 22),
             Text(
@@ -1157,7 +1273,10 @@ class _EntryViewPageState extends State<EntryViewPage> {
             Divider(color: e.rule),
             for (final c in custom) _row(FieldDef(c.key, c.key), c.value),
           ],
-          if (rows.isEmpty && x.notes.isEmpty && custom.isEmpty)
+          if (rows.isEmpty &&
+              x.notes.isEmpty &&
+              custom.isEmpty &&
+              (x.fields['totp'] ?? '').isEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 12),
               child: Text(
@@ -1172,6 +1291,249 @@ class _EntryViewPageState extends State<EntryViewPage> {
             ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The current 2FA code, counting down; the secret itself is never shown here.
+class TotpRow extends StatefulWidget {
+  final String secret;
+  const TotpRow({super.key, required this.secret});
+  @override
+  State<TotpRow> createState() => _TotpRowState();
+}
+
+class _TotpRowState extends State<TotpRow> {
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    (String, int)? r;
+    String error = '';
+    try {
+      r = otpCode(widget.secret);
+    } on FormatException catch (x) {
+      error = x.message;
+    }
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: e.rule)),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  tr('2FA code'),
+                  style: TextStyle(fontSize: 12.5, color: e.ink2),
+                ),
+                const SizedBox(height: 4),
+                r == null
+                    ? Text(tr(error), style: TextStyle(color: e.red))
+                    : Text(
+                        '${r.$1.substring(0, 3)} ${r.$1.substring(3)}',
+                        textDirection: TextDirection.ltr,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontFamily: 'monospace',
+                          letterSpacing: 1.5,
+                        ),
+                      ),
+              ],
+            ),
+          ),
+          if (r != null)
+            Text(
+              '${r.$2}s',
+              style: TextStyle(color: r.$2 <= 5 ? e.red : e.ink3),
+            ),
+          IconButton(
+            icon: const Icon(Icons.copy_outlined, size: 20),
+            tooltip: tr('Copy 2FA code'),
+            onPressed: r == null
+                ? null
+                : () => _copy(context, otpCode(widget.secret).$1, '2FA code'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Weak and reused passwords, and (only when asked) leaked ones.
+class HealthPage extends StatefulWidget {
+  const HealthPage({super.key});
+  @override
+  State<HealthPage> createState() => _HealthPageState();
+}
+
+class _HealthPageState extends State<HealthPage> {
+  Map<String, int>? _leaks; // entry id -> times seen in leaks
+  bool _checking = false;
+  String _error = '';
+
+  Future<void> _check() async {
+    setState(() {
+      _checking = true;
+      _error = '';
+    });
+    try {
+      final all = [
+        for (final e in Session.vault!.activeEntries())
+          if (e.kind == 'login' && e.password.isNotEmpty) e,
+      ];
+      final found = await leakCounts(all.map((e) => e.password));
+      _leaks = {
+        for (final e in all)
+          if ((found[e.password] ?? 0) > 0) e.id: found[e.password]!,
+      };
+    } on Exception {
+      _error = tr(
+        "Couldn't reach the leak check service. Check your internet connection.",
+      );
+    }
+    if (mounted) setState(() => _checking = false);
+  }
+
+  Future<void> _open(Entry x) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => EntryViewPage(entry: x)));
+    if (mounted) setState(() {});
+  }
+
+  Widget _entry(Entry x, [String sub = '']) => ListTile(
+    contentPadding: EdgeInsets.zero,
+    leading: const Glyph(Icons.key_outlined, size: 36),
+    title: Text(x.displayName()),
+    subtitle: sub.isEmpty ? null : Text(sub),
+    onTap: () => _open(x),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    final r = healthReport(Session.vault!.entries);
+    final reusedCount = r.reused.fold<int>(0, (n, g) => n + g.length);
+    final head = TextStyle(fontWeight: FontWeight.w600, color: e.ink2);
+    final hint = TextStyle(color: e.ink3, fontSize: 12.5, height: 1.4);
+    final leaked = [
+      for (final x in Session.vault!.activeEntries())
+        if (_leaks?.containsKey(x.id) ?? false) x,
+    ];
+    return Scaffold(
+      appBar: AppBar(title: Text(tr('Password health'))),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+        children: [
+          Text(
+            r.total == 0
+                ? tr('No logins with a password yet.')
+                : r.weak.isEmpty && r.reused.isEmpty
+                ? tr(
+                    'All ${r.total} passwords look good: none is weak or reused.',
+                  )
+                : tr(
+                    '${r.total} logins checked: ${r.weak.length} weak, $reusedCount reused.',
+                  ),
+            style: TextStyle(color: e.ink, fontSize: 15),
+          ),
+          if (r.weak.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            Text(tr('Weak passwords'), style: head),
+            const SizedBox(height: 4),
+            Text(
+              tr(
+                "Short or simple, so they're easy to guess. Change each on its site, then here: Edit › Change password › Generate one.",
+              ),
+              style: hint,
+            ),
+            for (final x in r.weak) _entry(x),
+          ],
+          if (r.reused.isNotEmpty) ...[
+            const SizedBox(height: 22),
+            Text(tr('Reused passwords'), style: head),
+            const SizedBox(height: 4),
+            Text(
+              tr(
+                'If one of these sites leaks its passwords, the same password opens the others. Give each site its own.',
+              ),
+              style: hint,
+            ),
+            for (final (i, g) in r.reused.indexed) ...[
+              const SizedBox(height: 8),
+              Text(
+                tr('Same password, group ${i + 1}'),
+                style: TextStyle(color: e.ink2, fontSize: 13),
+              ),
+              for (final x in g) _entry(x),
+            ],
+          ],
+          const SizedBox(height: 22),
+          Text(tr('Leaked passwords'), style: head),
+          const SizedBox(height: 4),
+          Text(
+            tr(
+              'Check whether any of your passwords appears in known data leaks, using Have I Been Pwned (haveibeenpwned.com).',
+            ),
+            style: TextStyle(color: e.ink),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            tr(
+              'Only the first 5 characters of a scrambled copy (SHA-1 hash) of each password are sent, never the password itself, and the match is made on this phone. Nothing is checked until you choose to.',
+            ),
+            style: hint,
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              onPressed: _checking ? null : _check,
+              icon: const Icon(Icons.search, size: 18),
+              label: Text(
+                tr(_checking ? 'Checking…' : 'Check for leaked passwords'),
+              ),
+            ),
+          ),
+          if (_error.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(_error, style: TextStyle(color: e.red)),
+            ),
+          if (_leaks != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              leaked.isEmpty
+                  ? tr(
+                      'Checked ${r.total} passwords: none of them is in a known leak.',
+                    )
+                  : tr(
+                      'Found in known leaks: ${leaked.length} of ${r.total} passwords. Change these first, on the site and then here.',
+                    ),
+              style: TextStyle(color: leaked.isEmpty ? e.ink : e.red),
+            ),
+            for (final x in leaked)
+              _entry(x, tr('Seen in leaks ${_leaks![x.id]} times')),
+          ],
         ],
       ),
     );
@@ -1222,9 +1584,13 @@ class _EntryEditPageState extends State<EntryEditPage> {
   late final KindDef _k = kindOf(_e);
   late final _title = TextEditingController(text: _e.title);
   late final _notes = TextEditingController(text: _e.notes);
+  // A document keeps a box for every field it could have, so changing its type
+  // never loses what's been typed.
+  late final List<FieldDef> _allFields = _e.kind == 'document'
+      ? allDocFieldDefs()
+      : [..._k.fields, ..._k.more];
   late final Map<String, TextEditingController> _c = {
-    for (final f in [..._k.fields, ..._k.more])
-      f.key: TextEditingController(text: f.read(_e)),
+    for (final f in _allFields) f.key: TextEditingController(text: f.read(_e)),
   };
   final _shown = <String>{};
   // A saved password is never one stray tap from being replaced: it's
@@ -1241,24 +1607,43 @@ class _EntryEditPageState extends State<EntryEditPage> {
   ];
 
   final _doc = DocumentDraft();
+  final _docKey = GlobalKey();
+  final _auto = <String>{}; // boxes filled in from a scan, until changed
 
   void _save() {
-    _e.title = _title.text.trim();
-    for (final f in [..._k.fields, ..._k.more]) {
-      f.write(_e, _c[f.key]!.text);
+    final totp = _c['totp']?.text.trim() ?? '';
+    if (totp.isNotEmpty) {
+      try {
+        parseOtp(totp);
+      } on FormatException catch (x) {
+        return _snack(context, tr(x.message));
+      }
     }
-    if (_e.kind == 'document') {
-      _doc.writeTo(_e);
-      // The first reminder: Android needs the person's OK to show notifications.
-      if (docs.remindDays(_e).isNotEmpty) askNotifications();
+    // Edit a copy: a refused save must leave the entry as it was.
+    final n = _e.copy();
+    n.title = _title.text.trim();
+    for (final f in _allFields) {
+      f.write(n, _c[f.key]!.text);
     }
-    if (_e.kind != 'note') _e.notes = _notes.text;
-    _e.custom = {
+    keepOldPassword(n, _e.password);
+    if (n.kind == 'document') {
+      _doc.writeTo(n);
+    } else {
+      docs.setFileRefs(n, _doc.files); // FilesEditor's
+    }
+    if (n.kind != 'note') n.notes = _notes.text;
+    n.custom = {
       for (final r in _custom)
         if (r[0].text.trim().isNotEmpty) r[0].text.trim(): r[1].text,
     };
-    if (_e.displayName() == '(untitled)') {
+    if (n.displayName() == '(untitled)') {
       return _snack(context, tr('Give it a name first.'));
+    }
+    if (emailProblem(n).isNotEmpty) return _snack(context, tr(emailProblem(n)));
+    _e.copyFrom(n);
+    // The first reminder: Android needs the person's OK to show notifications.
+    if (_e.kind == 'document' && docs.remindDays(_e).isNotEmpty) {
+      askNotifications();
     }
     final v = Session.vault!;
     widget.isNew ? v.add(_e) : v.update(_e);
@@ -1319,7 +1704,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
         content: Text(
           _savedPw.isNotEmpty
               ? tr(
-                  'Once you save, the old one is gone for good. Change it on the website or app as well, or you could lock yourself out.',
+                  "Once you save, the old one moves to Previous passwords. Change it on the website or app as well, or you can't sign in.",
                 )
               : tr('The password in the box will be replaced.'),
         ),
@@ -1350,19 +1735,82 @@ class _EntryEditPageState extends State<EntryEditPage> {
     }
   }
 
+  /// The site's 2FA setup QR code, read with the camera.
+  Future<void> _scanTotp(TextEditingController c) async {
+    final got = await Navigator.of(context).push<String>(
+      MaterialPageRoute(
+        builder: (ctx) => Scaffold(
+          appBar: AppBar(title: Text(tr('Scan the QR code'))),
+          body: ScannerView(
+            hint: tr(
+              "Point the camera at the QR code the site shows when you turn on two-factor sign-in.",
+            ),
+            recognizes: (raw) {
+              try {
+                parseOtp(raw);
+                return true;
+              } on FormatException {
+                return false;
+              }
+            },
+            wrongCode: tr("That QR code isn't a 2FA setup code."),
+            onCode: (raw) {
+              Navigator.of(ctx).pop(raw);
+              return true;
+            },
+          ),
+        ),
+      ),
+    );
+    if (got != null && mounted) {
+      setState(() {
+        c.text = got;
+        _shown.remove('totp');
+      });
+      _snack(context, tr('2FA secret added. Save to keep it.'));
+    }
+  }
+
+  // A box filled in from a scan is marked until the person changes it.
+  InputDecoration _marked(FieldDef f, InputDecoration d) {
+    if (!_auto.contains(f.key)) return d;
+    const amber = Color(0xFFB7791F);
+    return d.copyWith(
+      helperText: tr('From the scan: check it'),
+      helperStyle: const TextStyle(color: amber),
+      filled: true,
+      fillColor: amber.withValues(alpha: .10),
+    );
+  }
+
   Widget _field(FieldDef f) {
     final c = _c[f.key]!;
     if (f.options != null) {
+      // a value typed before there was a list stays one of the choices
+      final options = [
+        ...f.options!,
+        if (!f.options!.any((o) => o.$1 == c.text)) (c.text, c.text),
+      ];
       return Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: DropdownButtonFormField<String>(
-          initialValue: f.options!.any((o) => o.$1 == c.text) ? c.text : '',
-          decoration: InputDecoration(labelText: tr(f.label)),
+          key: ValueKey(
+            '${f.key}=${c.text}',
+          ), // follows a value read from a scan
+          initialValue: c.text,
+          isExpanded: true,
+          decoration: _marked(f, InputDecoration(labelText: tr(f.label))),
           items: [
-            for (final o in f.options!)
-              DropdownMenuItem(value: o.$1, child: Text(tr(o.$2))),
+            for (final o in options)
+              DropdownMenuItem(
+                value: o.$1,
+                child: Text(tr(o.$2), overflow: TextOverflow.ellipsis),
+              ),
           ],
-          onChanged: (v) => setState(() => c.text = v ?? ''),
+          onChanged: (v) => setState(() {
+            c.text = v ?? '';
+            _auto.remove(f.key);
+          }),
         ),
       );
     }
@@ -1378,18 +1826,29 @@ class _EntryEditPageState extends State<EntryEditPage> {
               firstDate: DateTime(1950),
               lastDate: DateTime(now.year + 30),
             );
-            if (picked != null) setState(() => c.text = docs.isoDay(picked));
+            if (picked != null) {
+              setState(() {
+                c.text = docs.isoDay(picked);
+                _auto.remove(f.key);
+              });
+            }
           },
           child: InputDecorator(
-            decoration: InputDecoration(
-              labelText: tr(f.label),
-              suffixIcon: c.text.isEmpty
-                  ? const Icon(Icons.calendar_today_outlined, size: 20)
-                  : IconButton(
-                      tooltip: tr('Clear'),
-                      icon: const Icon(Icons.close, size: 20),
-                      onPressed: () => setState(() => c.clear()),
-                    ),
+            decoration: _marked(
+              f,
+              InputDecoration(
+                labelText: tr(f.label),
+                suffixIcon: c.text.isEmpty
+                    ? const Icon(Icons.calendar_today_outlined, size: 20)
+                    : IconButton(
+                        tooltip: tr('Clear'),
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => setState(() {
+                          c.clear();
+                          _auto.remove(f.key);
+                        }),
+                      ),
+              ),
             ),
             isEmpty: c.text.isEmpty,
             child: Text(c.text.isEmpty ? '' : fmtDay(c.text)),
@@ -1415,70 +1874,81 @@ class _EntryEditPageState extends State<EntryEditPage> {
             minLines: 1,
             autocorrect: false,
             enableSuggestions: !f.secret,
-            onChanged: f.gen ? (_) => setState(() {}) : null,
+            onChanged: (_) {
+              if (_auto.remove(f.key) || f.gen) setState(() {});
+            },
             style: TextStyle(
               fontFamily: f.mono || f.secret ? 'monospace' : null,
             ),
-            decoration: InputDecoration(
-              labelText: tr(f.label),
-              suffixIcon: !f.secret
-                  ? null
-                  : Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          icon: Icon(
-                            hidden
-                                ? Icons.visibility_outlined
-                                : Icons.visibility_off_outlined,
-                            size: 20,
-                          ),
-                          tooltip: tr(hidden ? 'Show' : 'Hide'),
-                          onPressed: () => setState(
-                            () => hidden
-                                ? _shown.add(f.key)
-                                : _shown.remove(f.key),
-                          ),
-                        ),
-                        // Direct paste: doesn't depend on Android's paste bubble.
-                        if (!filled)
+            decoration: _marked(
+              f,
+              InputDecoration(
+                labelText: tr(f.label),
+                suffixIcon: !f.secret
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
                           IconButton(
-                            icon: const Icon(Icons.content_paste, size: 20),
-                            tooltip: tr('Paste'),
-                            onPressed: () async {
-                              final clip = await Clipboard.getData(
-                                'text/plain',
-                              );
-                              final text = clip?.text ?? '';
-                              if (!mounted) return;
-                              if (text.isEmpty) {
-                                return _snack(
-                                  context,
-                                  tr(
-                                    'The clipboard is empty. Copy the text again, then tap Paste.',
-                                  ),
+                            icon: Icon(
+                              hidden
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              size: 20,
+                            ),
+                            tooltip: tr(hidden ? 'Show' : 'Hide'),
+                            onPressed: () => setState(
+                              () => hidden
+                                  ? _shown.add(f.key)
+                                  : _shown.remove(f.key),
+                            ),
+                          ),
+                          // Direct paste: doesn't depend on Android's paste bubble.
+                          if (!filled)
+                            IconButton(
+                              icon: const Icon(Icons.content_paste, size: 20),
+                              tooltip: tr('Paste'),
+                              onPressed: () async {
+                                final clip = await Clipboard.getData(
+                                  'text/plain',
                                 );
-                              }
-                              setState(() {
-                                c.text = f.multi ? text : text.trim();
-                                if (f.gen) _shown.add(f.key);
-                              });
-                            },
-                          ),
-                        if (f.gen && !filled)
-                          IconButton(
-                            icon: const Icon(Icons.casino_outlined, size: 20),
-                            tooltip: tr('Generate'),
-                            onPressed: _generate,
-                          ),
-                        if (filled)
-                          IconButton(
-                            icon: const Icon(Icons.autorenew, size: 20),
-                            tooltip: tr('Change password'),
-                            onPressed: _changePassword,
-                          ),
-                      ],
-                    ),
+                                final text = clip?.text ?? '';
+                                if (!mounted) return;
+                                if (text.isEmpty) {
+                                  return _snack(
+                                    context,
+                                    tr(
+                                      'The clipboard is empty. Copy the text again, then tap Paste.',
+                                    ),
+                                  );
+                                }
+                                setState(() {
+                                  c.text = f.multi ? text : text.trim();
+                                  if (f.gen) _shown.add(f.key);
+                                });
+                              },
+                            ),
+                          if (f.key == 'totp')
+                            IconButton(
+                              icon: const Icon(Icons.qr_code_scanner, size: 20),
+                              tooltip: tr('Scan the QR code'),
+                              onPressed: () => _scanTotp(c),
+                            ),
+                          if (f.gen && !filled)
+                            IconButton(
+                              icon: const Icon(Icons.casino_outlined, size: 20),
+                              tooltip: tr('Generate'),
+                              onPressed: _generate,
+                            ),
+                          if (filled)
+                            IconButton(
+                              icon: const Icon(Icons.autorenew, size: 20),
+                              tooltip: tr('Change password'),
+                              onPressed: _changePassword,
+                            ),
+                        ],
+                      ),
+              ),
             ),
           ),
           if (f.gen)
@@ -1526,21 +1996,35 @@ class _EntryEditPageState extends State<EntryEditPage> {
             decoration: InputDecoration(labelText: tr('Name')),
           ),
           const SizedBox(height: 14),
-          for (final f in _k.fields) _field(f),
+          for (final f
+              in _e.kind == 'document'
+                  ? docFieldDefs(
+                      _c['doc_type']!.text,
+                      (key) => _c[key]!.text.isNotEmpty,
+                    )
+                  : _k.fields)
+            _field(f),
           if (_e.kind == 'document')
             DocumentEditor(
+              key: _docKey, // keeps its files when fields above it come and go
               vault: Session.vault!,
               entry: _e,
               isNew: widget.isNew,
               draft: _doc,
               isEmpty: (k) => (_c[k]?.text ?? '').isEmpty,
+              type: () => _c['doc_type']!.text,
               fill: (k, v) {
                 final c = _c[k];
                 if (c == null || c.text.isNotEmpty) return false;
-                setState(() => c.text = v);
+                setState(() {
+                  c.text = v;
+                  _auto.add(k);
+                });
                 return true;
               },
             ),
+          if (_e.kind != 'document' && Session.vault != null)
+            FilesEditor(vault: Session.vault!, entry: _e, draft: _doc),
           if (_k.more.isNotEmpty)
             Theme(
               data: Theme.of(
@@ -1843,14 +2327,21 @@ class ScannerView extends StatefulWidget {
 }
 
 class _ScannerViewState extends State<ScannerView> {
-  final _ctrl = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
   bool _done = false;
   String _status = tr('Looking for a code…');
+  String _error = ''; // the camera couldn't start
 
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
+  // QR codes are read on the phone by zxing-cpp (flutter_zxing): no Google services.
+  void _seen(Code c) {
+    final raw = c.text;
+    if (_done || !c.isValid || raw == null) return;
+    if (widget.recognizes != null && !widget.recognizes!(raw)) {
+      if (_status != widget.wrongCode) {
+        setState(() => _status = widget.wrongCode);
+      }
+      return;
+    }
+    if (widget.onCode(raw)) _done = true;
   }
 
   @override
@@ -1859,50 +2350,40 @@ class _ScannerViewState extends State<ScannerView> {
     return Stack(
       fit: StackFit.expand,
       children: [
-        MobileScanner(
-          controller: _ctrl,
-          onDetect: (cap) {
-            if (_done) return;
-            for (final b in cap.barcodes) {
-              final raw = b.rawValue;
-              if (raw == null) continue;
-              if (widget.recognizes != null && !widget.recognizes!(raw)) {
-                if (_status != widget.wrongCode) {
-                  setState(() => _status = widget.wrongCode);
-                }
-                continue;
+        if (_error.isEmpty)
+          ReaderWidget(
+            onScan: _seen,
+            codeFormat: Format.qrCode,
+            tryHarder: true, // the paper backup's dense codes
+            cropPercent: .8,
+            showGallery: false,
+            showToggleCamera: false,
+            actionButtonsAlignment: AlignmentDirectional.topEnd,
+            scanDelay: const Duration(milliseconds: 300),
+            scanDelaySuccess: const Duration(milliseconds: 300),
+            onControllerCreated: (_, err) {
+              if (err != null && mounted) {
+                setState(
+                  () => _error = err.toString().contains('ermission')
+                      ? 'permission'
+                      : 'error',
+                );
               }
-              if (widget.onCode(raw)) {
-                _done = true;
-                _ctrl.stop();
-                break;
-              }
-            }
-          },
-          errorBuilder: (_, err) => Center(
+            },
+          )
+        else
+          Center(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: Text(
                 tr(
-                  "MyVault can't use the camera (${err.errorCode.name}). Allow camera access for MyVault in "
+                  "MyVault can't use the camera ($_error). Allow camera access for MyVault in "
                   'Android settings › Apps › MyVault › Permissions, then try again.',
                 ),
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.white),
               ),
             ),
           ),
-        ),
-        Center(
-          child: Container(
-            width: 250,
-            height: 250,
-            decoration: BoxDecoration(
-              border: Border.all(color: Colors.white, width: 2),
-              borderRadius: BorderRadius.circular(14),
-            ),
-          ),
-        ),
         Positioned(
           left: 16,
           right: 16,
@@ -2300,6 +2781,10 @@ class _ChangeMasterPageState extends State<ChangeMasterPage> {
       return setState(() => _err = tr("The new passwords don't match."));
     }
     v.changePassword(_n1.text);
+    // The fingerprint kept the old password: turn it off; it can be turned on again.
+    bioStatus().then((s) {
+      if (s.$2) bioDisable();
+    });
     _snack(context, tr('Master password changed.'));
     Navigator.of(context).pop();
   }
@@ -2358,6 +2843,26 @@ class AutoLockPage extends StatefulWidget {
 }
 
 class _AutoLockPageState extends State<AutoLockPage> {
+  (bool, bool) _bio = (false, false); // (the phone can, it's on)
+
+  @override
+  void initState() {
+    super.initState();
+    bioStatus().then((s) {
+      if (mounted) setState(() => _bio = s);
+    });
+  }
+
+  Future<void> _setBio(bool on) async {
+    if (on) {
+      await bioEnable(Session.vault!.password);
+    } else {
+      await bioDisable();
+    }
+    final s = await bioStatus();
+    if (mounted) setState(() => _bio = s);
+  }
+
   String _idle(int m) => m == 60 ? '1 hour' : '$m minute${m == 1 ? '' : 's'}';
   String _bg(int s) => s == 0
       ? tr('Immediately')
@@ -2380,6 +2885,18 @@ class _AutoLockPageState extends State<AutoLockPage> {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
         children: [
+          if (_bio.$1)
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _bio.$2,
+              onChanged: _setBio,
+              title: Text(tr('Unlock with fingerprint or face')),
+              subtitle: Text(
+                tr(
+                  "Your master password is kept encrypted on this phone by a key that only your fingerprint or face opens. If fingerprints are added or removed, you'll type the password once more.",
+                ),
+              ),
+            ),
           head(tr('Lock when I haven\'t used MyVault for')),
           RadioGroup<int>(
             groupValue: Session.idleMinutes,

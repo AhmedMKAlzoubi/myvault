@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import secrets
 import string
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 
 # Characters that are easy to confuse when reading/typing a password by hand.
 AMBIGUOUS = set("Il1O0o|`'\"{}[]()/\\~,;:.<>")

@@ -77,11 +77,12 @@ Future<List<(String, Uint8List)>> _getFiles(String how) async {
   ];
 }
 
-Future<Map<String, dynamic>> readFromFile(Vault v, FileRef r) async {
+/// The text in one file (the phone's own reader, on the phone).
+Future<String> textOf(Vault v, FileRef r) async {
   final text = await _ch.invokeMethod<String>('ocr', {
     'bytes': await openFile(v, r),
   });
-  return readDetails(text ?? '');
+  return text ?? '';
 }
 
 /// A picture of the file: the photo itself, or a PDF's first page.
@@ -92,6 +93,360 @@ Future<Uint8List> previewOf(Vault v, FileRef r, {int width = 900}) async {
     'bytes': data,
     'width': width,
   }))!;
+}
+
+// ---- MyVault's own scanner: crop and straighten a photo ------------------------------
+/// What the crop screen gives back: the cut-out page (empty: take it again),
+/// and whether to scan another page after it.
+typedef CropResult = ({Uint8List photo, bool more});
+
+/// A scan: camera photos, each through the crop screen, page after page
+/// (a card's front and back) until the person taps Done.
+Future<List<(String, Uint8List)>> scanPages(BuildContext context) async {
+  final out = <(String, Uint8List)>[];
+  var shot = await _getFiles('camera');
+  while (shot.isNotEmpty) {
+    if (!context.mounted) break;
+    final got = await Navigator.of(context).push<CropResult>(
+      MaterialPageRoute(
+        builder: (_) => CropPage(photo: shot.first.$2, page: out.length + 1),
+      ),
+    );
+    if (got == null) break; // cancelled: the pages so far are kept
+    if (got.photo.isNotEmpty) out.add((shot.first.$1, got.photo));
+    if (got.photo.isNotEmpty && !got.more) break;
+    shot = await _getFiles('camera'); // retake, or the next page
+  }
+  return out;
+}
+
+/// Drag the box's corners to the document's; it's cut out and straightened.
+/// Pops a [CropResult], or null to cancel.
+class CropPage extends StatefulWidget {
+  final Uint8List photo;
+  final int page; // 1 for the first page of this scan
+  const CropPage({super.key, required this.photo, this.page = 1});
+  @override
+  State<CropPage> createState() => _CropPageState();
+}
+
+class _CropPageState extends State<CropPage> {
+  late Uint8List _photo = widget.photo;
+  static const _inset = [
+    Offset(.08, .1),
+    Offset(.92, .1),
+    Offset(.92, .9),
+    Offset(.08, .9),
+  ];
+  List<Offset> _pts = [
+    ..._inset,
+  ]; // top-left, top-right, bottom-right, bottom-left
+  Size? _size; // the photo, in pixels
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final img = await decodeImageFromList(_photo);
+    List<double>? found;
+    try {
+      found = await _ch.invokeListMethod<double>('detect', {'bytes': _photo});
+    } on PlatformException {
+      // the box stays where it is
+    }
+    if (!mounted) return;
+    setState(() {
+      _size = Size(img.width.toDouble(), img.height.toDouble());
+      _pts = found != null && found.length == 8
+          ? [for (var i = 0; i < 4; i++) Offset(found[2 * i], found[2 * i + 1])]
+          : [..._inset];
+    });
+  }
+
+  Future<void> _rotate() async {
+    setState(() => _busy = true);
+    final turned = await _ch.invokeMethod<Uint8List>('rotate', {
+      'bytes': _photo,
+    });
+    if (turned != null) _photo = turned;
+    await _load();
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _use({required bool more}) async {
+    setState(() => _busy = true);
+    try {
+      final out = await _ch.invokeMethod<Uint8List>('warp', {
+        'bytes': _photo,
+        'points': [
+          for (final p in _pts) ...[p.dx, p.dy],
+        ],
+      });
+      if (mounted && out != null) {
+        Navigator.of(context).pop<CropResult>((photo: out, more: more));
+      }
+    } on PlatformException catch (e) {
+      if (mounted) {
+        setState(() => _busy = false);
+        _snack(context, e.message ?? "That photo couldn't be used.");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: Text(
+          widget.page == 1
+              ? tr('Crop the document')
+              : tr('Crop page ${widget.page}'),
+        ),
+        actions: [
+          IconButton(
+            tooltip: tr('Turn'),
+            icon: const Icon(Icons.rotate_right),
+            onPressed: _busy || _size == null ? null : _rotate,
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: _size == null
+                ? const Center(child: CircularProgressIndicator())
+                : LayoutBuilder(
+                    builder: (_, box) {
+                      final scale = [
+                        box.maxWidth / _size!.width,
+                        box.maxHeight / _size!.height,
+                      ].reduce((a, b) => a < b ? a : b);
+                      final w = _size!.width * scale, h = _size!.height * scale;
+                      final o = Offset(
+                        (box.maxWidth - w) / 2,
+                        (box.maxHeight - h) / 2,
+                      );
+                      Offset at(Offset p) => o + Offset(p.dx * w, p.dy * h);
+                      return Stack(
+                        children: [
+                          Positioned(
+                            left: o.dx,
+                            top: o.dy,
+                            width: w,
+                            height: h,
+                            child: Image.memory(_photo, gaplessPlayback: true),
+                          ),
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _BoxPainter([
+                                for (final p in _pts) at(p),
+                              ]),
+                            ),
+                          ),
+                          for (var i = 0; i < 4; i++)
+                            Positioned(
+                              left: at(_pts[i]).dx - 24,
+                              top: at(_pts[i]).dy - 24,
+                              child: GestureDetector(
+                                onPanUpdate: (d) => setState(() {
+                                  final p =
+                                      _pts[i] +
+                                      Offset(d.delta.dx / w, d.delta.dy / h);
+                                  _pts[i] = Offset(
+                                    p.dx.clamp(0.0, 1.0),
+                                    p.dy.clamp(0.0, 1.0),
+                                  );
+                                }),
+                                child: Container(
+                                  width: 48,
+                                  height: 48,
+                                  alignment: Alignment.center,
+                                  child: Container(
+                                    width: 22,
+                                    height: 22,
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: e.tint.withValues(alpha: .35),
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+          Container(
+            color: e.sheet,
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    tr(
+                      "Drag the corners onto the document's corners. MyVault cuts it out and straightens it, which also helps it read the details.",
+                    ),
+                    style: TextStyle(color: e.ink2, fontSize: 13),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => Navigator.of(context).pop<CropResult>((
+                                photo: Uint8List(0),
+                                more: false,
+                              )),
+                        child: Text(tr('Retake')),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _busy || _size == null
+                            ? null
+                            : () => _use(more: true),
+                        icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                        label: Text(tr('Add another page')),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _busy || _size == null
+                            ? null
+                            : () => _use(more: false),
+                        icon: const Icon(Icons.check, size: 18),
+                        label: Text(tr('Done')),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BoxPainter extends CustomPainter {
+  final List<Offset> pts;
+  _BoxPainter(this.pts);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final box = Path()..addPolygon(pts, true);
+    // dim what's outside the box
+    canvas.drawPath(
+      Path.combine(
+        PathOperation.difference,
+        Path()..addRect(Offset.zero & size),
+        box,
+      ),
+      Paint()..color = Colors.black.withValues(alpha: .45),
+    );
+    canvas.drawPath(
+      box,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..color = Colors.white,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_BoxPainter old) => old.pts != pts;
+}
+
+/// A file's thumbnail on an edit page, with a remove button that asks first.
+/// The file only leaves the entry when it's saved; until then "Put it back"
+/// undoes it, and leaving without saving keeps it.
+class RemovableThumb extends StatelessWidget {
+  final Vault vault;
+  final FileRef file;
+  final DocumentDraft draft;
+  final VoidCallback changed; // the editor redraws
+  const RemovableThumb({
+    super.key,
+    required this.vault,
+    required this.file,
+    required this.draft,
+    required this.changed,
+  });
+
+  Future<void> _remove(BuildContext context) async {
+    final e = Envelope.of(context);
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(tr('Remove this file?')),
+        content: Text(
+          tr(
+            '“${file.name}” leaves this entry when you save. Until then you can put it back, and leaving without saving keeps it.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(tr('Keep it')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(tr('Remove'), style: TextStyle(color: e.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final at = draft.files.indexWhere((x) => x.id == file.id);
+    if (at < 0) return;
+    draft.files = [...draft.files]..removeAt(at);
+    changed();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(tr('Removed “${file.name}”.')),
+          action: SnackBarAction(
+            label: tr('Put it back'),
+            onPressed: () {
+              if (draft.files.any((x) => x.id == file.id)) return;
+              draft.files = [...draft.files]
+                ..insert(at.clamp(0, draft.files.length), file);
+              changed();
+            },
+          ),
+        ),
+      );
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      FileThumb(vault: vault, file: file),
+      IconButton(
+        tooltip: tr('Remove file'),
+        icon: const Icon(Icons.delete_outline, size: 20),
+        onPressed: () => _remove(context),
+      ),
+    ],
+  );
 }
 
 // ---- thumbnails and the viewer ---------------------------------------------------
@@ -281,27 +636,150 @@ class DocumentSection extends StatelessWidget {
               style: TextStyle(color: e.ink3, fontSize: 12.5),
             ),
           ),
-        if (files.isNotEmpty) ...[
-          const SizedBox(height: 22),
-          Text(tr('Files'), style: head),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              for (final f in files)
-                FileThumb(
-                  vault: vault,
-                  file: f,
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => FileViewerPage(vault: vault, file: f),
-                    ),
+        if (files.isNotEmpty) FilesView(vault: vault, entry: entry),
+      ],
+    );
+  }
+}
+
+/// The view page's files, on any entry: tap one to open it.
+class FilesView extends StatelessWidget {
+  final Vault vault;
+  final Entry entry;
+  const FilesView({super.key, required this.vault, required this.entry});
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 22),
+        Text(
+          tr('Files'),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: e.ink2,
+            fontSize: 13,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in fileRefs(entry))
+              FileThumb(
+                vault: vault,
+                file: f,
+                onTap: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => FileViewerPage(vault: vault, file: f),
                   ),
                 ),
-            ],
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The edit page's files on an entry that isn't a document (a login's
+/// recovery codes, say). The page writes [draft]'s files on save.
+class FilesEditor extends StatefulWidget {
+  final Vault vault;
+  final Entry entry;
+  final DocumentDraft draft;
+  const FilesEditor({
+    super.key,
+    required this.vault,
+    required this.entry,
+    required this.draft,
+  });
+  @override
+  State<FilesEditor> createState() => _FilesEditorState();
+}
+
+class _FilesEditorState extends State<FilesEditor> {
+  DocumentDraft get d => widget.draft;
+
+  @override
+  void initState() {
+    super.initState();
+    d.files = fileRefs(widget.entry);
+  }
+
+  Future<void> _add(String how) async {
+    try {
+      final added = [
+        for (final (name, bytes) in await _getFiles(how))
+          await seal(widget.vault, bytes, name),
+      ];
+      if (added.isNotEmpty) setState(() => d.files = [...d.files, ...added]);
+    } on FormatException catch (e) {
+      if (mounted) _snack(context, e.message);
+    } on PlatformException catch (e) {
+      if (mounted) {
+        _snack(context, e.message ?? "That file couldn't be opened.");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Text(
+          tr('Files'),
+          style: TextStyle(
+            fontWeight: FontWeight.w600,
+            color: e.ink2,
+            fontSize: 13,
           ),
-        ],
+        ),
+        const SizedBox(height: 4),
+        Text(
+          tr(
+            "Photos or PDFs that belong with this entry. They're encrypted the moment you add them.",
+          ),
+          style: TextStyle(color: e.ink3, fontSize: 12.5),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 10,
+          runSpacing: 10,
+          children: [
+            for (final f in d.files)
+              RemovableThumb(
+                vault: widget.vault,
+                file: f,
+                draft: d,
+                changed: () {
+                  if (mounted) setState(() {});
+                },
+              ),
+          ],
+        ),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => _add('camera'),
+              icon: const Icon(Icons.photo_camera_outlined, size: 18),
+              label: Text(tr('Use the camera')),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _add('pick'),
+              icon: const Icon(Icons.attach_file, size: 18),
+              label: Text(tr('Choose files')),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
       ],
     );
   }
@@ -315,7 +793,9 @@ class DocumentEditor extends StatefulWidget {
   final Entry entry;
   final bool isNew;
   final bool Function(String key, String value) fill;
+
   final bool Function(String key) isEmpty;
+  final String Function() type; // the type chosen right now
   final DocumentDraft draft;
   const DocumentEditor({
     super.key,
@@ -324,6 +804,7 @@ class DocumentEditor extends StatefulWidget {
     required this.isNew,
     required this.fill,
     required this.isEmpty,
+    required this.type,
     required this.draft,
   });
   @override
@@ -348,6 +829,7 @@ class _DocumentEditorState extends State<DocumentEditor> {
   final _custom = TextEditingController();
   String _note = '';
   bool _busy = false;
+  bool _check = false; // the note asks to check what was filled in
   DocumentDraft get d => widget.draft;
 
   @override
@@ -360,16 +842,17 @@ class _DocumentEditorState extends State<DocumentEditor> {
 
   Future<void> _add(String how) async {
     try {
-      final got = await _getFiles(how);
+      // Scanning: your camera app (its own flash and exposure), then MyVault's crop screen.
+      final got = how == 'scan'
+          ? await scanPages(context)
+          : await _getFiles(how);
       final added = <FileRef>[];
       for (final (name, bytes) in got) {
         added.add(await seal(widget.vault, bytes, name));
       }
       if (added.isEmpty) return;
       setState(() => d.files = [...d.files, ...added]);
-      if (added.length == 1 && widget.isEmpty('expires')) {
-        await _read(added.first);
-      }
+      if (widget.isEmpty('expires')) await _read();
     } on FormatException catch (e) {
       if (mounted) _snack(context, e.message);
     } on PlatformException catch (e) {
@@ -379,43 +862,58 @@ class _DocumentEditorState extends State<DocumentEditor> {
     }
   }
 
-  Future<void> _read(FileRef f) async {
+  /// Read every file together (an ID's front and back) and fill in what's
+  /// still empty; the page then shows the fields for the type that was found.
+  Future<void> _read() async {
+    if (d.files.isEmpty) {
+      setState(() => _note = tr('Add a photo or PDF of the document first.'));
+      return;
+    }
     setState(() {
       _busy = true;
       _note = tr('Reading the document…');
     });
     try {
-      final got = await readFromFile(widget.vault, f);
-      final filled = <String>[];
-      for (final (key, label) in const [
-        ('doc_type', 'Type'),
-        ('holder', 'Name on the document'),
-        ('number', 'Document number'),
-        ('country', 'Issued by'),
-        ('issued', 'Issue date'),
-        ('expires', 'Expiry date'),
-      ]) {
-        if (got[key] != null && widget.fill(key, '${got[key]}')) {
-          filled.add(tr(label));
-        }
+      final texts = <String>[];
+      for (final f in d.files) {
+        texts.add(await textOf(widget.vault, f));
       }
+      final got = readDetails(texts);
+      final filled = <String>[];
+      for (final MapEntry(:key, :value) in got.entries) {
+        if (key == 'how' || key == 'guessed') continue;
+        if (widget.fill(key, '$value')) filled.add(key);
+      }
+      final type = widget.type();
+      _check = filled.isNotEmpty;
       _note = filled.isEmpty
-          ? tr("Couldn't find new details in this file. Type them in instead.")
+          ? tr(
+              "Couldn't find new details in these files. Type them in instead.",
+            )
           : [
+              tr(
+                'Scans can be misread: check every highlighted box against the document before saving.',
+              ),
               tr(
                 got['how'] == 'mrz'
                     ? 'Read from the machine-readable zone (the <<< lines) and checked.'
                     : "Read from the document's text.",
               ),
-              tr('Filled in: ${filled.join(tr(','))}.'),
-              if (got['guessed'] == true)
+              tr(
+                'Filled in: ${filled.map((k) => tr(docLabel(k, type))).join(tr(', '))}.',
+              ),
+              if (got['guessed'] == true && filled.contains('expires'))
                 tr("The expiry date is a guess (it wasn't labelled)."),
-              tr('Check the details before saving.'),
             ].join(' ');
     } on FormatException catch (e) {
       _note = tr(e.message);
+      _check = false;
     } on PlatformException catch (e) {
       _note = tr(e.message ?? "That file couldn't be read.");
+      _check = false;
+    } catch (_) {
+      _note = tr("That file couldn't be read.");
+      _check = false;
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -437,7 +935,14 @@ class _DocumentEditorState extends State<DocumentEditor> {
         const SizedBox(height: 4),
         Text(
           tr(
-            'Photos or PDFs of the document. They\'re encrypted the moment you add them. MyVault can read the details from them, on this phone.',
+            'Scan both sides of a card: take the photo with your camera (use its flash if it\'s dark), then drag the corners onto the card\'s. Files are encrypted the moment you add them, and MyVault reads the details from all of them together, on this phone.',
+          ),
+          style: TextStyle(color: e.ink3, fontSize: 12.5),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          tr(
+            'Photo too bright or shiny? Tilt the card away from the light, or turn the flash off.',
           ),
           style: TextStyle(color: e.ink3, fontSize: 12.5),
         ),
@@ -447,55 +952,66 @@ class _DocumentEditorState extends State<DocumentEditor> {
           runSpacing: 10,
           children: [
             for (final f in d.files)
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  FileThumb(vault: widget.vault, file: f),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        tooltip: tr('Read details'),
-                        icon: const Icon(
-                          Icons.document_scanner_outlined,
-                          size: 20,
-                        ),
-                        onPressed: _busy ? null : () => _read(f),
-                      ),
-                      IconButton(
-                        tooltip: tr('Remove file'),
-                        icon: const Icon(Icons.close, size: 20),
-                        onPressed: () => setState(
-                          () => d.files = d.files
-                              .where((x) => x.id != f.id)
-                              .toList(),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
+              RemovableThumb(
+                vault: widget.vault,
+                file: f,
+                draft: d,
+                changed: () {
+                  if (mounted) setState(() {});
+                },
               ),
           ],
         ),
         if (_note.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(_note, style: TextStyle(color: e.ink2)),
+          Container(
+            margin: const EdgeInsets.only(top: 6),
+            padding: _check ? const EdgeInsets.all(10) : EdgeInsets.zero,
+            decoration: _check
+                ? BoxDecoration(
+                    color: const Color(0xFFB7791F).withValues(alpha: .12),
+                    border: Border.all(color: const Color(0xFFB7791F)),
+                    borderRadius: BorderRadius.circular(10),
+                  )
+                : null,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_check)
+                  const Padding(
+                    padding: EdgeInsetsDirectional.only(end: 8),
+                    child: Icon(
+                      Icons.warning_amber_rounded,
+                      size: 20,
+                      color: Color(0xFFB7791F),
+                    ),
+                  ),
+                Expanded(
+                  child: Text(_note, style: TextStyle(color: e.ink2)),
+                ),
+              ],
+            ),
           ),
         const SizedBox(height: 8),
         Wrap(
           spacing: 8,
+          runSpacing: 4,
           children: [
-            OutlinedButton.icon(
-              onPressed: () => _add('camera'),
-              icon: const Icon(Icons.photo_camera_outlined, size: 18),
-              label: Text(tr('Take a photo')),
+            FilledButton.icon(
+              onPressed: () => _add('scan'),
+              icon: const Icon(Icons.document_scanner_outlined, size: 18),
+              label: Text(tr('Scan document')),
             ),
             OutlinedButton.icon(
               onPressed: () => _add('pick'),
               icon: const Icon(Icons.attach_file, size: 18),
               label: Text(tr('Choose files')),
             ),
+            if (d.files.isNotEmpty)
+              TextButton.icon(
+                onPressed: _busy ? null : _read,
+                icon: const Icon(Icons.auto_fix_high_outlined, size: 18),
+                label: Text(tr('Read details')),
+              ),
           ],
         ),
         const SizedBox(height: 22),
@@ -705,6 +1221,25 @@ class _DocumentsSettingsPageState extends State<DocumentsSettingsPage> {
               ),
             ),
           ),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: OutlinedButton.icon(
+              onPressed: () async {
+                try {
+                  await _ch.invokeMethod(
+                    'testNotify',
+                    tr('This is how a document reminder looks.'),
+                  );
+                } on MissingPluginException {
+                  // tests
+                }
+                _load();
+              },
+              icon: const Icon(Icons.notifications_outlined, size: 18),
+              label: Text(tr('Send a test notification')),
+            ),
+          ),
+          const SizedBox(height: 8),
           if (!_notify)
             Align(
               alignment: AlignmentDirectional.centerStart,
