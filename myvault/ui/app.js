@@ -41,7 +41,7 @@
     caps: P('<path d="M12 4l7 7.5h-3.8V15H8.8v-3.5H5z"/><path d="M8.8 19.5h6.4"/>'),
     folder: P('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
   };
-  const MARK = '<svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l13.5 10L28.5 2"/><path d="M6 17h8" stroke-width="1.2" stroke-dasharray="1.2 1.6"/></svg>';
+  const MARK = '<svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l11 8.15M28.5 2l-11 8.15"/><path d="M12.7 12.3v-1.5a2.3 2.3 0 0 1 4.6 0v1.5" stroke-width="1.4"/><rect x="11.4" y="12.1" width="7.2" height="5.6" rx="1.2" fill="currentColor" stroke="none"/><path d="M4.5 17h5" stroke-width="1.2" stroke-dasharray="1.2 1.6"/></svg>';
 
   function icon(name) {
     const s = document.createElement("span");
@@ -209,34 +209,69 @@
 
   // ---- state ----------------------------------------------------------------
   const S = { list: [], filter: "all", query: "", selected: null, view: "home", dirty: false,
-    pending: null, exists: true, syncTimer: null, version: "" };
+    pending: null, exists: true, syncTimer: null, version: "", vaults: [], vault: "default",
+    picking: false, picked: new Set() };       // choosing several entries (to delete them)
 
   // ---- lock screen ---------------------------------------------------------
-  function renderLock(exists, msg = "") {
+  // Several vaults ("Work", "Home"...), each with its own master password: pick
+  // one, or make a new one.
+  // the original vault's default name in the app's language; any chosen name as typed
+  const vlabel = (n) => (n === "My vault" ? t("My vault") : n);
+  const vaultName = () => vlabel((S.vaults.find((v) => v.id === S.vault) || { name: "My vault" }).name);
+
+  async function showLock(msg = "") {
+    const b = await call("boot");
+    S.vaults = b.vaults;
+    S.vault = b.vault;
+    renderLock(msg);
+  }
+
+  function renderLock(msg = "", creating = false) {
     stopSync();
-    S.exists = exists;
     S.selected = null;
+    S.picking = false;
+    S.picked.clear();
+    const cur = S.vaults.find((v) => v.id === S.vault) || S.vaults[0];
+    S.vault = cur.id;
+    const exists = !creating && cur.exists;
+    const fresh = !creating && !cur.exists;          // a vault with no file yet (the very first one)
     const app = $("#app");
+    const name = creating && h("input", { class: "inp", id: "vname", maxlength: 40, autocomplete: "off",
+      "aria-label": "Vault name", placeholder: "Vault name, such as Work or Home" });
+    const pick = !creating && S.vaults.length > 1 && h("select", { class: "inp", "aria-label": "Vault",
+      onchange: (ev) => { S.vault = ev.target.value; renderLock(); } },
+      S.vaults.map((v) => h("option", { value: v.id, selected: v.id === S.vault || null }, raw(vlabel(v.name)))));
     const pw1 = h("input", { class: "inp", type: "password", id: "pw1", autocomplete: "current-password",
       "aria-label": exists ? "Master password" : "New master password", placeholder: exists ? "Master password" : "Choose a master password" });
     const pw2 = !exists && h("input", { class: "inp", type: "password", id: "pw2", "aria-label": "Type it again",
       placeholder: "Type it again" });
     const meter = !exists && strengthLine();
     const err = h("p", { class: "err", role: "alert" }, msg);
-    const go = h("button", { class: "btn primary", type: "submit" }, exists ? "Unlock" : "Create my vault");
+    const label = exists ? "Unlock" : creating ? "Create vault" : "Create my vault";
+    const go = h("button", { class: "btn primary", type: "submit" }, label);
     if (meter) pw1.addEventListener("input", () => meter.set(pw1.value));
 
     const form = h("form", { class: "window", autocomplete: "off" },
       h("div", { class: "brand" }, mark(), h("h1", {}, "MyVault")),
-      h("p", { class: "lede" }, exists
-        ? "Your vault is sealed. Enter your master password to open it."
+      h("p", { class: "lede" }, creating
+        ? "A new, empty vault with its own master password. It can be the same as another vault's, or different so each vault stays separate."
+        : exists ? (S.vaults.length > 1 ? "Choose a vault, then enter its master password." : "Your vault is sealed. Enter your master password to open it.")
         : "Choose the one password that opens your vault. It's the only one you'll need to remember."),
+      name, pick,
+      !creating && S.vaults.length === 1 && cur.exists && h("p", { class: "hint", style: "margin:0" }, raw(vlabel(cur.name))),
       pw1, pw2, meter,
       !exists && h("p", { class: "warn" }, "There's no reset. If this password is forgotten, nobody can open the vault, not even you. Write it down and keep it somewhere safe."),
-      err, go);
+      err, go,
+      h("div", { style: "display:flex;justify-content:center" }, creating
+        ? h("button", { type: "button", class: "linkbtn", onclick: () => renderLock() }, "Back")
+        : h("span", { style: "display:flex;gap:18px" },
+          !fresh && h("button", { type: "button", class: "linkbtn", onclick: () => renderLock("", true) }, "New vault…"),
+          h("button", { type: "button", class: "linkbtn", onclick: addCopy }, "Add a vault from a copy…"))),
+      exists && h("button", { type: "button", class: "btn", onclick: () => phoneUnlock(form) }, icon("phone"), "Unlock with my phone"));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
       err.textContent = "";
+      if (creating && !name.value.trim()) return (err.textContent = t("Give the vault a name, such as Work or Home."));
       if (!pw1.value) return (err.textContent = t("Enter your master password."));
       if (!exists) {
         if (pw1.value.length < 8) return (err.textContent = t("Use at least 8 characters. A short sentence works well."));
@@ -244,10 +279,10 @@
       }
       go.disabled = true;
       go.textContent = t(exists ? "Opening…" : "Creating…");
-      const r = await call("unlock", pw1.value);
+      const r = creating ? await call("create_vault", name.value, pw1.value) : await call("unlock", pw1.value, S.vault);
       if (r.ok) return enterMain();
       go.disabled = false;
-      go.textContent = t(exists ? "Unlock" : "Create my vault");
+      go.textContent = t(label);
       err.textContent = t(r.error);
       pw1.select();
     });
@@ -255,13 +290,54 @@
       h("div", { class: "tint-field", "aria-hidden": "true" }), h("div", { class: "lock-seal" }), form,
       h("p", { class: "lock-foot" }, h("span", {}, "Encrypted, and stored only on this computer"))));
     app.removeAttribute("aria-busy");
-    setTimeout(() => pw1.focus(), 30);
+    setTimeout(() => (name || pw1).focus(), 30);
+  }
+
+  async function addCopy() {
+    const r = await call("vault_add_copy");
+    if (!r.ok) return r.error && renderLock(r.error);
+    S.vaults = r.vaults;
+    S.vault = r.vault;
+    renderLock();
+  }
+
+  // The phone scans this code and sends the vault's password over the code's
+  // one-time encrypted link; then it may sync, still on that link.
+  async function phoneUnlock(form) {
+    const r = await call("phone_unlock_start", S.vault);
+    if (!r.ok) return renderLock(r.error);
+    const qr = h("div", { class: "qr", role: "img", "aria-label": "Unlock code" });
+    qr.innerHTML = r.svg;          // generated by segno in Python from our own URI
+    const left = h("p", { class: "hint", style: "margin:0" });
+    const err = h("p", { class: "err", role: "alert" });
+    form.replaceChildren(...[h("div", { class: "brand" }, mark(), h("h1", {}, "MyVault")),
+      h("p", { class: "lede" }, `On your phone, open MyVault › Sync with PC and scan this code to open “${vaultName()}”.`),
+      r.public && h("p", { class: "warn" }, "Windows treats this WiFi as a Public network, so it may block your phone. Set it to Private in Windows settings if the phone can't connect."),
+      h("div", { style: "display:flex;justify-content:center" }, qr), left, err,
+      h("button", { type: "button", class: "linkbtn", onclick: () => renderLock() }, "Use my password instead")].filter(Boolean));
+    S.syncTimer = setInterval(async () => {
+      const s = await call("sync_status");
+      if (s.unlocked && $(".lock")) enterMain();               // the vault is open; a sync may still follow
+      if (s.state === "waiting") {
+        if ($(".lock")) {
+          left.textContent = t(`Code expires in ${Math.floor(s.seconds_left / 60)}:${String(s.seconds_left % 60).padStart(2, "0")}`);
+          err.textContent = s.error ? t(s.error) : "";
+        }
+        return;
+      }
+      clearInterval(S.syncTimer);
+      S.syncTimer = null;
+      if (s.unlocked) {
+        await refresh();
+        if (s.received || s.sent) toast(t(`Synced with your phone. ${s.changed} ${s.changed === 1 ? "entry" : "entries"} updated on this PC.`));
+      } else if ($(".lock")) renderLock("The code expired. Show a new one, or use your password.");
+    }, 1000);
   }
 
   function onLocked(msg = "") {
     if ($(".lock")) return;
     call("lock").catch(() => {});
-    renderLock(true, msg);
+    showLock(msg);
   }
 
   // ---- shell --------------------------------------------------------------
@@ -275,19 +351,26 @@
   ];
 
   async function enterMain() {
+    const b = await call("boot");          // which vault is open now
+    S.vaults = b.vaults;
+    S.vault = b.vault;
     const search = h("input", { class: "inp", type: "search", id: "search", placeholder: "Search", "aria-label": "Search entries",
       oninput: (e) => { S.query = e.target.value; renderList(); },
       onkeydown: (e) => {
         if (e.key === "ArrowDown") { e.preventDefault(); moveSel(1); }
         if (e.key === "Enter") { const first = visible()[0]; if (first) openEntry(first.id); }
-        if (e.key === "Escape") { e.target.value = ""; S.query = ""; renderList(); }
+        if (e.key === "Escape" && e.target.value) { e.preventDefault(); e.target.value = ""; S.query = ""; renderList(); }   // (empty: Esc leaves selecting)
       } });
     const shell = h("div", { class: "shell" },
       h("aside", { class: "rail", "aria-label": "Vault" },
-        h("div", { class: "rail-head" }, mark(), h("b", {}, "MyVault"),
+        h("div", { class: "rail-head" }, mark(),
+          h("div", { style: "min-width:0;flex:1" }, h("b", {}, "MyVault"),
+            h("button", { type: "button", class: "vault-switch", title: "Switch vault", onclick: () => guard(() => onLocked()) },
+              raw(vaultName()))),
           iconBtn("lock", "Lock now (Ctrl+L)", () => onLocked())),
         h("div", { class: "search" }, icon("search"), search, h("kbd", {}, "Ctrl F")),
         h("div", { class: "filters", role: "tablist", "aria-label": "Filter by type", id: "filters" }),
+        h("div", { class: "pickbar", id: "pickbar" }),
         h("ul", { class: "list", id: "list", role: "listbox", "aria-label": "Entries", tabindex: "0",
           onkeydown: (e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveSel(e.key === "ArrowDown" ? 1 : -1); }
@@ -377,13 +460,92 @@
         ? `Nothing matches “${S.query}”.` : "No entries yet. Add your first one below."));
       return;
     }
-    ul.replaceChildren(...items.map((e) => h("li", { class: "item", role: "option", "data-id": e.id,
-      "aria-selected": String(S.selected === e.id), onclick: () => guard(() => openEntry(e.id)) },
+    renderPickbar();
+    ul.replaceChildren(...items.map((e) => h("li", { class: "item" + (S.picking ? " picking" : "") + (S.picking && S.picked.has(e.id) ? " picked" : ""),
+      role: "option", "data-id": e.id,
+      "aria-selected": String(S.picking ? S.picked.has(e.id) : S.selected === e.id),
+      onclick: () => S.picking ? pick(e.id) : guard(() => openEntry(e.id)) },
+    S.picking && h("input", { type: "checkbox", class: "pick", checked: S.picked.has(e.id), tabindex: "-1",
+      "aria-label": `Select ${e.title}` }),
     h("span", { class: "glyph" }, icon(e.kind)),
-    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)),
+    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title),
+      e.local_only && h("span", { class: "local", title: "Kept on this PC: not synced", "aria-label": "Kept on this PC: not synced" }, " ⦸")),
       e.kind === "document" && e.expires ? expiryLine(e.expires)
         : e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
   }
+  // ---- choosing several entries -------------------------------------------------
+  function pick(id) {
+    S.picked.has(id) ? S.picked.delete(id) : S.picked.add(id);
+    renderList();
+  }
+  function renderPickbar() {
+    const bar = $("#pickbar");
+    if (!bar) return;
+    if (!S.picking) {
+      return bar.replaceChildren(S.list.length > 1 && h("button", { type: "button", class: "linkbtn", onclick: () => guard(() => {
+        S.picking = true; S.picked.clear(); renderList();
+      }) }, "Select"));
+    }
+    const shown = visible().map((e) => e.id);
+    const all = shown.length > 0 && shown.every((id) => S.picked.has(id));
+    bar.replaceChildren(
+      h("div", { class: "pickbar-row" }, h("b", {}, `${S.picked.size} selected`),
+        h("button", { type: "button", class: "linkbtn", onclick: () => {
+          shown.forEach((id) => (all ? S.picked.delete(id) : S.picked.add(id))); renderList();
+        } }, all ? "Select none" : "Select all"),
+        h("span", { class: "spacer" }),
+        btn("Done", stopPicking, "sm primary", "", { title: "Leave selecting (Esc)" })),
+      h("div", { class: "pickbar-row" },
+        btn("Delete…", () => S.picked.size && askDeleteMany(), "danger sm", "trash", { disabled: !S.picked.size || null }),
+        // whichever applies: they're all kept here already, or not
+        S.picked.size && [...S.picked].every((id) => S.list.find((e) => e.id === id)?.local_only)
+          ? btn("Sync again", () => setLocal(false), "sm")
+          : btn("Don't sync", () => setLocal(true), "sm", "", { disabled: !S.picked.size || null, title: "Keep them on this PC only" })));
+  }
+  function stopPicking() {
+    S.picking = false; S.picked.clear(); renderList();
+  }
+  async function setLocal(on) {
+    const r = await call("set_local_only", [...S.picked], on);
+    S.picking = false; S.picked.clear();
+    await refresh();
+    toast(on ? (r.count === 1 ? "1 entry is kept on this PC: it won't sync." : `${r.count} entries are kept on this PC: they won't sync.`)
+      : (r.count === 1 ? "1 entry will sync again." : `${r.count} entries will sync again.`));
+  }
+
+  function askDeleteMany() {
+    const ids = [...S.picked];
+    const names = ids.map((id) => (S.list.find((e) => e.id === id) || {}).title || "(untitled)");
+    const shown = names.slice(0, 8);
+    sheet(h("section", { class: "page" },
+      toolHead("trash", ids.length === 1 ? "Delete 1 entry?" : `Delete ${ids.length} entries?`,
+        "They're removed from this PC now, and from your phone at the next sync."),
+      h("div", { class: "panel" },
+        h("ul", { class: "facts" }, shown.map((n) => h("li", {}, icon("x"), h("span", {}, raw(n))))),
+        names.length > shown.length && h("p", { class: "hint" }, `and ${names.length - shown.length} more`),
+        h("p", { class: "hint" }, "You can undo this straight after. Your daily backups also keep them for 14 days."),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn(ids.length === 1 ? "Delete 1 entry" : `Delete ${ids.length} entries`, async () => {
+            const r = await call("delete_entries", ids);
+            S.picking = false; S.picked.clear();
+            await refresh();
+            showHome();
+            undoBar(r.count);
+          }, "danger solid", "trash"),
+          btn("Keep them", () => showHome(), "")))));
+  }
+  function undoBar(n) {
+    const bar = h("div", { class: "result", role: "status", style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px" },
+      h("span", {}, n === 1 ? "Deleted 1 entry." : `Deleted ${n} entries.`),
+      btn("Undo", async () => {
+        const r = await call("undo_delete");
+        bar.remove();
+        await refresh();
+        if (r.ok) toast(r.count === 1 ? "1 entry is back." : `${r.count} entries are back.`);
+      }, "sm", "refresh"));
+    $("#sheet")?.firstElementChild?.prepend(bar);
+  }
+
   function expiryLine(iso) {
     const n = daysLeft(iso);
     return h("div", { class: "sub" + (n < 0 ? " bad" : n <= 30 ? " warn" : "") },
@@ -556,7 +718,7 @@
         e.kind !== "note" && !!e.notes && fieldRow(F("notes", "Notes", { multi: 1, prose: 1 }), e.notes))
         : h("p", { class: "prose" }, "Nothing stored here yet. Choose Edit to add details."),
       historyView(e),
-      e.kind === "document" ? documentView(e) : fileRefs(e).length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(fileRefs(e), null)],
+      e.kind === "document" ? documentView(e) : fileRefs(e).length > 0 && filesSection(e, fileRefs(e)),
       custom.length > 0 && [h("p", { class: "section-t" }, "Extra fields"),
         h("dl", { class: "fields", style: "margin-top:8px" }, custom.map(([k, v]) => fieldRow(F(k, k), v)))],
       h("p", { class: "meta" }, `Last changed ${fmtDate(e.updated_at)} · Created ${fmtDate(e.created_at)}`)));
@@ -607,7 +769,7 @@
           : [days.map((d) => t(leadLabel(d))).join(t(", ")), t(" before it expires, and on the day.")]),
       days.length > 0 && e.fields.expires && h("p", { class: "hint" }, "A notification will say: ",
         raw(`“${t(`${name} expires in ${leadLabel(days[0])}.`)}”`)),
-      files.length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(files, null)],
+      files.length > 0 && filesSection(e, files),
     ];
   }
 
@@ -629,20 +791,43 @@
     return grid;
   }
 
+  // An entry's files on its page, with a way to download them all at once.
+  function filesSection(e, files) {
+    const slot = h("div", { "aria-live": "polite" });
+    return [h("div", { class: "section-t", style: "display:flex;align-items:center;gap:10px" }, h("span", {}, "Files"),
+      h("span", { class: "spacer" }), btn(files.length > 1 ? "Download all…" : "Download…", () => downloadPanel(files, slot, e.title), "sm", "file")),
+      slot, fileGrid(files, null)];
+  }
+
+  // Save decrypted copies: as they are, or as PDF / Word (all the files, laid
+  // out like a photocopy) or PNG / JPEG. Always after saying it isn't encrypted.
+  function downloadPanel(refs, slot, name = "") {
+    const go = async (fmt) => {
+      const r = fmt === "original" ? await call("doc_save_copy", refs[0]) : await call("doc_export", refs, fmt, name);
+      if (r.ok) { slot.replaceChildren(); toast(`Saved to ${r.path}.`); } else if (r.error) toast(r.error, true);
+    };
+    const one = refs.length === 1;
+    slot.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px;margin-top:10px" },
+      h("span", {}, h("b", {}, "Save an unprotected copy? "), "The copy isn't encrypted: anyone who can open the folder you choose can see it."),
+      h("span", { class: "hint", style: "margin:0" }, one
+        ? "PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size."
+        : "PDF and Word put all the pages together on A4 like a photocopy; an ID card's front and back come out at real size, on one page."),
+      h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+        one && btn("As it is", () => go("original"), "sm"),
+        btn("PDF", () => go("pdf"), "primary sm"), btn("Word", () => go("docx"), "sm"),
+        one && btn("PNG", () => go("png"), "sm"), one && btn("JPEG", () => go("jpeg"), "sm"),
+        btn("Cancel", () => slot.replaceChildren(), "sm"))));
+  }
+
   function openFile(ref) {
     const big = h("img", { alt: ref.name });
     const msg = h("div", { "aria-live": "polite" });
     const close = () => box.remove();
-    const save = () => msg.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px" },
-      h("span", {}, h("b", {}, "Save an unprotected copy? "), "The copy isn't encrypted: anyone who can open the folder you choose can see it."),
-      h("div", { class: "inp-row" }, btn("Save a copy", async () => {
-        const r = await call("doc_save_copy", ref);
-        if (r.ok) { msg.replaceChildren(); toast(`Saved to ${r.path}.`); } else if (r.error) toast(r.error, true);
-      }, "primary sm"), btn("Cancel", () => msg.replaceChildren(), "sm"))));
+    const save = () => downloadPanel([ref], msg);
     const box = h("div", { class: "viewer", role: "dialog", "aria-label": ref.name, onclick: (ev) => { if (ev.target === box) close(); } },
       h("div", { class: "viewer-card" },
         h("div", { class: "viewer-head" }, h("b", {}, raw(ref.name)), h("span", { class: "spacer" }),
-          btn("Save a copy…", save, "sm", "file"), iconBtn("x", "Close", close)),
+          btn("Download…", save, "sm", "file"), iconBtn("x", "Close", close)),
         msg, h("div", { class: "viewer-body" }, big)));
     box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
     document.body.append(box);
@@ -937,6 +1122,7 @@
     Object.entries(e.custom || {}).forEach(([k, v]) => addExtra(k, v));
 
     const notes = e.kind !== "note" && h("textarea", { class: "inp", rows: 3, oninput: dirty, "aria-label": "Notes" });
+    const localSw = h("input", { type: "checkbox", role: "switch", checked: !!e.local_only, onchange: dirty });
     if (notes) notes.value = e.notes || "";
     const moreFilled = (K.more || []).some((f) => getVal(e, f));
     const err = h("p", { class: "err", role: "alert" });
@@ -944,7 +1130,8 @@
 
     // Everything on the form, as an entry (saving it, or redrawing the form).
     function draft() {
-      const out = { ...e, id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy };
+      const out = { ...e, id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy,
+        local_only: localSw.checked };
       for (const [f, el] of inputs) {
         if (f.top) out[f.key] = el.value; else out.fields[f.key] = el.value;
       }
@@ -1002,6 +1189,9 @@
           h("summary", {}, icon("chev"), "Profile details (app, phone, region, age, gender)"),
           h("div", { class: "form two" }, K.more.map(control))),
         notes && h("div", { class: "field" }, h("label", {}, "Notes"), notes),
+        h("label", { class: "switch" }, localSw, h("span", { class: "sw-text" },
+          h("span", {}, "Keep on this PC only"),
+          h("span", { class: "sw-sub" }, "It never goes to your phone when you sync, and a copy from the phone never replaces it."))),
         h("div", { class: "field" }, h("span", { class: "lbl" }, "Extra fields"),
           h("p", { class: "hint" }, "Security questions, PINs, membership numbers, anything else."),
           extraBox, h("div", {}, btn("Add field", () => { addExtra(); dirty(); }, "sm", "plus")))),
@@ -1154,10 +1344,32 @@
     function idle(msg, bad = false) {
       area.replaceChildren(h("div", { style: "display:grid;gap:12px" },      // h() drops an empty msg; replaceChildren would print "undefined"
         msg && h("div", { class: "result" + (bad ? " bad" : "") }, msg),
-        h("div", {}, btn(msg ? "Show a new code" : "Show sync code", start, "primary", "phone"))));
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn(msg ? "Show a new code" : "Sync everything", () => start(null), "primary", "phone"),
+          btn("Choose what to sync…", choose, "", "sliders"))));
     }
-    async function start() {
-      const r = await call("sync_start");
+    // Pick which of this PC's entries take part this time (all ticked to start).
+    function choose() {
+      const shared = S.list.filter((e) => !e.local_only), kept = S.list.filter((e) => e.local_only);
+      const ticks = new Map(shared.map((e) => [e.id, h("input", { type: "checkbox", checked: true })]));
+      const n = h("b", {});
+      const count = () => (n.textContent = t(`${[...ticks.values()].filter((c) => c.checked).length} of ${shared.length} chosen`));
+      ticks.forEach((c) => c.addEventListener("change", count));
+      count();
+      area.replaceChildren(h("div", { style: "display:grid;gap:10px" },
+        h("p", { class: "prose", style: "margin:0" }, "Untick what shouldn't sync this time. It stays as it is on this PC; new entries from your phone still arrive."),
+        h("div", { class: "inp-row" }, n, h("span", { class: "spacer" }),
+          h("button", { type: "button", class: "linkbtn", onclick: () => { ticks.forEach((c) => (c.checked = true)); count(); } }, "Select all"),
+          h("button", { type: "button", class: "linkbtn", onclick: () => { ticks.forEach((c) => (c.checked = false)); count(); } }, "Select none")),
+        h("div", { class: "picklist" }, shared.sort((a, b) => a.title.localeCompare(b.title)).map((e) =>
+          h("label", { class: "pickrow" }, ticks.get(e.id), h("span", { class: "glyph" }, icon(e.kind)), raw(e.title)))),
+        kept.length > 0 && h("p", { class: "hint", style: "margin:0" },
+          `Kept on this PC, so they never sync: ${kept.map((e) => e.title).join(", ")}.`),
+        h("div", { class: "inp-row" }, btn("Show sync code", () => start([...ticks].filter(([, c]) => c.checked).map(([id]) => id)), "primary", "phone"),
+          btn("Cancel", () => idle(), ""))));
+    }
+    async function start(only) {
+      const r = await call("sync_start", only);
       if (!r.ok) return idle(r.error, true);
       const qr = h("div", { class: "qr", role: "img", "aria-label": "Sync code" });
       qr.innerHTML = r.svg;          // generated by segno in Python from our own URI
@@ -1178,6 +1390,7 @@
         const s = await call("sync_status");
         if (s.state === "waiting") {
           left.textContent = t(`Code expires in ${Math.floor(s.seconds_left / 60)}:${String(s.seconds_left % 60).padStart(2, "0")}`);
+          if (s.error && !left.nextSibling?.classList?.contains("err")) left.after(h("p", { class: "err", role: "alert" }, s.error));
           bar.style.transform = `scaleX(${s.seconds_left / r.ttl})`;
           return;
         }
@@ -1323,6 +1536,88 @@
       panel.append(h("p", { class: "prose", style: "margin:0" }, "Lock MyVault when it hasn't been used for:"), sel,
         h("p", { class: "hint" }, "Shorter is safer, especially on a shared computer. The X button keeps MyVault running by the clock (so browser fill works); the timer still locks it, and you can lock or quit from the icon there."));
     })();
+    return panel;
+  }
+
+  function vaultsPanel() {
+    const panel = h("div", { class: "panel" }, h("h3", {}, "Vaults"));
+    const paint = (msg) => {
+      const name = h("input", { class: "inp", value: vaultName(), maxlength: 40, "aria-label": "This vault's name", style: "max-width:240px" });
+      const slot = h("div", { "aria-live": "polite" }, msg || null);
+      panel.replaceChildren(h("h3", {}, "Vaults"),
+        h("p", { class: "prose", style: "margin:0" }, S.vaults.length > 1
+          ? `You have ${S.vaults.length} vaults. Each is a separate encrypted file with its own master password; this one is open.`
+          : "You can keep separate vaults, such as Work and Home, each with its own master password."),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" }, name, btn("Rename", async () => {
+          const r = await call("rename_vault", name.value);
+          if (!r.ok) return slot.replaceChildren(h("p", { class: "err" }, r.error));
+          S.vaults = r.vaults;
+          document.querySelector(".vault-switch")?.replaceChildren(raw(vaultName()));
+          paint(h("div", { class: "result" }, "Renamed."));
+        }, "sm")),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn("New vault…", () => guard(() => call("lock").then(() => renderLock("", true))), "sm", "plus"),
+          btn("Delete this vault…", () => askDelete(slot), "danger sm", "trash")),
+        slot);
+    };
+    const askDelete = (slot) => {
+      const typed = h("input", { class: "inp", autocomplete: "off", "aria-label": "Type the vault's name", placeholder: vaultName(), style: "max-width:240px" });
+      const pw = h("input", { class: "inp", type: "password", "aria-label": "Its master password", placeholder: "Its master password", style: "max-width:240px" });
+      const err = h("p", { class: "err", role: "alert" });
+      slot.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px;margin-top:10px" },
+        h("span", {}, h("b", {}, `Delete “${vaultName()}” from this PC? `),
+          "Its entries, files, backups and reminders are removed from this PC for good. It isn't deleted from your phone: a copy there stays."),
+        h("span", { class: "hint", style: "margin:0" }, "To be sure, type its name and its master password."),
+        typed, pw, err,
+        h("div", { class: "inp-row" }, btn("Delete for good", async () => {
+          const r = await call("delete_vault", typed.value, pw.value);
+          if (!r.ok) return (err.textContent = t(r.error));
+          showLock();
+        }, "danger solid sm", "trash"), btn("Keep it", () => slot.replaceChildren(), "sm"))));
+      typed.focus();
+    };
+    paint();
+    return panel;
+  }
+
+  // A "!" that shows (or hides) what a choice means, just below it.
+  function infoTip(text) {
+    const about = h("p", { class: "hint tip", hidden: true }, text);
+    const mark = h("button", { type: "button", class: "info", "aria-label": "What does this mean?", "aria-expanded": "false",
+      onclick: () => { about.hidden = !about.hidden; mark.setAttribute("aria-expanded", String(!about.hidden)); } }, "!");
+    return [mark, about];
+  }
+
+  // A copy to keep somewhere safe or move to another device: encrypted, or
+  // readable by anyone (behind a warning and the master password).
+  function copyPanel() {
+    const out = h("div", { "aria-live": "polite" });
+    const done = (r) => r.ok ? out.replaceChildren(h("div", { class: "result" }, h("b", {}, "Saved: "), raw(r.path)))
+      : r.error && out.replaceChildren(h("p", { class: "err" }, r.error));
+    const [encInfo, encAbout] = infoTip("Encrypted: the copy is locked with this vault's master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it's safe to keep on a USB stick or in cloud storage. Add it back with “Add a vault from a copy…” on the lock screen, on this PC, another PC or your phone.");
+    const [rdInfo, rdAbout] = infoTip("Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents' photos and PDFs. Use it to move to another app or to print, then delete it.");
+    const askReadable = () => {
+      const pw = h("input", { class: "inp", type: "password", "aria-label": "Master password", placeholder: "This vault's master password", style: "max-width:260px" });
+      const err = h("p", { class: "err", role: "alert" });
+      out.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px" },
+        h("span", {}, h("b", {}, "A readable copy isn't encrypted. "),
+          "Anyone who gets the file can read every password, key and document in it. Keep it off email and cloud storage, and delete it (and empty the Recycle Bin) when you're done."),
+        pw, err,
+        h("div", { class: "inp-row" }, btn("Save readable copy", async () => {
+          const r = await call("vault_copy", true, pw.value);
+          if (!r.ok && r.error) return (err.textContent = t(r.error));
+          done(r);
+        }, "danger solid sm", "file"), btn("Cancel", () => out.replaceChildren(), "sm"))));
+      pw.focus();
+    };
+    return h("div", { class: "panel" }, h("h3", {}, "A copy of this vault"),
+      h("p", { class: "prose", style: "margin:0" }, "Uninstalling MyVault doesn't delete your vaults: they stay on this PC, encrypted (see Folders below). A copy is for keeping somewhere else, or for moving to another device."),
+      h("div", { class: "inp-row", style: "flex-wrap:wrap;align-items:center" },
+        btn("Save encrypted copy", async () => done(await call("vault_copy", false)), "sm", "file"), encInfo),
+      encAbout,
+      h("div", { class: "inp-row", style: "flex-wrap:wrap;align-items:center" },
+        btn("Save readable copy…", askReadable, "sm", "file"), rdInfo),
+      rdAbout, out);
     return panel;
   }
 
@@ -1475,6 +1770,8 @@
     sheet(h("section", { class: "page" },
       toolHead("gear", "Settings", `MyVault ${S.version}`),
       languagePanel(),
+      vaultsPanel(),
+      copyPanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Change master password"),
         h("div", { style: "max-width:340px" }, cur),
@@ -1496,7 +1793,7 @@
       updatesPanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Folders"),
-        folderRow("Your vault", "The one encrypted file with everything in it. Copy it to a USB stick now and then; it's useless without your master password.", "data", dirs.data),
+        folderRow("This vault", "Its encrypted file and documents. Uninstalling MyVault leaves them here: keep this path somewhere safe, and reinstalling opens the vault again. Useless without its master password.", "data", dirs.data),
         folderRow("MyVault program", "Where the app itself is installed. Updating or uninstalling only touches this folder, never your vault.", "app", dirs.app),
         folderRow("Browser extension", "Pick this folder in your browser's “Load unpacked”.", "extension", dirs.extension)),
       h("div", { class: "panel" },
@@ -1523,6 +1820,7 @@
     else if (ctrl && e.key.toLowerCase() === "l") { e.preventDefault(); onLocked(); }
     else if (ctrl && e.key.toLowerCase() === "s" && S.view === "edit") { e.preventDefault(); $("form.page").save(); }
     else if (e.key === "/" && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) { e.preventDefault(); $("#search").focus(); }
+    else if (e.key === "Escape" && S.picking && !e.defaultPrevented) stopPicking();
   });
   // Caps Lock warning on any password field (the browser only reports the
   // state on key/pointer events, so the last one seen is used on focus).
@@ -1564,6 +1862,8 @@
   window.addEventListener("pywebviewready", async () => {
     const b = await call("boot");
     S.version = b.version;
-    if (b.unlocked) enterMain(); else renderLock(b.exists);
+    S.vaults = b.vaults;
+    S.vault = b.vault;
+    if (b.unlocked) enterMain(); else renderLock();
   });
 })();

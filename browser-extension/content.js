@@ -183,7 +183,7 @@
     mount = root.getElementById("mount");
     return mount;
   }
-  const MARK = '<svg class="mark" viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l13.5 10L28.5 2"/></svg>';
+  const MARK = '<svg class="mark" viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l11 8.15M28.5 2l-11 8.15"/><path d="M12.7 12.3v-1.5a2.3 2.3 0 0 1 4.6 0v1.5" stroke-width="1.4"/><rect x="11.4" y="12.1" width="7.2" height="5.6" rx="1.2" fill="currentColor" stroke="none"/></svg>';
   function el(tag, cls, text) {
     const e = document.createElement(tag);
     if (cls) e.className = cls;

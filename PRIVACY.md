@@ -20,6 +20,8 @@ MyVault is a password manager that runs only on your own devices. It is made by 
 | Personal document files (photos and PDFs of passports, IDs, contracts…) | Next to the vault, in a `files` folder, one encrypted file each | AES-256-GCM, each with its own random key kept inside the encrypted vault |
 | Document reminder schedule | Next to the vault (`reminders.json`); on Android the app's private storage | Not encrypted, so reminders work while MyVault is locked. It holds only, for each reminder, the date, the expiry date and a short text such as "Passport expires in 1 month" (the type, or the name you chose for reminders). Never numbers, holders' names or anything else from the document |
 | Copies of documents you choose to save | Wherever you save them | **Not encrypted.** MyVault warns you before saving one |
+| Vault names and list (`vaults.json`) | Next to the vaults | Not encrypted, so the lock screen can list them: only each vault's name and its sync id, nothing from inside it |
+| Copies of a vault you choose to save | Wherever you save them | Encrypted copy: your master password. **Readable copy: not encrypted**; MyVault warns you and asks for the master password first |
 | Daily backups (Windows) | `%LOCALAPPDATA%\MyVault\backups\`, one copy a day for 14 days | Your master password: they are copies of the encrypted vault file |
 | Fingerprint unlock (Android, if you turn it on) | The app's private storage | Your master password, encrypted by a key in the Android Keystore that only opens after your fingerprint or face. Fingerprints and face data stay with Android; MyVault never sees them |
 | Paper backup PDF | Wherever you save or print it | Your master password (scrypt, stronger settings). It includes document details, not the photos or PDFs |
@@ -64,9 +66,10 @@ MyVault isn't directed at children and collects no personal data from anyone, so
 
 All your data is on your devices, so you are in full control:
 
-- **Delete everything:** uninstall the app, or delete the `MyVault` folder (the Windows app's Settings has an "Open folder" button). On Android, uninstall the app or clear its storage.
+- **Delete everything:** on Windows, uninstall and choose **Delete my vaults too** (or delete the `MyVault` folder; Settings has an "Open folder" button). On Android, uninstall the app or clear its storage.
+- **Delete one vault:** Settings › Vaults › Delete this vault (its exact name and master password are asked for).
 - **Deleting one entry** removes everything in it at once; only a small marker (its id and dates) is kept so your other devices delete it too at the next sync. On Windows, the encrypted daily backups still hold it for up to 14 days, until they're replaced.
-- **Export or move it:** sync to another device, or make a paper backup.
+- **Export or move it:** sync to another device, save a copy of a vault (encrypted or readable), or make a paper backup.
 - There is nothing to request from us, because we hold none of your data.
 
 ## Changes to this policy

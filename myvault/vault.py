@@ -62,6 +62,7 @@ class Entry:
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
     deleted: bool = False      # tombstone for sync; hidden from the list
+    local_only: bool = False   # kept on this device: never synced, never replaced by a sync
 
     def touch(self) -> None:
         self.updated_at = _now()
@@ -140,6 +141,9 @@ class Vault:
         self.entries: list[Entry] = []
         self.device_id: str = str(uuid.uuid4())
         self.updated_at: float = _now()
+        # The same vault on your PC and phone shares this id (set at their first
+        # sync), so a sync never mixes two different vaults.
+        self.vault_id: str = ""
         self.on_save = None       # called after every save (the app refreshes reminders)
 
     # ---- persistence -----------------------------------------------------
@@ -157,6 +161,7 @@ class Vault:
         v = cls(path, password)
         v.device_id = data.get("device_id", v.device_id)
         v.updated_at = data.get("updated_at", _now())
+        v.vault_id = str(data.get("vault_id", ""))
         v.entries = [Entry.from_dict(e) for e in data.get("entries", [])]
         return v
 
@@ -166,6 +171,7 @@ class Vault:
             "content_version": VAULT_CONTENT_VERSION,
             "device_id": self.device_id,
             "updated_at": self.updated_at,
+            "vault_id": self.vault_id,
             "entries": [e.to_dict() for e in self.entries],
         }
         plaintext = json.dumps(payload).encode("utf-8")

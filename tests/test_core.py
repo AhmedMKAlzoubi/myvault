@@ -200,6 +200,165 @@ def test_qr_sync_convergence():
         assert not sync.connect_and_sync(uri, _Provider(vb), timeout=1).ok
 
 
+class _PhoneLike(_Provider):
+    """A phone that knows which vault it has open (0.8+)."""
+    merge_anyway = False
+    def vault_identity(self):
+        return self.vault.vault_id, "Phone vault"
+    def adopt_vault_id(self, vid):
+        self.vault.vault_id = vid
+
+
+def test_sync_choices_kept_entries_and_vault_check():
+    from myvault import app
+    local = lambda uri: uri.replace(uri.split("h=")[1].split("&")[0], "127.0.0.1")
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert api.unlock("pc-pass-123")["ok"]
+        pc = api._vault
+        pc.entries = [Entry(id="a", title="Shared", updated_at=100),
+                      Entry(id="b", title="Kept on the PC", local_only=True, updated_at=100),
+                      Entry(id="c", title="Not this time", updated_at=100)]
+        pc.save()
+        assert {e["id"] for e in app._SyncProvider(api, only=["a", "b"]).get_entries()} == {"a"}
+        phone = Vault.create(Path(d) / "ph.dat", "ph-pass-123")
+        phone.entries = [Entry(id="a", title="Shared v2", updated_at=200),
+                         Entry(id="b", title="Phone's copy", updated_at=300),
+                         Entry(id="c", title="Newer on the phone", updated_at=300),
+                         Entry(id="n", title="New on the phone", updated_at=100)]
+        s = sync.PairingSession(app._SyncProvider(api, only=["a", "b"]), port=0, ttl=10)
+        r = sync.connect_and_sync(local(s.uri), _PhoneLike(phone))
+        _wait_done(s)
+        assert r.ok, r.error
+        got = {e.id: e.title for e in pc.entries}
+        assert got == {"a": "Shared v2",              # chosen: updated
+                       "b": "Kept on the PC",          # kept on this PC: never replaced
+                       "c": "Not this time",           # left out this time: as it was
+                       "n": "New on the phone"}        # new entries still arrive
+        assert pc.vault_id and phone.vault_id == pc.vault_id    # the phone adopted the PC's vault
+
+        # Another vault on the phone is refused (the code stays valid), unless Sync anyway.
+        other = Vault.create(Path(d) / "other.dat", "other-pass-1")
+        other.vault_id, other.entries = "f" * 32, [Entry(id="q", title="From another vault")]
+        po = _PhoneLike(other)
+        s2 = sync.PairingSession(app._SyncProvider(api), port=0, ttl=10)
+        r2 = sync.connect_and_sync(local(s2.uri), po)
+        assert not r2.ok and r2.vault_mismatch and "q" not in {e.id for e in pc.entries}
+        po.merge_anyway = True
+        r3 = sync.connect_and_sync(local(s2.uri), po)
+        _wait_done(s2)
+        assert r3.ok and "q" in {e.id for e in pc.entries} and other.vault_id == pc.vault_id
+
+
+def test_unlock_the_pc_from_the_phone():
+    import socket
+    from myvault import app, paths
+
+    def scan(s):                                   # the phone's side, by hand
+        _, port, key = sync.parse_uri(s.uri)
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        ch = sync._Chan(sock, key, False)
+        ch.send({"type": "hello", "protocol": sync.PROTOCOL})
+        return sock, key, ch, ch.recv()
+
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert api.unlock("pc-pass-123")["ok"]
+        api._vault.entries = [Entry(id="pc", title="On the PC", updated_at=100)]
+        vid = app._SyncProvider(api).vault_identity()[0]
+        api.lock()
+        assert paths.vaults()[0]["vault_id"] == vid          # readable while locked
+
+        # Same vault: a wrong password is refused, the right one opens it, then a sync.
+        s = sync.PairingSession(None, port=0, ttl=10, unlocker=app._Unlocker(api, paths.DEFAULT))
+        assert s.uri.startswith("myvault://unlock")
+        sock, key, ch, hello = scan(s)
+        assert hello["mode"] == "unlock" and hello["vault_id"] == vid
+        ch.send({"type": "unlock", "password": "not-it-at-all"})
+        assert ch.recv()["type"] == "denied" and api._vault is None
+        ch.send({"type": "unlock", "password": "pc-pass-123"})
+        assert ch.recv()["type"] == "unlocked" and api._vault is not None
+        assert ch.recv()["entries"] == {"pc": 100}
+        ch.send({"type": "sync", "sync": True})
+        phone = Vault.create(Path(d) / "ph.dat", "ph-pass-123")
+        phone.vault_id, phone.entries = vid, [Entry(id="ph", title="From the phone", updated_at=200)]
+        assert sync._exchange(sock, key, _PhoneLike(phone), False, ch).ok
+        sock.close()
+        _wait_done(s)
+        assert {e.id for e in api._vault.entries} == {"pc", "ph"} == {e.id for e in phone.entries}
+
+        # Another password: a new vault on the PC from the phone's; the PC's own stays.
+        api.lock()
+        s = sync.PairingSession(None, port=0, ttl=10, unlocker=app._Unlocker(api, paths.DEFAULT))
+        sock, key, ch, hello = scan(s)
+        ch.send({"type": "create", "name": "My vault", "password": "ph-pass-123", "vault_id": "b" * 32})
+        assert ch.recv() == {"type": "unlocked", "created": True}
+        assert ch.recv()["entries"] == {}
+        ch.send({"type": "sync", "sync": False})
+        sock.close()
+        _wait_done(s)
+        made = [v for v in paths.vaults() if v["id"] == paths.current()][0]
+        assert made["name"] == "My vault (2)" and made["vault_id"] == "b" * 32
+        assert len(Vault.open(paths.vault_path(paths.DEFAULT), "pc-pass-123").entries) == 2
+
+
+def test_vault_copies_encrypted_readable_and_added_back():
+    import json
+    import zipfile
+    from myvault import app, docs, paths
+
+    class Dialog:                                  # stands in for the save/open file dialogs
+        def __init__(self): self.path = None
+        def create_file_dialog(self, *a, **k): return [self.path]
+        def evaluate_js(self, code): pass
+
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api, dlg = app.Api(), Dialog()
+        api._window = dlg
+        assert api.unlock("pc-pass-123")["ok"]
+        ref = docs.seal(b"%PDF-1.4 the lease", "lease.pdf")
+        api._vault.entries = [Entry(id="a", title="Bank", website="bank.com", username="me", password="s3cret"),
+                              Entry(id="b", kind="document", title="Lease", fields={"files": json.dumps([ref])}),
+                              Entry(id="c", title="Gone", password="old", deleted=True)]
+        api._vault.vault_id = "c" * 32
+        api._vault.save()
+
+        dlg.path = str(Path(d) / "enc.zip")
+        assert api.vault_copy(False)["ok"]
+        with zipfile.ZipFile(dlg.path) as z:
+            assert sorted(z.namelist()) == ["files/" + ref["id"] + ".bin", "myvault.json", "vault.dat"]
+            assert b"s3cret" not in z.read("vault.dat")
+        dlg.path = str(Path(d) / "plain.zip")
+        assert not api.vault_copy(True, "wrong-password")["ok"]
+        assert api.vault_copy(True, "pc-pass-123")["ok"]
+        with zipfile.ZipFile(dlg.path) as z:
+            assert "bank.com,me,s3cret" in z.read("logins.csv").decode()
+            assert z.read("files/Lease - lease.pdf") == b"%PDF-1.4 the lease"
+            assert [e["id"] for e in json.loads(z.read("entries.json"))] == ["a", "b"]
+
+        # Added back: a new vault with its own password, files and sync id.
+        api.lock()
+        dlg.path = str(Path(d) / "enc.zip")
+        r = api.vault_add_copy()
+        assert r["ok"] and [v["name"] for v in r["vaults"]] == ["My vault", "My vault (2)"]
+        assert r["vaults"][1]["vault_id"] == "c" * 32
+        assert api.unlock("pc-pass-123", r["vault"])["ok"]
+        assert docs.open_sealed(docs.refs(api._vault.get("b").fields)[0]) == b"%PDF-1.4 the lease"
+
+        # Refused: a readable copy, and a zip reaching outside its folder.
+        dlg.path = str(Path(d) / "plain.zip")
+        assert "readable" in api.vault_add_copy()["error"]
+        evil = Path(d) / "evil.zip"
+        with zipfile.ZipFile(evil, "w") as z:
+            z.writestr("vault.dat", "{}")
+            z.writestr("../../outside.txt", "x")
+        dlg.path = str(evil)
+        assert not api.vault_add_copy()["ok"] and len(paths.vaults()) == 2
+
+
 def test_qr_sync_rejects_wrong_key():
     with tempfile.TemporaryDirectory() as d:
         va = Vault.create(Path(d) / "a.dat", "pw-aaaaaaaa")
@@ -645,6 +804,80 @@ def test_password_history_health_and_leaks():
         for _ in range(12):
             api.save_entry({**api.entry(a), "password": os.urandom(6).hex()})
         assert len(json.loads(api.entry(a)["fields"]["password_history"])) == 10
+
+
+def test_export_pdf_word_and_pictures():
+    """Cards go two to an A4 sheet at real size; other pages get a sheet each."""
+    if sys.platform != "win32":
+        return
+    import struct
+    import zipfile
+    import zlib
+    from myvault import export
+
+    def png(w, h):                      # a plain grey picture, made by hand
+        rows = b"".join(b"\0" + b"\x80\x80\x80" * w for _ in range(h))
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    front, back, letter = export.export([png(320, 202)], "jpeg"), export.export([png(320, 202)], "jpeg"), png(210, 297)
+    assert export.jpeg_size(front) == (320, 202)
+    assert export.export([front], "png")[:4] == b"\x89PNG"
+    pdf = export.export([front, back, letter], "pdf")
+    assert pdf.startswith(b"%PDF") and pdf.count(b"/Type /Page ") == 2          # 2 cards on one sheet + the letter
+    sheets = export.layout([(320, 202), (320, 202), (210, 297)])
+    assert [len(s) for s in sheets] == [2, 1] and sheets[0][0][3:] == export.CARD
+    z = zipfile.ZipFile(__import__("io").BytesIO(export.export([front, letter], "docx")))
+    assert "word/document.xml" in z.namelist() and z.read("word/document.xml").count(b"<w:drawing>") == 2
+
+
+def test_several_vaults_each_with_its_own_password():
+    import datetime as dt
+    from myvault import app, docs, paths
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert [v["id"] for v in api.boot()["vaults"]] == ["default"] and not api.boot()["exists"]
+        assert api.unlock("home-pass-1")["ok"]                       # creates "My vault"
+        api.save_entry({"kind": "login", "title": "Netflix", "password": "x"})
+        soon = (dt.date.today() + dt.timedelta(days=3)).isoformat()
+        api.save_entry({"kind": "document", "title": "Passport", "fields": {"doc_type": "passport", "expires": soon, "remind": "7"}})
+        r = api.create_vault("Work", "work-pass-1")
+        assert r["ok"] and paths.current() != "default"
+        work = paths.current()
+        assert api.entries() == []                                     # a separate vault
+        api.save_entry({"kind": "login", "title": "Jira", "password": "y"})
+        assert not api.create_vault("work", "zzzzzzzz")["ok"]          # names are unique
+        assert api.create_vault("Same key", "home-pass-1")["ok"]       # the same password is allowed
+        assert {v["name"] for v in api.vaults()} == {"My vault", "Work", "Same key"}
+        assert api.unlock("home-pass-1", work)["ok"] is False           # each opens only with its own
+        assert api.unlock("work-pass-1", work)["ok"] and [e["title"] for e in api.entries()] == ["Jira"]
+        assert docs.files_dir().parent == paths.vault_home(work)        # its own files folder
+        assert any(r["name"] == "" and r["type"] == "passport" for r in docs.load_schedule())  # every vault's reminders
+        assert api.boot()["vault"] == work                             # offered first next time
+        assert not api.delete_vault("work", "work-pass-1")["ok"]       # exact name
+        assert not api.delete_vault("Work", "wrong-pass")["ok"]        # and the password
+        assert api.delete_vault("Work", "work-pass-1")["ok"]
+        assert "Work" not in {v["name"] for v in api.vaults()} and not (Path(d) / "MyVault" / "vaults" / work).exists()
+        assert api.unlock("home-pass-1", "default")["ok"] and [e["title"] for e in api.entries()][0] in ("Netflix", "Passport")
+
+
+def test_delete_several_then_undo():
+    from myvault import app
+    with tempfile.TemporaryDirectory() as d:
+        api = app.Api()
+        api._vault = Vault.create(Path(d) / "v.dat", "pw-12345678")
+        ids = [api.save_entry({"kind": "note", "title": f"N{i}", "notes": f"secret {i}"})["id"] for i in range(3)]
+        assert api.delete_entries(ids[:2]) == {"ok": True, "count": 2}
+        assert [e["title"] for e in api.entries()] == ["N2"]
+        before = max(e.updated_at for e in api._vault.entries)
+        r = api.undo_delete()
+        assert r == {"ok": True, "count": 2} and sorted(e["title"] for e in api.entries()) == ["N0", "N1", "N2"]
+        assert api.entry(ids[0])["notes"] == "secret 0" and api._vault.get(ids[0]).updated_at >= before
+        assert api.undo_delete()["ok"] is False                         # only once
+        api.delete_entries([ids[2]])
+        api.lock()                                                      # locking forgets what Undo would bring back
+        assert api._undo == []
 
 
 def test_deleted_entries_keep_nothing_but_the_marker():

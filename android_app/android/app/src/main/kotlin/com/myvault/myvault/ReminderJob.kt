@@ -30,9 +30,15 @@ class ReminderJob : JobService() {
         private const val CHANNEL = "documents"
         private const val PREFS = "reminders"
 
-        fun save(c: Context, json: String) {
-            val f = File(c.filesDir, "reminders.json")
-            val tmp = File(c.filesDir, "reminders.json.part")
+        /** One file per vault ("reminders.json" for the original one), so each
+         *  vault's reminders stay when another vault is opened. */
+        private fun fileOf(c: Context, vault: String) =
+            File(c.filesDir, if (vault == "default") "reminders.json" else "reminders-$vault.json")
+
+        fun save(c: Context, vault: String, json: String) {
+            if (!Regex("^(default|[0-9a-f]{32})$").matches(vault)) return
+            val f = fileOf(c, vault)
+            val tmp = File(c.filesDir, "${f.name}.part")
             tmp.writeText(json)
             tmp.renameTo(f)
             schedule(c)
@@ -74,9 +80,15 @@ class ReminderJob : JobService() {
         }
 
         fun check(c: Context) {
-            val f = File(c.filesDir, "reminders.json")
-            if (!f.exists()) return
-            val plan = try { JSONArray(f.readText()) } catch (e: Exception) { return }
+            // every vault's reminders, while they're all locked
+            val plan = JSONArray()
+            c.filesDir.listFiles { f -> f.name.matches(Regex("""^reminders(-[0-9a-f]{32})?\.json$""")) }?.forEach { f ->
+                try {
+                    val a = JSONArray(f.readText())
+                    for (i in 0 until a.length()) plan.put(a.get(i))
+                } catch (_: Exception) {}
+            }
+            if (plan.length() == 0) return
             val prefs = c.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val shown = prefs.getStringSet("shown", emptySet())!!.toMutableSet()
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())

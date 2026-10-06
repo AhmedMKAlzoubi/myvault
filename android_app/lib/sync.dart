@@ -36,6 +36,13 @@ class SyncResult {
   String updateError = '';
   int filesReceived = 0; // document files (photos/PDFs)
   String filesError = '';
+
+  /// The PC had a different vault open (the code stays valid: Sync anyway).
+  bool vaultMismatch = false;
+  String pcVault = '';
+
+  /// An unlock code: the PC's vault opened, or a new one made from this phone's.
+  bool unlocked = false, createdOnPc = false, synced = true;
   SyncResult.success(this.changed) : ok = true, error = '';
   SyncResult.failure(this.error) : ok = false, changed = 0;
 }
@@ -44,13 +51,16 @@ class SyncCode {
   final List<String> hosts;
   final int port;
   final Uint8List key;
-  SyncCode(this.hosts, this.port, this.key);
+  final bool unlock; // the PC's lock screen: this phone opens it
+  SyncCode(this.hosts, this.port, this.key, {this.unlock = false});
 
   /// Throws FormatException for anything that isn't a MyVault sync code.
   factory SyncCode.parse(String raw) {
     final u = Uri.parse(raw.trim());
     final q = u.queryParameters;
-    if (u.scheme != 'myvault' || u.host != 'sync' || q['v'] != '2') {
+    if (u.scheme != 'myvault' ||
+        !(u.host == 'sync' || u.host == 'unlock') ||
+        q['v'] != '2') {
       throw const FormatException("That isn't a MyVault sync code.");
     }
     final k = q['k']!;
@@ -64,7 +74,12 @@ class SyncCode {
         "That code doesn't point at a PC on your home network, so MyVault won't sync with it.",
       );
     }
-    return SyncCode(hosts, int.parse(q['p']!), Uint8List.fromList(key));
+    return SyncCode(
+      hosts,
+      int.parse(q['p']!),
+      Uint8List.fromList(key),
+      unlock: u.host == 'unlock',
+    );
   }
 }
 
@@ -306,8 +321,92 @@ Future<void> _exchangeFiles(_Chan ch, Vault vault, SyncResult r) async {
   ch.send({'type': 'file', 'id': ''});
 }
 
-/// Connect with a scanned code and sync [vault]. The phone is always the client.
-Future<SyncResult> syncWithCode(String raw, Vault vault) async {
+/// The sync itself, on an open channel (also right after an unlock).
+Future<SyncResult> _syncOn(
+  _Chan ch,
+  Vault vault, {
+  required bool Function(Entry) held,
+  bool mergeAnyway = false,
+  String vaultName = '',
+}) async {
+  ch.send({
+    'type': 'hello',
+    'protocol': protocol,
+    'device_id': vault.deviceId,
+    'app_version': appVersion,
+    'platform': upd.platformName,
+    'offers': await upd.offers(),
+    'vault_id': vault.vaultId,
+    'vault_name': vaultName,
+    'merge_anyway': mergeAnyway,
+  });
+  final hello = await ch.recv();
+  if (hello['protocol'] != protocol) {
+    return SyncResult.failure('Update MyVault on the PC, then try again.');
+  }
+  // Which vault this is: the PC gives one an id at its first sync and the
+  // phone adopts it, so later a sync never mixes two different vaults.
+  final pcId = '${hello['vault_id'] ?? ''}';
+  final pcName = '${hello['vault_name'] ?? ''}';
+  final differ =
+      vault.vaultId.isNotEmpty && pcId.isNotEmpty && vault.vaultId != pcId;
+  if (differ && !mergeAnyway && hello['merge_anyway'] != true) {
+    return SyncResult.failure(
+        "The PC has “$pcName” open, which isn't the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.",
+      )
+      ..vaultMismatch = true
+      ..pcVault = pcName;
+  }
+  if (pcId.isNotEmpty) vault.vaultId = pcId; // saved with the merge below
+  ch.send({
+    'type': 'entries',
+    'entries': [
+      for (final e in vault.entries)
+        if (!held(e)) e.toJson(),
+    ],
+  });
+  final msg = await ch.recv();
+  final remote = ((msg['entries'] ?? []) as List)
+      .map((e) => Entry.fromJson((e as Map).cast<String, dynamic>()))
+      .toList();
+  final r = SyncResult.success(vault.mergeIn(remote, held: held));
+  r.peerVersion = '${hello['app_version'] ?? ''}';
+
+  // Update hand-over (both sides 0.5+). A failure here never undoes the sync.
+  if (r.peerVersion.isNotEmpty) {
+    try {
+      final offered =
+          '${((hello['offers'] ?? {}) as Map)[upd.platformName] ?? ''}';
+      final want = !upd.storeBuild && upd.isNewer(offered, appVersion)
+          ? upd.platformName
+          : '';
+      ch.send({'type': 'want', 'platform': want});
+      final peerWant = '${(await ch.recv())['platform'] ?? ''}';
+      if (want.isNotEmpty) {
+        r.received = await _recvPackage(ch); // PC sends first
+      }
+      if (peerWant.isNotEmpty) r.sent = await _sendPackage(ch, peerWant);
+    } catch (e) {
+      r.updateError = '$e';
+    }
+    if (!upd.isNewer('0.6.0', r.peerVersion) &&
+        !upd.isNewer('0.6.0', appVersion)) {
+      try {
+        await _exchangeFiles(ch, vault, r);
+      } catch (e) {
+        r.filesError = '$e'; // the entries are synced already
+      }
+    }
+  }
+  return r;
+}
+
+/// Connect to the PC in [raw] and run [talk] on the channel. The phone is
+/// always the client; each address in the code is tried in turn.
+Future<SyncResult> _connect(
+  String raw,
+  Future<SyncResult> Function(_Chan ch, SyncCode code) talk,
+) async {
   final SyncCode code;
   try {
     code = SyncCode.parse(raw);
@@ -325,56 +424,7 @@ Future<SyncResult> syncWithCode(String raw, Vault vault) async {
         code.port,
         timeout: const Duration(seconds: 6),
       );
-      final ch = _Chan(socket, code.key);
-      ch.send({
-        'type': 'hello',
-        'protocol': protocol,
-        'device_id': vault.deviceId,
-        'app_version': appVersion,
-        'platform': upd.platformName,
-        'offers': await upd.offers(),
-      });
-      final hello = await ch.recv();
-      if (hello['protocol'] != protocol) {
-        return SyncResult.failure('Update MyVault on the PC, then try again.');
-      }
-      ch.send({
-        'type': 'entries',
-        'entries': vault.entries.map((e) => e.toJson()).toList(),
-      });
-      final msg = await ch.recv();
-      final remote = ((msg['entries'] ?? []) as List)
-          .map((e) => Entry.fromJson((e as Map).cast<String, dynamic>()))
-          .toList();
-      final r = SyncResult.success(vault.mergeIn(remote));
-      r.peerVersion = '${hello['app_version'] ?? ''}';
-
-      // Update hand-over (both sides 0.5+). A failure here never undoes the sync.
-      if (r.peerVersion.isNotEmpty) {
-        try {
-          final offered =
-              '${((hello['offers'] ?? {}) as Map)[upd.platformName] ?? ''}';
-          final want = !upd.storeBuild && upd.isNewer(offered, appVersion)
-              ? upd.platformName
-              : '';
-          ch.send({'type': 'want', 'platform': want});
-          final peerWant = '${(await ch.recv())['platform'] ?? ''}';
-          if (want.isNotEmpty) {
-            r.received = await _recvPackage(ch); // PC sends first
-          }
-          if (peerWant.isNotEmpty) r.sent = await _sendPackage(ch, peerWant);
-        } catch (e) {
-          r.updateError = '$e';
-        }
-        if (!upd.isNewer('0.6.0', r.peerVersion) &&
-            !upd.isNewer('0.6.0', appVersion)) {
-          try {
-            await _exchangeFiles(ch, vault, r);
-          } catch (e) {
-            r.filesError = '$e'; // the entries are synced already
-          }
-        }
-      }
+      final r = await talk(_Chan(socket, code.key), code);
       await socket.flush();
       return r;
     } on InvalidCipherTextException {
@@ -393,3 +443,109 @@ Future<SyncResult> syncWithCode(String raw, Vault vault) async {
   }
   return SyncResult.failure(last);
 }
+
+/// Connect with a scanned code and sync [vault].
+/// With [only] (entry ids), just those of this phone's entries take part; new
+/// entries from the PC still arrive. Entries kept on this phone never take
+/// part. [mergeAnyway] syncs even when the PC has a different vault open.
+Future<SyncResult> syncWithCode(
+  String raw,
+  Vault vault, {
+  Set<String>? only,
+  bool mergeAnyway = false,
+  String vaultName = '',
+}) => _connect(raw, (ch, code) async {
+  if (code.unlock) {
+    return SyncResult.failure(
+      "That's the PC's unlock code. Scan it from Sync with PC to open the PC's vault.",
+    );
+  }
+  return _syncOn(
+    ch,
+    vault,
+    held: (e) => e.localOnly || (only != null && !only.contains(e.id)),
+    mergeAnyway: mergeAnyway,
+    vaultName: vaultName,
+  );
+});
+
+/// Why the PC's vault is offered: 'same' (the vault open on this phone),
+/// 'unknown' (they haven't synced yet, so it can't tell), 'other' (another
+/// vault), 'wrong' (it didn't open with this phone's master password).
+typedef UnlockChoice =
+    Future<String> Function(String pcName, String pcVault, String why);
+
+/// The PC's lock-screen code: open the PC's vault with this phone's master
+/// password. [decide] answers 'unlock', 'create' (a new vault on the PC made
+/// from this phone's; the PC's own vault stays as it is) or '' (stop). The
+/// password is only sent for 'same' or 'unknown', so a code for another vault
+/// never gets it. Then, if the two copies differ, [askSync].
+Future<SyncResult> unlockWithCode(
+  String raw,
+  Vault vault, {
+  required String vaultName,
+  required UnlockChoice decide,
+  required Future<bool> Function() askSync,
+}) => _connect(raw, (ch, code) async {
+  if (!code.unlock) {
+    return SyncResult.failure("That's a sync code, not an unlock code.");
+  }
+  ch.send({'type': 'hello', 'protocol': protocol, 'app_version': appVersion});
+  final hello = await ch.recv();
+  if (hello['protocol'] != protocol || hello['mode'] != 'unlock') {
+    return SyncResult.failure('Update MyVault on the PC, then try again.');
+  }
+  final pcId = '${hello['vault_id'] ?? ''}';
+  final pcVault = '${hello['vault_name'] ?? ''}';
+  final pcName = '${hello['pc_name'] ?? ''}';
+  var why = pcId.isEmpty || vault.vaultId.isEmpty
+      ? 'unknown'
+      : pcId == vault.vaultId
+      ? 'same'
+      : 'other';
+  var created = false;
+  for (;;) {
+    final d = await decide(pcName, pcVault, why);
+    if (d == 'unlock' && (why == 'same' || why == 'unknown')) {
+      ch.send({'type': 'unlock', 'password': vault.password});
+      if ((await ch.recv())['type'] == 'unlocked') break;
+      why = 'wrong';
+    } else if (d == 'create') {
+      ch.send({
+        'type': 'create',
+        'name': vaultName,
+        'password': vault.password,
+        'vault_id': vault.vaultId,
+      });
+      final a = await ch.recv();
+      if (a['type'] != 'unlocked') {
+        return SyncResult.failure(
+          '${a['error'] ?? "The PC couldn't make the vault."}',
+        );
+      }
+      created = true;
+      break;
+    } else {
+      ch.send({'type': 'stop'});
+      return SyncResult.failure('')..synced = false;
+    }
+  }
+  // Already the same? Then there's nothing to sync.
+  final pc = ((await ch.recv())['entries'] ?? {}) as Map;
+  final mine = {
+    for (final e in vault.entries)
+      if (!e.localOnly) e.id: e.updatedAt,
+  };
+  final same =
+      pc.length == mine.length &&
+      mine.entries.every((m) => (pc[m.key] as num?)?.toDouble() == m.value);
+  final go = !same && (created || await askSync());
+  ch.send({'type': 'sync', 'sync': go});
+  final r = go
+      ? await _syncOn(ch, vault, held: (e) => e.localOnly, vaultName: vaultName)
+      : SyncResult.success(0);
+  return r
+    ..unlocked = true
+    ..createdOnPc = created
+    ..synced = go || same;
+});
