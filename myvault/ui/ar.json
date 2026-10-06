@@ -617,5 +617,16 @@
 "{0} entries are kept on this PC: they won't sync.": "{0} من العناصر محفوظة على هذا الكمبيوتر فقط: لن تُزامَن.",
 "Keep on this PC only": "الإبقاء على هذا الكمبيوتر فقط",
 "It never goes to your phone when you sync, and a copy from the phone never replaces it.": "لا يذهب إلى هاتفك أبدًا عند المزامنة، ولا تحلّ محله نسخة من الهاتف أبدًا.",
-"The vault open on the phone isn't this PC's “{0}” ({1}). Open the same vault on both, or choose Sync anyway on the phone to merge them.": "الخزنة المفتوحة على الهاتف ليست «{0}» المفتوحة على هذا الكمبيوتر ({1}). افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» على الهاتف لدمجهما."
+"The vault open on the phone isn't this PC's “{0}” ({1}). Open the same vault on both, or choose Sync anyway on the phone to merge them.": "الخزنة المفتوحة على الهاتف ليست «{0}» المفتوحة على هذا الكمبيوتر ({1}). افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» على الهاتف لدمجهما.",
+"Unlock with my phone": "الفتح بهاتفي",
+"Unlock code": "رمز الفتح",
+"On your phone, open MyVault › Sync with PC and scan this code to open “{0}”.": "على هاتفك، افتح MyVault ثم «المزامنة مع الكمبيوتر» وامسح هذا الرمز لفتح «{0}».",
+"Windows treats this WiFi as a Public network, so it may block your phone. Set it to Private in Windows settings if the phone can't connect.": "يعامل ويندوز شبكة WiFi هذه كشبكة عامة، فقد يحجب هاتفك. اجعلها خاصة من إعدادات ويندوز إن لم يستطع الهاتف الاتصال.",
+"Use my password instead": "استخدام كلمة المرور بدلًا من ذلك",
+"Synced with your phone. 1 entry updated on this PC.": "تمت المزامنة مع هاتفك. تحدّث عنصر واحد على هذا الكمبيوتر.",
+"Synced with your phone. {0} entries updated on this PC.": "تمت المزامنة مع هاتفك. العناصر التي تحدّثت على هذا الكمبيوتر: {0}.",
+"The code expired. Show a new one, or use your password.": "انتهت صلاحية الرمز. اعرض رمزًا جديدًا، أو استخدم كلمة المرور.",
+"Too many wrong passwords. Show a new code to try again.": "محاولات كثيرة بكلمة مرور خاطئة. اعرض رمزًا جديدًا لتحاول مرة أخرى.",
+"The phone stopped.": "توقف الهاتف.",
+"Couldn't make the vault.": "تعذّر إنشاء الخزنة."
 }

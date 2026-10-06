@@ -676,6 +676,28 @@ const arabic = <String, String>{
   '1 entry is kept on this phone: it won\'t sync.': 'عنصر واحد محفوظ على هذا الهاتف فقط: لن يُزامَن.',
   '{0} entries are kept on this phone: they won\'t sync.': '{0} من العناصر محفوظة على هذا الهاتف فقط: لن تُزامَن.',
   'The PC has “{0}” open, which isn\'t the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.': 'الكمبيوتر يفتح «{0}»، وهي ليست الخزنة المفتوحة على هذا الهاتف. افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» لدمجهما.',
+  // ---- unlocking the PC from the phone ----
+  'That\'s the PC\'s unlock code. Scan it from Sync with PC to open the PC\'s vault.': 'هذا رمز فتح الكمبيوتر. امسحه من «المزامنة مع الكمبيوتر» لفتح خزنة الكمبيوتر.',
+  'That\'s a sync code, not an unlock code.': 'هذا رمز مزامنة، وليس رمز فتح.',
+  'Open “{0}” on {1}?': 'فتح «{0}» على {1}؟',
+  'This phone sends the vault\'s master password to that PC over the code\'s one-time encrypted link.': 'يرسل هذا الهاتف كلمة المرور الرئيسية للخزنة إلى ذلك الكمبيوتر عبر الاتصال المشفّر الخاص بهذا الرمز، والذي يُستخدم مرة واحدة.',
+  'This phone and that PC haven\'t synced this vault yet, so MyVault can\'t check it\'s the same vault. Only go on if it\'s your PC and “{0}” has the same master password as “{1}” on this phone.': 'لم يُزامِن هذا الهاتف وذلك الكمبيوتر هذه الخزنة من قبل، فلا يستطيع MyVault التأكد من أنها الخزنة نفسها. تابع فقط إن كان هذا كمبيوترك وكانت كلمة المرور الرئيسية لـ«{0}» هي نفسها لـ«{1}» على هذا الهاتف.',
+  'Open it': 'فتحها',
+  'A different vault': 'خزنة مختلفة',
+  'The PC is showing “{0}”, not “{1}” that\'s open on this phone, so MyVault won\'t send this phone\'s password. Choose the same vault on the PC, or create one there from this phone\'s: the same name, master password and entries. The PC\'s own vault stays as it is.': 'يعرض الكمبيوتر «{0}»، وليس «{1}» المفتوحة على هذا الهاتف، لذا لن يرسل MyVault كلمة مرور هذا الهاتف. اختر الخزنة نفسها على الكمبيوتر، أو أنشئ هناك خزنة من خزنة هذا الهاتف: بالاسم نفسه وكلمة المرور الرئيسية نفسها والعناصر نفسها. وتبقى خزنة الكمبيوتر كما هي.',
+  'Create on PC': 'الإنشاء على الكمبيوتر',
+  'The master passwords differ': 'كلمتا المرور الرئيسيتان مختلفتان',
+  '“{0}” on the PC doesn\'t open with this phone\'s master password. Going on creates a new vault on the PC with this phone\'s name and master password, and syncs this phone\'s entries into it. The PC\'s own vault stays as it is.': 'لا تُفتح «{0}» على الكمبيوتر بكلمة المرور الرئيسية لهذا الهاتف. المتابعة تُنشئ خزنة جديدة على الكمبيوتر باسم هذا الهاتف وكلمة مروره الرئيسية، وتُزامِن عناصر هذا الهاتف إليها. وتبقى خزنة الكمبيوتر كما هي.',
+  'Sync now?': 'المزامنة الآن؟',
+  'The PC is open. Its copy of the vault and this phone\'s aren\'t the same.': 'الكمبيوتر مفتوح. نسخته من الخزنة ليست مطابقة لنسخة هذا الهاتف.',
+  'Sync': 'مزامنة',
+  'Made “{0}” on the PC and synced this phone\'s entries into it.': 'أُنشئت «{0}» على الكمبيوتر وزُومنت عناصر هذا الهاتف إليها.',
+  'The PC is open. Not synced: sync any time from here.': 'الكمبيوتر مفتوح. لم تتم المزامنة: يمكنك المزامنة في أي وقت من هنا.',
+  'The PC is open and synced. 1 entry updated on this phone.': 'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.',
+  'The PC is open and synced. 1 entry updated on this phone.{0}': 'الكمبيوتر مفتوح وتمت المزامنة. تحدّث عنصر واحد على هذا الهاتف.{0}',
+  'The PC is open and synced. {0} entries updated on this phone.': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.',
+  'The PC is open and synced. {0} entries updated on this phone.{1}': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.{1}',
+  'The PC is open. Everything was already in sync.': 'الكمبيوتر مفتوح. كان كل شيء متزامنًا من قبل.',
 };
 
 const arabicMonths = [

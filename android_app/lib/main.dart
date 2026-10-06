@@ -2801,6 +2801,110 @@ class _SyncPageState extends State<SyncPage> {
     }
   }
 
+  Future<bool> _ask(
+    String title,
+    String body,
+    String yes, {
+    String no = 'Cancel',
+  }) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(tr(no)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(tr(yes)),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  /// The PC's lock screen code: open the PC's vault from this phone.
+  Future<void> _unlock(String raw) async {
+    setState(() => _state = 'busy');
+    final mine = vaultLabel(Session.vaultName);
+    final r = await qrsync.unlockWithCode(
+      raw,
+      Session.vault!,
+      vaultName: Session.vaultName,
+      decide: (pc, v, why) async {
+        final theirs = vaultLabel(v);
+        final String title, body, yes;
+        switch (why) {
+          case 'same':
+          case 'unknown':
+            title = tr('Open “$theirs” on $pc?');
+            body = why == 'same'
+                ? tr(
+                    "This phone sends the vault's master password to that PC over the code's one-time encrypted link.",
+                  )
+                : tr(
+                    "This phone and that PC haven't synced this vault yet, so MyVault can't check it's the same vault. "
+                    "Only go on if it's your PC and “$theirs” has the same master password as “$mine” on this phone.",
+                  );
+            yes = 'Open it';
+          case 'other':
+            title = tr('A different vault');
+            body = tr(
+              "The PC is showing “$theirs”, not “$mine” that's open on this phone, so MyVault won't send this phone's password. "
+              "Choose the same vault on the PC, or create one there from this phone's: the same name, master password and entries. The PC's own vault stays as it is.",
+            );
+            yes = 'Create on PC';
+          default: // 'wrong'
+            title = tr('The master passwords differ');
+            body = tr(
+              "“$theirs” on the PC doesn't open with this phone's master password. "
+              "Going on creates a new vault on the PC with this phone's name and master password, and syncs this phone's entries into it. "
+              "The PC's own vault stays as it is.",
+            );
+            yes = 'Create on PC';
+        }
+        if (!mounted) return '';
+        return await _ask(title, body, yes)
+            ? (yes == 'Open it' ? 'unlock' : 'create')
+            : '';
+      },
+      askSync: () async =>
+          mounted &&
+          await _ask(
+            tr('Sync now?'),
+            tr(
+              "The PC is open. Its copy of the vault and this phone's aren't the same.",
+            ),
+            'Sync',
+            no: 'Not now',
+          ),
+    );
+    if (!mounted) return;
+    if (!r.ok && r.error.isEmpty) {
+      return setState(() => _state = 'intro'); // stopped
+    }
+    setState(() {
+      _mismatch = false;
+      _state = r.ok ? 'done' : 'error';
+      _msg = !r.ok
+          ? r.error
+          : r.createdOnPc
+          ? tr(
+              'Made “$mine” on the PC and synced this phone\'s entries into it.',
+            )
+          : !r.synced
+          ? tr('The PC is open. Not synced: sync any time from here.')
+          : r.changed > 0 || r.peerVersion.isNotEmpty
+          ? tr(
+              'The PC is open and synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone.${_filesNote(r)}',
+            )
+          : tr('The PC is open. Everything was already in sync.');
+    });
+  }
+
   String _filesNote(qrsync.SyncResult r) => [
     if (r.filesReceived > 0)
       tr(' Document files received: ${r.filesReceived}.'),
@@ -2847,12 +2951,14 @@ class _SyncPageState extends State<SyncPage> {
             'On your PC, open MyVault → Sync with phone → Show sync code. '
             'Hold the phone 15–30 cm from the screen.',
           ),
-          recognizes: (raw) => raw.startsWith('myvault://sync'),
+          recognizes: (raw) =>
+              raw.startsWith('myvault://sync') ||
+              raw.startsWith('myvault://unlock'),
           wrongCode: tr(
             "That QR code isn't a MyVault sync code. Point at the code in MyVault's Sync with phone screen.",
           ),
           onCode: (raw) {
-            _run(raw);
+            raw.startsWith('myvault://unlock') ? _unlock(raw) : _run(raw);
             return true;
           },
         ),

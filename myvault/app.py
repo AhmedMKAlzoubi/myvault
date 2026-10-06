@@ -18,6 +18,7 @@ import csv
 import ctypes
 import ipaddress
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -235,6 +236,8 @@ class Api:
         cfg = config.load()
         cfg["last_vault"] = vid                    # offered first next time
         config.save(cfg)
+        if self._vault.vault_id:
+            paths.remember_vault_id(self._vault.vault_id)
         self._vault.on_save = self._saved
         self._saved()
         try:
@@ -625,6 +628,20 @@ class Api:
         return {"ok": True, "svg": svg, "uri": self._pairing.uri, "ttl": sync.PAIRING_TTL,
                 "hosts": hosts, "public": _network_is_public(hosts[0])}
 
+    def phone_unlock_start(self, vault: str) -> dict:
+        """A code on the lock screen: the phone scans it and unlocks this vault."""
+        vid = str(vault or _last_vault())
+        if not any(v["id"] == vid for v in paths.vaults()):
+            return {"ok": False, "error": "That vault isn't here any more."}
+        self.sync_cancel()
+        try:
+            self._pairing = sync.PairingSession(None, unlocker=_Unlocker(self, vid))
+        except OSError as exc:
+            return {"ok": False, "error": f"Couldn't open the sync port: {exc}"}
+        qr = segno.make(self._pairing.uri, error="m")
+        svg = qr.svg_inline(scale=8, border=4, dark="#000000", light="#FFFFFF", omitsize=True)
+        return {"ok": True, "svg": svg, "ttl": sync.PAIRING_TTL, "public": _network_is_public(sync.parse_uri(self._pairing.uri)[0][0])}
+
     def sync_status(self) -> dict:
         s = self._pairing
         if s is None:
@@ -632,7 +649,8 @@ class Api:
         r = s.result
         out = {"state": s.state, "seconds_left": max(0, int(s.expires_at - time.time())),
                "changed": r.added_or_updated if r else 0,
-               "rejected": s.failed_attempts, "error": s.last_error, "version": __version__}
+               "rejected": s.failed_attempts, "error": s.last_error, "version": __version__,
+               "unlocked": self._vault is not None}
         if r:
             out.update(peer_version=r.peer_version, received=r.received, sent=r.sent,
                        update_error=r.update_error, files_received=r.files_received, files_error=r.files_error)
@@ -925,6 +943,7 @@ class _SyncProvider:
             with self.api._lock:
                 v.vault_id = uuid.uuid4().hex
                 v.save()
+            paths.remember_vault_id(v.vault_id)
         name = next((x["name"] for x in paths.vaults() if x["id"] == paths.current()), "My vault")
         return v.vault_id, name
 
@@ -932,6 +951,7 @@ class _SyncProvider:
         v = self.api._need()
         with self.api._lock:
             v.vault_id = vid
+        paths.remember_vault_id(vid)
 
     # -- version + update hand-over --
     def app_version(self) -> str:
@@ -993,6 +1013,47 @@ class _SyncProvider:
             v.save()
         self.api._js("MV.refresh()")
         return changed
+
+
+class _Unlocker:
+    """What sync.py's unlock code needs: this PC's vault, opened with the
+    password the phone sends, or a new vault made from the phone's."""
+
+    version = __version__
+
+    def __init__(self, api: Api, vid: str):
+        self.api, self.vid = api, vid
+
+    def identity(self) -> tuple[str, str]:
+        v = next(x for x in paths.vaults() if x["id"] == self.vid)
+        return v["vault_id"], v["name"]
+
+    def unlock(self, password: str) -> bool:
+        return bool(password) and self.api.unlock(password, self.vid).get("ok", False)
+
+    def create(self, name: str, password: str, vault_id: str) -> str:
+        """A new vault on this PC with the phone's name and password; the PC's
+        own vault stays as it is."""
+        names = {v["name"].casefold() for v in paths.vaults()}
+        base = (name or "Phone vault").strip()[:30]
+        name, n = base, 2
+        while name.casefold() in names:
+            name, n = f"{base} ({n})", n + 1
+        r = self.api.unlock(password, paths.new_vault(name))     # (not create_vault: that locks, ending this code)
+        if not r.get("ok"):
+            return r.get("error", "Couldn't make the vault.")
+        with self.api._lock:
+            self.api._vault.vault_id = vault_id if re.fullmatch(r"[0-9a-f]{32}", vault_id or "") else uuid.uuid4().hex
+            self.api._vault.save()
+        paths.remember_vault_id(self.api._vault.vault_id)
+        return ""
+
+    def summary(self) -> dict:
+        with self.api._lock:
+            return {e.id: e.updated_at for e in self.api._need().entries if not e.local_only}
+
+    def provider(self) -> "_SyncProvider":
+        return _SyncProvider(self.api)
 
 
 class _ConnectorProvider:

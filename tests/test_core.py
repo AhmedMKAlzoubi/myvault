@@ -251,6 +251,59 @@ def test_sync_choices_kept_entries_and_vault_check():
         assert r3.ok and "q" in {e.id for e in pc.entries} and other.vault_id == pc.vault_id
 
 
+def test_unlock_the_pc_from_the_phone():
+    import socket
+    from myvault import app, paths
+
+    def scan(s):                                   # the phone's side, by hand
+        _, port, key = sync.parse_uri(s.uri)
+        sock = socket.create_connection(("127.0.0.1", port), timeout=5)
+        ch = sync._Chan(sock, key, False)
+        ch.send({"type": "hello", "protocol": sync.PROTOCOL})
+        return sock, key, ch, ch.recv()
+
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert api.unlock("pc-pass-123")["ok"]
+        api._vault.entries = [Entry(id="pc", title="On the PC", updated_at=100)]
+        vid = app._SyncProvider(api).vault_identity()[0]
+        api.lock()
+        assert paths.vaults()[0]["vault_id"] == vid          # readable while locked
+
+        # Same vault: a wrong password is refused, the right one opens it, then a sync.
+        s = sync.PairingSession(None, port=0, ttl=10, unlocker=app._Unlocker(api, paths.DEFAULT))
+        assert s.uri.startswith("myvault://unlock")
+        sock, key, ch, hello = scan(s)
+        assert hello["mode"] == "unlock" and hello["vault_id"] == vid
+        ch.send({"type": "unlock", "password": "not-it-at-all"})
+        assert ch.recv()["type"] == "denied" and api._vault is None
+        ch.send({"type": "unlock", "password": "pc-pass-123"})
+        assert ch.recv()["type"] == "unlocked" and api._vault is not None
+        assert ch.recv()["entries"] == {"pc": 100}
+        ch.send({"type": "sync", "sync": True})
+        phone = Vault.create(Path(d) / "ph.dat", "ph-pass-123")
+        phone.vault_id, phone.entries = vid, [Entry(id="ph", title="From the phone", updated_at=200)]
+        assert sync._exchange(sock, key, _PhoneLike(phone), False, ch).ok
+        sock.close()
+        _wait_done(s)
+        assert {e.id for e in api._vault.entries} == {"pc", "ph"} == {e.id for e in phone.entries}
+
+        # Another password: a new vault on the PC from the phone's; the PC's own stays.
+        api.lock()
+        s = sync.PairingSession(None, port=0, ttl=10, unlocker=app._Unlocker(api, paths.DEFAULT))
+        sock, key, ch, hello = scan(s)
+        ch.send({"type": "create", "name": "My vault", "password": "ph-pass-123", "vault_id": "b" * 32})
+        assert ch.recv() == {"type": "unlocked", "created": True}
+        assert ch.recv()["entries"] == {}
+        ch.send({"type": "sync", "sync": False})
+        sock.close()
+        _wait_done(s)
+        made = [v for v in paths.vaults() if v["id"] == paths.current()][0]
+        assert made["name"] == "My vault (2)" and made["vault_id"] == "b" * 32
+        assert len(Vault.open(paths.vault_path(paths.DEFAULT), "pc-pass-123").entries) == 2
+
+
 def test_qr_sync_rejects_wrong_key():
     with tempfile.TemporaryDirectory() as d:
         va = Vault.create(Path(d) / "a.dat", "pw-aaaaaaaa")

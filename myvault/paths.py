@@ -49,13 +49,15 @@ def vaults() -> list[dict]:
         out = []
     if not any(v["id"] == DEFAULT for v in out):
         out.insert(0, {"id": DEFAULT, "name": "My vault"})
-    return [{"id": v["id"], "name": str(v.get("name") or "My vault")[:40]} for v in out]
+    return [{"id": v["id"], "name": str(v.get("name") or "My vault")[:40], "vault_id": str(v.get("vault_id") or "")}
+            for v in out]
 
 
 def save_vaults(listed: list[dict]) -> None:
     p = data_dir() / REGISTRY
     tmp = p.with_suffix(".part")
-    tmp.write_text(json.dumps([{"id": v["id"], "name": v["name"]} for v in listed], ensure_ascii=False), "utf-8")
+    tmp.write_text(json.dumps([{"id": v["id"], "name": v["name"], "vault_id": v.get("vault_id", "")} for v in listed],
+                              ensure_ascii=False), "utf-8")
     os.replace(tmp, p)
 
 
@@ -77,6 +79,13 @@ def vault_home(vid: str | None = None) -> Path:
 
 def vault_path(vid: str | None = None) -> Path:
     return vault_home(vid) / VAULT_FILE
+
+
+def remember_vault_id(vault_id: str) -> None:
+    """The open vault's sync id, readable while it's locked (for unlocking from the phone)."""
+    listed = vaults()
+    if any(v["id"] == _current and v["vault_id"] != vault_id for v in listed):
+        save_vaults([{**v, "vault_id": vault_id} if v["id"] == _current else v for v in listed])
 
 
 def select(vid: str) -> None:
