@@ -41,7 +41,7 @@
     caps: P('<path d="M12 4l7 7.5h-3.8V15H8.8v-3.5H5z"/><path d="M8.8 19.5h6.4"/>'),
     folder: P('<path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'),
   };
-  const MARK = '<svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l13.5 10L28.5 2"/><path d="M6 17h8" stroke-width="1.2" stroke-dasharray="1.2 1.6"/></svg>';
+  const MARK = '<svg viewBox="0 0 30 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="1" y="1" width="28" height="20" rx="2.5"/><path d="M1.5 2l11 8.15M28.5 2l-11 8.15"/><path d="M12.7 12.3v-1.5a2.3 2.3 0 0 1 4.6 0v1.5" stroke-width="1.4"/><rect x="11.4" y="12.1" width="7.2" height="5.6" rx="1.2" fill="currentColor" stroke="none"/><path d="M4.5 17h5" stroke-width="1.2" stroke-dasharray="1.2 1.6"/></svg>';
 
   function icon(name) {
     const s = document.createElement("span");
@@ -556,7 +556,7 @@
         e.kind !== "note" && !!e.notes && fieldRow(F("notes", "Notes", { multi: 1, prose: 1 }), e.notes))
         : h("p", { class: "prose" }, "Nothing stored here yet. Choose Edit to add details."),
       historyView(e),
-      e.kind === "document" ? documentView(e) : fileRefs(e).length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(fileRefs(e), null)],
+      e.kind === "document" ? documentView(e) : fileRefs(e).length > 0 && filesSection(e, fileRefs(e)),
       custom.length > 0 && [h("p", { class: "section-t" }, "Extra fields"),
         h("dl", { class: "fields", style: "margin-top:8px" }, custom.map(([k, v]) => fieldRow(F(k, k), v)))],
       h("p", { class: "meta" }, `Last changed ${fmtDate(e.updated_at)} · Created ${fmtDate(e.created_at)}`)));
@@ -607,7 +607,7 @@
           : [days.map((d) => t(leadLabel(d))).join(t(", ")), t(" before it expires, and on the day.")]),
       days.length > 0 && e.fields.expires && h("p", { class: "hint" }, "A notification will say: ",
         raw(`“${t(`${name} expires in ${leadLabel(days[0])}.`)}”`)),
-      files.length > 0 && [h("p", { class: "section-t" }, "Files"), fileGrid(files, null)],
+      files.length > 0 && filesSection(e, files),
     ];
   }
 
@@ -629,20 +629,43 @@
     return grid;
   }
 
+  // An entry's files on its page, with a way to download them all at once.
+  function filesSection(e, files) {
+    const slot = h("div", { "aria-live": "polite" });
+    return [h("div", { class: "section-t", style: "display:flex;align-items:center;gap:10px" }, h("span", {}, "Files"),
+      h("span", { class: "spacer" }), btn(files.length > 1 ? "Download all…" : "Download…", () => downloadPanel(files, slot, e.title), "sm", "file")),
+      slot, fileGrid(files, null)];
+  }
+
+  // Save decrypted copies: as they are, or as PDF / Word (all the files, laid
+  // out like a photocopy) or PNG / JPEG. Always after saying it isn't encrypted.
+  function downloadPanel(refs, slot, name = "") {
+    const go = async (fmt) => {
+      const r = fmt === "original" ? await call("doc_save_copy", refs[0]) : await call("doc_export", refs, fmt, name);
+      if (r.ok) { slot.replaceChildren(); toast(`Saved to ${r.path}.`); } else if (r.error) toast(r.error, true);
+    };
+    const one = refs.length === 1;
+    slot.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px;margin-top:10px" },
+      h("span", {}, h("b", {}, "Save an unprotected copy? "), "The copy isn't encrypted: anyone who can open the folder you choose can see it."),
+      h("span", { class: "hint", style: "margin:0" }, one
+        ? "PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size."
+        : "PDF and Word put all the pages together on A4 like a photocopy; an ID card's front and back come out at real size, on one page."),
+      h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+        one && btn("As it is", () => go("original"), "sm"),
+        btn("PDF", () => go("pdf"), "primary sm"), btn("Word", () => go("docx"), "sm"),
+        one && btn("PNG", () => go("png"), "sm"), one && btn("JPEG", () => go("jpeg"), "sm"),
+        btn("Cancel", () => slot.replaceChildren(), "sm"))));
+  }
+
   function openFile(ref) {
     const big = h("img", { alt: ref.name });
     const msg = h("div", { "aria-live": "polite" });
     const close = () => box.remove();
-    const save = () => msg.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px" },
-      h("span", {}, h("b", {}, "Save an unprotected copy? "), "The copy isn't encrypted: anyone who can open the folder you choose can see it."),
-      h("div", { class: "inp-row" }, btn("Save a copy", async () => {
-        const r = await call("doc_save_copy", ref);
-        if (r.ok) { msg.replaceChildren(); toast(`Saved to ${r.path}.`); } else if (r.error) toast(r.error, true);
-      }, "primary sm"), btn("Cancel", () => msg.replaceChildren(), "sm"))));
+    const save = () => downloadPanel([ref], msg);
     const box = h("div", { class: "viewer", role: "dialog", "aria-label": ref.name, onclick: (ev) => { if (ev.target === box) close(); } },
       h("div", { class: "viewer-card" },
         h("div", { class: "viewer-head" }, h("b", {}, raw(ref.name)), h("span", { class: "spacer" }),
-          btn("Save a copy…", save, "sm", "file"), iconBtn("x", "Close", close)),
+          btn("Download…", save, "sm", "file"), iconBtn("x", "Close", close)),
         msg, h("div", { class: "viewer-body" }, big)));
     box.addEventListener("keydown", (ev) => { if (ev.key === "Escape") close(); });
     document.body.append(box);

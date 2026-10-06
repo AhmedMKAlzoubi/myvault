@@ -647,6 +647,31 @@ def test_password_history_health_and_leaks():
         assert len(json.loads(api.entry(a)["fields"]["password_history"])) == 10
 
 
+def test_export_pdf_word_and_pictures():
+    """Cards go two to an A4 sheet at real size; other pages get a sheet each."""
+    if sys.platform != "win32":
+        return
+    import struct
+    import zipfile
+    import zlib
+    from myvault import export
+
+    def png(w, h):                      # a plain grey picture, made by hand
+        rows = b"".join(b"\0" + b"\x80\x80\x80" * w for _ in range(h))
+        chunk = lambda t, d: struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d))
+        return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+    front, back, letter = export.export([png(320, 202)], "jpeg"), export.export([png(320, 202)], "jpeg"), png(210, 297)
+    assert export.jpeg_size(front) == (320, 202)
+    assert export.export([front], "png")[:4] == b"\x89PNG"
+    pdf = export.export([front, back, letter], "pdf")
+    assert pdf.startswith(b"%PDF") and pdf.count(b"/Type /Page ") == 2          # 2 cards on one sheet + the letter
+    sheets = export.layout([(320, 202), (320, 202), (210, 297)])
+    assert [len(s) for s in sheets] == [2, 1] and sheets[0][0][3:] == export.CARD
+    z = zipfile.ZipFile(__import__("io").BytesIO(export.export([front, letter], "docx")))
+    assert "word/document.xml" in z.namelist() and z.read("word/document.xml").count(b"<w:drawing>") == 2
+
+
 def test_deleted_entries_keep_nothing_but_the_marker():
     with tempfile.TemporaryDirectory() as d:
         v = Vault.create(Path(d) / "v.dat", "pw-12345678")

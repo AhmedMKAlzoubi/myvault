@@ -30,7 +30,7 @@ from pathlib import Path
 import segno
 import webview
 
-from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
+from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, export, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault, email_problem, keep_old_password
 
@@ -309,6 +309,26 @@ class Api:
             return {"ok": False}
         target = Path(picked if isinstance(picked, str) else picked[0])
         target.write_bytes(data)
+        return {"ok": True, "path": str(target)}
+
+    def doc_export(self, refs, fmt: str, name: str = "") -> dict:
+        """Save files, decrypted, as one PDF or Word document (all of them, like a
+        photocopy) or as PNG/JPEG (the first), wherever you choose."""
+        self._need()
+        if fmt not in export.FORMATS:
+            return {"ok": False, "error": "Unknown format."}
+        refs = refs if isinstance(refs, list) else [refs]
+        try:
+            out = export.export([docs.open_sealed(r) for r in refs], fmt)
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        ext, _ = export.FORMATS[fmt]
+        base = Path(str(name or (refs[0].get("name") if refs else "") or "document")).stem[:80] or "document"
+        picked = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=f"{base}.{ext}")
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        target.write_bytes(out)
         return {"ok": True, "path": str(target)}
 
     def doc_settings(self) -> dict:

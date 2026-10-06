@@ -595,6 +595,20 @@ const arabic = <String, String>{
   'Crop page {0}': 'قصّ الصفحة {0}',
   'Add another page': 'إضافة صفحة أخرى',
   'Done': 'تم',
+  // ---- scanned look, downloads ----
+  'As it is': 'كما هو',
+  'Word': 'Word',
+  'PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size.': 'يضع PDF وWord الصفحة على ورق A4 كالنسخة المصوّرة، وتخرج بطاقة الهوية بحجمها الحقيقي.',
+  'PDF and Word put all the pages together on A4 like a photocopy; an ID card\'s front and back come out at real size, on one page.': 'يضع PDF وWord الصفحات كلها معًا على ورق A4 كالنسخة المصوّرة، ويخرج وجها بطاقة الهوية بحجمهما الحقيقي في صفحة واحدة.',
+  'Download': 'تنزيل',
+  'Download all': 'تنزيل الكل',
+  'That file couldn\'t be saved.': 'تعذّر حفظ هذا الملف.',
+  'Cut it out': 'قصّها',
+  'Scanned': 'ممسوحة',
+  'Black & white': 'أبيض وأسود',
+  'Original': 'الأصلية',
+  'Scanned: white paper and crisp text, like a scanner. Black & white suits letters and contracts.': 'ممسوحة: ورق أبيض ونص واضح كالماسح الضوئي. والأبيض والأسود يناسب الرسائل والعقود.',
+  'Back': 'رجوع',
 };
 
 const arabicMonths = [

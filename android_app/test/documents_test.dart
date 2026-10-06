@@ -146,6 +146,7 @@ void main() {
         'iVBORw0KGgoAAAANSUhEUgAAACgAAAAeCAIAAADRv8uKAAAAR0lEQVR4nO3QMREAIBTD0E/9K0EEM7JYqYF0aQy8u6x79iRSRJ3CYCKxv8JY4iivMJY4yiuMJY7yCmOJo7zCWOIorzBWbPUDudACbNfyhxsAAAAASUVORK5CYII=',
       );
       List<double>? sent;
+      final looks = <String>[];
       t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
         const MethodChannel('myvault/docs'),
         (call) async {
@@ -156,6 +157,10 @@ void main() {
                 (x as num).toDouble(),
             ];
             return Uint8List.fromList([1, 2, 3]);
+          }
+          if (call.method == 'enhance') {
+            looks.add(call.arguments['mode'] as String);
+            return photo; // a real picture, so the preview can show it
           }
           return null;
         },
@@ -177,7 +182,11 @@ void main() {
       );
       await t.tap(find.text('open'));
       await t.runAsync(() async {
-        for (var i = 0; i < 40 && find.text('Done').evaluate().isEmpty; i++) {
+        for (
+          var i = 0;
+          i < 40 && find.text('Cut it out').evaluate().isEmpty;
+          i++
+        ) {
           await Future.delayed(const Duration(milliseconds: 25));
           await t.pump();
         }
@@ -191,9 +200,22 @@ void main() {
       final handles = find.byType(GestureDetector);
       await t.drag(handles.first, const Offset(30, 20));
       await t.pump();
+      await t.tap(find.text('Cut it out'));
+      await t.runAsync(() async {
+        for (var i = 0; i < 40 && find.text('Done').evaluate().isEmpty; i++) {
+          await Future.delayed(const Duration(milliseconds: 25));
+          await t.pump();
+        }
+      });
+      await t.pumpAndSettle();
+      expect(looks, ['scan']); // the scanned look first
+      await t.tap(find.text('Black & white'));
+      await t.runAsync(() => Future.delayed(const Duration(milliseconds: 50)));
+      await t.pumpAndSettle();
+      expect(looks, ['scan', 'bw']);
       await t.tap(find.text('Done'));
       await t.pumpAndSettle();
-      expect(result?.photo, Uint8List.fromList([1, 2, 3]));
+      expect(result?.photo, photo); // the black-and-white page
       expect(result?.more, isFalse); // Done: no more pages
       expect(sent, hasLength(8));
       expect(sent![0], greaterThan(.1)); // moved right

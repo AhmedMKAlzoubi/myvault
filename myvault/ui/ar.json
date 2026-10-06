@@ -549,5 +549,13 @@
 "Removed “{0}”.": "أُزيل «{0}».",
 "Remove": "إزالة",
 "Remove “{0}”?": "إزالة «{0}»؟",
-"It leaves this entry when you save. Until then you can put it back, and Cancel keeps it.": "يُزال من هذا العنصر عند الحفظ. حتى ذلك الحين يمكنك إعادته، والإلغاء يُبقيه."
+"It leaves this entry when you save. Until then you can put it back, and Cancel keeps it.": "يُزال من هذا العنصر عند الحفظ. حتى ذلك الحين يمكنك إعادته، والإلغاء يُبقيه.",
+"As it is": "كما هو",
+"Word": "Word",
+"PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size.": "يضع PDF وWord الصفحة على ورق A4 كالنسخة المصوّرة، وتخرج بطاقة الهوية بحجمها الحقيقي.",
+"PDF and Word put all the pages together on A4 like a photocopy; an ID card's front and back come out at real size, on one page.": "يضع PDF وWord الصفحات كلها معًا على ورق A4 كالنسخة المصوّرة، ويخرج وجها بطاقة الهوية بحجمهما الحقيقي في صفحة واحدة.",
+"Download…": "تنزيل…",
+"Download all…": "تنزيل الكل…",
+"Unknown format.": "صيغة غير معروفة.",
+"Windows couldn't convert that file.": "تعذّر على Windows تحويل هذا الملف."
 }
