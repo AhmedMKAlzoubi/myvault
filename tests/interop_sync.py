@@ -35,7 +35,7 @@ def release(folder: Path, key, platform: str, name: str, data: bytes) -> None:
     (folder / f"manifest-{platform}.sig").write_text(base64.b64encode(key.sign(raw)).decode())
 
 
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     d = Path(d)
     os.environ["LOCALAPPDATA"] = str(d / "pc")              # PC data dir (and its package cache)
     from myvault import docs, sync, update                # noqa: E402
