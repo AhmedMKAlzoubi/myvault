@@ -22,9 +22,12 @@ import androidx.core.content.FileProvider
 import com.googlecode.tesseract.android.TessBaseAPI
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.File
 import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 import kotlin.concurrent.thread
 
@@ -47,6 +50,7 @@ class DocsBridge(private val activity: Activity) {
         const val SAVE = 7103
         const val NOTIFY = 7104
         const val CAMERA_OK = 7106
+        const val PICK_COPY = 7107
         const val MAX_SIDE = 2400        // photos are scaled down to this: sharp enough to read, small to sync
     }
 
@@ -116,6 +120,14 @@ class DocsBridge(private val activity: Activity) {
                     }
                 }
             }
+            // A copy of a vault (.zip): picked whole, and made or read here.
+            "pickCopy" -> start(result, PICK_COPY, Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+            })
+            "zip" -> background(result) { zip(call.argument<Map<String, ByteArray>>("files")!!) }
+            "unzip" -> background(result) { unzip(call.argument<ByteArray>("bytes")!!) }
             "saveCopy" -> {
                 pendingSave = call.argument<ByteArray>("bytes")
                 start(result, SAVE, Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -179,7 +191,7 @@ class DocsBridge(private val activity: Activity) {
     }
 
     fun onActivityResult(code: Int, resultCode: Int, data: Intent?): Boolean {
-        if (code !in listOf(PICK, CAMERA, SAVE)) return false
+        if (code !in listOf(PICK, CAMERA, SAVE, PICK_COPY)) return false
         val result = pending ?: return true
         pending = null
         if (resultCode != Activity.RESULT_OK) {
@@ -194,6 +206,7 @@ class DocsBridge(private val activity: Activity) {
                             ?: listOfNotNull(data?.data)
                         uris.map { mapOf("name" to nameOf(it), "bytes" to shrink(read(it))) }
                     }
+                    PICK_COPY -> data?.data?.let { read(it) }
                     CAMERA -> photo?.let { f ->
                         val bytes = shrink(f.readBytes())
                         f.delete()
@@ -529,6 +542,34 @@ class DocsBridge(private val activity: Activity) {
             pages.forEachIndexed { i, b -> put("word/media/page${i + 1}.jpg", jpeg(b)) }
         }
         return out.toByteArray()
+    }
+
+    private fun zip(files: Map<String, ByteArray>): ByteArray = ByteArrayOutputStream().also { out ->
+        ZipOutputStream(out).use { z ->
+            for ((name, bytes) in files) {
+                z.putNextEntry(ZipEntry(name))
+                z.write(bytes)
+                z.closeEntry()
+            }
+        }
+    }.toByteArray()
+
+    // Every member by name; the Dart side checks the names before writing anything.
+    // ponytail: whole copy in memory, stream it to disk if vaults outgrow a few hundred MB
+    private fun unzip(bytes: ByteArray): Map<String, ByteArray> {
+        val out = LinkedHashMap<String, ByteArray>()
+        var total = 0L
+        ZipInputStream(ByteArrayInputStream(bytes)).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                if (e.isDirectory) continue
+                val b = z.readBytes()
+                total += b.size
+                if (total > 1_000_000_000L) throw IOException("That copy is too big.")
+                out[e.name] = b
+            }
+        }
+        return out
     }
 
     private fun read(uri: Uri): ByteArray = activity.contentResolver.openInputStream(uri)!!.use { it.readBytes() }

@@ -421,6 +421,10 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 .pickbar { display: flex; gap: 8px; align-items: center; padding: 0 12px 8px; font-size: 12.5px; min-height: 0; }
 .pickbar:empty { display: none; }
 .pickbar .btn { height: 28px; }
+.info { all: unset; cursor: pointer; display: inline-grid; place-items: center; width: 18px; height: 18px; border-radius: 50%;
+  font-size: 12px; font-weight: 700; color: var(--tint); border: 1.5px solid currentColor; }
+.info:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+.hint.tip { max-width: 62ch; }
 .linkbtn { all: unset; cursor: pointer; color: var(--tint); font-size: 12.5px; font-weight: 500; padding: 2px 0; }
 .linkbtn:hover { text-decoration: underline; }
 .linkbtn:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; border-radius: 3px; }

@@ -32,7 +32,7 @@ from pathlib import Path
 import segno
 import webview
 
-from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, export, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
+from . import STORE, __version__, autostart, autotype, clipboard, config, copies, crypto, docs, export, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault, email_problem, keep_old_password
 
@@ -148,6 +148,41 @@ class Api:
             return {"ok": False, "error": "Use at least 8 characters."}
         self.lock()
         return self.unlock(password, paths.new_vault(name))
+
+    def vault_copy(self, readable: bool = False, password: str = "") -> dict:
+        """Save the open vault as a .zip: encrypted (opens only with its master
+        password, here or on a phone) or readable by anyone (asks for it first)."""
+        v = self._need()
+        name = next(x["name"] for x in paths.vaults() if x["id"] == paths.current())
+        if readable:
+            try:
+                Vault.open(paths.vault_path(), password)
+            except crypto.WrongPasswordError:
+                return {"ok": False, "error": "That isn't this vault's master password."}
+        label = i18n.tr(name)
+        picked = self._window.create_file_dialog(
+            webview.SAVE_DIALOG, file_types=("ZIP (*.zip)",),
+            save_filename=f"MyVault {label}{' READABLE' if readable else ''} {time.strftime('%Y-%m-%d')}.zip")
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        try:
+            with self._lock:
+                if readable:
+                    copies.save_readable(target, label, v.entries)
+                else:
+                    copies.save_encrypted(target, paths.vault_path(), name, v.vault_id, v.entries)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": f"Couldn't save the copy: {exc}"}
+        return {"ok": True, "path": str(target)}
+
+    def vault_add_copy(self) -> dict:
+        """Add a vault from an encrypted copy (this PC's or a phone's). It keeps
+        its own master password."""
+        picked = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("ZIP (*.zip)",))
+        if not picked:
+            return {"ok": False}
+        return _add_copy(Path(picked[0])) | {"vaults": self.vaults()}
 
     def rename_vault(self, name: str) -> dict:
         self._need()
@@ -583,7 +618,7 @@ class Api:
         return self.autostart_state()
 
     def folders(self) -> dict:
-        return {"data": str(paths.data_dir()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
+        return {"data": str(paths.vault_home()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
 
     def open_doc(self, name: str) -> dict:
         """Open one of MyVault's published documents in the browser (fixed list, never a free URL)."""
@@ -595,7 +630,7 @@ class Api:
     def open_folder(self, which: str) -> dict:
         """Open one of MyVault's own folders in Explorer (paths found at runtime,
         so they're right on any machine). Nothing outside these."""
-        target = {"data": paths.data_dir(), "app": app_dir(), "extension": EXTENSION_DIR,
+        target = {"data": paths.vault_home(), "app": app_dir(), "extension": EXTENSION_DIR,
                   "backups": _backups_dir()}.get(which)
         if target is None or not target.is_dir():
             return {"ok": False, "error": "That folder isn't there."}
@@ -1034,12 +1069,7 @@ class _Unlocker:
     def create(self, name: str, password: str, vault_id: str) -> str:
         """A new vault on this PC with the phone's name and password; the PC's
         own vault stays as it is."""
-        names = {v["name"].casefold() for v in paths.vaults()}
-        base = (name or "Phone vault").strip()[:30]
-        name, n = base, 2
-        while name.casefold() in names:
-            name, n = f"{base} ({n})", n + 1
-        r = self.api.unlock(password, paths.new_vault(name))     # (not create_vault: that locks, ending this code)
+        r = self.api.unlock(password, paths.new_vault(_free_name(name or "Phone vault")))     # (not create_vault: that locks, ending this code)
         if not r.get("ok"):
             return r.get("error", "Couldn't make the vault.")
         with self.api._lock:
@@ -1140,6 +1170,35 @@ def _daily_backup() -> None:
     shutil.copy2(src, target)
     for old in sorted(d.glob("vault-*.dat"))[:-BACKUP_DAYS]:
         old.unlink()
+
+
+def _free_name(name: str) -> str:
+    """[name], or "name (2)"... when a vault here already has it."""
+    names = {v["name"].casefold() for v in paths.vaults()}
+    base = name.strip()[:30] or "My vault"
+    name, n = base, 2
+    while name.casefold() in names:
+        name, n = f"{base} ({n})", n + 1
+    return name
+
+
+def _add_copy(src: Path) -> dict:
+    try:
+        meta, z = copies.read_encrypted(src)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    with z:
+        vid = paths.new_vault(_free_name(str(meta.get("name") or "My vault")))
+        try:
+            copies.unpack(z, paths.vault_home(vid))
+        except OSError as exc:
+            shutil.rmtree(paths.vault_home(vid), ignore_errors=True)
+            paths.save_vaults([v for v in paths.vaults() if v["id"] != vid])
+            return {"ok": False, "error": f"Couldn't add the copy: {exc}"}
+    vault_id = str(meta.get("vault_id") or "")
+    if re.fullmatch(r"[0-9a-f]{32}", vault_id):
+        paths.save_vaults([{**v, "vault_id": vault_id} if v["id"] == vid else v for v in paths.vaults()])
+    return {"ok": True, "vault": vid}
 
 
 def _last_vault() -> str:

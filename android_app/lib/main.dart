@@ -8,6 +8,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
+import 'copies.dart' as copies;
 import 'crypto.dart';
 import 'docs.dart' as docs;
 import 'documents_ui.dart';
@@ -486,6 +487,19 @@ class _UnlockPageState extends State<UnlockPage> {
     }();
   }
 
+  Future<void> _addCopy() async {
+    try {
+      final files = await copies.pickCopy();
+      if (files == null) return;
+      final id = await copies.addCopy(files);
+      _vaults = await vaultList();
+      _error = '';
+      await _pickVault(id);
+    } on FormatException catch (x) {
+      if (mounted) setState(() => _error = tr(x.message));
+    }
+  }
+
   Future<void> _pickVault(String id) async {
     currentVault = id;
     _path = await vaultFilePath();
@@ -807,6 +821,11 @@ class _UnlockPageState extends State<UnlockPage> {
                                 if (!_creating) _pickVault(currentVault);
                               }),
                         child: Text(tr(_creating ? 'Back' : 'New vault…')),
+                      ),
+                    if (!_creating)
+                      TextButton(
+                        onPressed: _busy ? null : _addCopy,
+                        child: Text(tr('Add a vault from a copy…')),
                       ),
                   ],
                 ),
@@ -3511,6 +3530,108 @@ class VaultsPage extends StatefulWidget {
 
 class _VaultsPageState extends State<VaultsPage> {
   List<VaultInfo> _vaults = const [];
+  String _about = ''; // which "!" is open: 'enc' or 'read'
+
+  String get _fileName {
+    final d = DateTime.now();
+    String two(int n) => '$n'.padLeft(2, '0');
+    return '${vaultLabel(Session.vaultName)} ${d.year}-${two(d.month)}-${two(d.day)}';
+  }
+
+  Future<void> _saveCopy(bool readable) async {
+    final v = Session.vault!;
+    if (readable) {
+      final pw = TextEditingController();
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(tr("A readable copy isn't encrypted")),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tr(
+                  'Anyone who gets the file can read every password, key and document in it. Keep it out of email and cloud storage, and delete it when you\'re done.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pw,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: tr("This vault's master password"),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: Text(tr('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(tr('Save readable copy')),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      if (pw.text != v.password) {
+        return _say(tr("That isn't this vault's master password."));
+      }
+    }
+    try {
+      final files = readable
+          ? await copies.readableCopy(v, vaultLabel(Session.vaultName))
+          : copies.encryptedCopy(v, Session.vaultName);
+      final saved = await copies.saveCopy(
+        files,
+        'MyVault $_fileName${readable ? ' READABLE' : ''}.zip',
+      );
+      if (saved) _say(tr('Copy saved.'));
+    } catch (_) {
+      _say(tr("Couldn't save the copy."));
+    }
+  }
+
+  void _say(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Widget _copyRow(String label, String key, String about, VoidCallback go) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: go,
+              icon: const Icon(Icons.download_outlined, size: 18),
+              label: Text(tr(label)),
+            ),
+            IconButton(
+              tooltip: tr('What does this mean?'),
+              onPressed: () =>
+                  setState(() => _about = _about == key ? '' : key),
+              icon: Icon(Icons.error_outline, color: e.tint),
+            ),
+          ],
+        ),
+        if (_about == key)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              tr(about),
+              style: TextStyle(color: e.ink2, fontSize: 13),
+            ),
+          ),
+      ],
+    );
+  }
 
   @override
   void initState() {
@@ -3699,6 +3820,31 @@ class _VaultsPageState extends State<VaultsPage> {
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            tr('A copy of this vault'),
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            tr(
+              'Uninstalling MyVault deletes its vaults from this phone (Android may offer to keep the app\'s data). Save a copy first to keep somewhere else, or to move to another device.',
+            ),
+            style: TextStyle(color: e.ink2),
+          ),
+          const SizedBox(height: 8),
+          _copyRow(
+            'Save encrypted copy',
+            'enc',
+            'Encrypted: the copy is locked with this vault\'s master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it\'s safe to keep in cloud storage. Add it back with “Add a vault from a copy…” on the unlock screen, on this phone, another phone or your PC.',
+            () => _saveCopy(false),
+          ),
+          _copyRow(
+            'Save readable copy…',
+            'read',
+            'Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents\' photos and PDFs. Use it to move to another app or to print, then delete it.',
+            () => _saveCopy(true),
           ),
         ],
       ),

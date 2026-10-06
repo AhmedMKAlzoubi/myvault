@@ -698,6 +698,25 @@ const arabic = <String, String>{
   'The PC is open and synced. {0} entries updated on this phone.': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.',
   'The PC is open and synced. {0} entries updated on this phone.{1}': 'الكمبيوتر مفتوح وتمت المزامنة. العناصر التي تحدّثت على هذا الهاتف: {0}.{1}',
   'The PC is open. Everything was already in sync.': 'الكمبيوتر مفتوح. كان كل شيء متزامنًا من قبل.',
+  // ---- copies of a vault ----
+  'A copy of this vault': 'نسخة من هذه الخزنة',
+  'Save encrypted copy': 'حفظ نسخة مشفّرة',
+  'Save readable copy…': 'حفظ نسخة مقروءة…',
+  'Save readable copy': 'حفظ النسخة المقروءة',
+  'What does this mean?': 'ما معنى هذا؟',
+  'Add a vault from a copy…': 'إضافة خزنة من نسخة…',
+  'That isn\'t a MyVault copy.': 'هذه ليست نسخة من MyVault.',
+  'That copy is damaged.': 'هذه النسخة تالفة.',
+  'That copy is too big.': 'هذه النسخة كبيرة جدًا.',
+  'A readable copy isn\'t encrypted': 'النسخة المقروءة غير مشفّرة',
+  'Anyone who gets the file can read every password, key and document in it. Keep it out of email and cloud storage, and delete it when you\'re done.': 'أي شخص يحصل على الملف يستطيع قراءة كل كلمة مرور ومفتاح ومستند فيه. أبقِها بعيدة عن البريد والتخزين السحابي، واحذفها عند الانتهاء.',
+  'This vault\'s master password': 'كلمة المرور الرئيسية لهذه الخزنة',
+  'Copy saved.': 'حُفظت النسخة.',
+  'Couldn\'t save the copy.': 'تعذّر حفظ النسخة.',
+  'Uninstalling MyVault deletes its vaults from this phone (Android may offer to keep the app\'s data). Save a copy first to keep somewhere else, or to move to another device.': 'إزالة MyVault تحذف خزائنه من هذا الهاتف (قد يعرض أندرويد الاحتفاظ ببيانات التطبيق). احفظ نسخة أولًا للاحتفاظ بها في مكان آخر، أو للانتقال إلى جهاز آخر.',
+  'Encrypted: the copy is locked with this vault\'s master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it\'s safe to keep in cloud storage. Add it back with “Add a vault from a copy…” on the unlock screen, on this phone, another phone or your PC.': 'مشفّرة: النسخة مقفلة بكلمة المرور الرئيسية لهذه الخزنة، تمامًا كما يحفظها MyVault. لا يستطيع أحد قراءتها دون كلمة المرور تلك، ولا حتى أنت، لذا يمكن حفظها بأمان في التخزين السحابي. أعدها عبر «إضافة خزنة من نسخة…» في شاشة الفتح، على هذا الهاتف أو هاتف آخر أو الكمبيوتر.',
+  'Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents\' photos and PDFs. Use it to move to another app or to print, then delete it.': 'مقروءة (غير مشفّرة): يُحفظ كل شيء في ملفات عادية يستطيع أي أحد فتحها: entries.json وlogins.csv (يمكن لمديري كلمات المرور الآخرين استيرادها) وصور مستنداتك وملفات PDF. استخدمها للانتقال إلى تطبيق آخر أو للطباعة، ثم احذفها.',
+  'That\'s a readable copy. Only encrypted copies can be added as a vault.': 'هذه نسخة مقروءة. لا تُضاف كخزنة إلا النسخ المشفّرة.',
 };
 
 const arabicMonths = [

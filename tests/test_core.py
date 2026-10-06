@@ -304,6 +304,61 @@ def test_unlock_the_pc_from_the_phone():
         assert len(Vault.open(paths.vault_path(paths.DEFAULT), "pc-pass-123").entries) == 2
 
 
+def test_vault_copies_encrypted_readable_and_added_back():
+    import json
+    import zipfile
+    from myvault import app, docs, paths
+
+    class Dialog:                                  # stands in for the save/open file dialogs
+        def __init__(self): self.path = None
+        def create_file_dialog(self, *a, **k): return [self.path]
+        def evaluate_js(self, code): pass
+
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api, dlg = app.Api(), Dialog()
+        api._window = dlg
+        assert api.unlock("pc-pass-123")["ok"]
+        ref = docs.seal(b"%PDF-1.4 the lease", "lease.pdf")
+        api._vault.entries = [Entry(id="a", title="Bank", website="bank.com", username="me", password="s3cret"),
+                              Entry(id="b", kind="document", title="Lease", fields={"files": json.dumps([ref])}),
+                              Entry(id="c", title="Gone", password="old", deleted=True)]
+        api._vault.vault_id = "c" * 32
+        api._vault.save()
+
+        dlg.path = str(Path(d) / "enc.zip")
+        assert api.vault_copy(False)["ok"]
+        with zipfile.ZipFile(dlg.path) as z:
+            assert sorted(z.namelist()) == ["files/" + ref["id"] + ".bin", "myvault.json", "vault.dat"]
+            assert b"s3cret" not in z.read("vault.dat")
+        dlg.path = str(Path(d) / "plain.zip")
+        assert not api.vault_copy(True, "wrong-password")["ok"]
+        assert api.vault_copy(True, "pc-pass-123")["ok"]
+        with zipfile.ZipFile(dlg.path) as z:
+            assert "bank.com,me,s3cret" in z.read("logins.csv").decode()
+            assert z.read("files/Lease - lease.pdf") == b"%PDF-1.4 the lease"
+            assert [e["id"] for e in json.loads(z.read("entries.json"))] == ["a", "b"]
+
+        # Added back: a new vault with its own password, files and sync id.
+        api.lock()
+        dlg.path = str(Path(d) / "enc.zip")
+        r = api.vault_add_copy()
+        assert r["ok"] and [v["name"] for v in r["vaults"]] == ["My vault", "My vault (2)"]
+        assert r["vaults"][1]["vault_id"] == "c" * 32
+        assert api.unlock("pc-pass-123", r["vault"])["ok"]
+        assert docs.open_sealed(docs.refs(api._vault.get("b").fields)[0]) == b"%PDF-1.4 the lease"
+
+        # Refused: a readable copy, and a zip reaching outside its folder.
+        dlg.path = str(Path(d) / "plain.zip")
+        assert "readable" in api.vault_add_copy()["error"]
+        evil = Path(d) / "evil.zip"
+        with zipfile.ZipFile(evil, "w") as z:
+            z.writestr("vault.dat", "{}")
+            z.writestr("../../outside.txt", "x")
+        dlg.path = str(evil)
+        assert not api.vault_add_copy()["ok"] and len(paths.vaults()) == 2
+
+
 def test_qr_sync_rejects_wrong_key():
     with tempfile.TemporaryDirectory() as d:
         va = Vault.create(Path(d) / "a.dat", "pw-aaaaaaaa")

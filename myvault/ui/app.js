@@ -262,7 +262,9 @@
       err, go,
       h("div", { style: "display:flex;justify-content:center" }, creating
         ? h("button", { type: "button", class: "linkbtn", onclick: () => renderLock() }, "Back")
-        : !fresh && h("button", { type: "button", class: "linkbtn", onclick: () => renderLock("", true) }, "New vault…")),
+        : h("span", { style: "display:flex;gap:18px" },
+          !fresh && h("button", { type: "button", class: "linkbtn", onclick: () => renderLock("", true) }, "New vault…"),
+          h("button", { type: "button", class: "linkbtn", onclick: addCopy }, "Add a vault from a copy…"))),
       exists && h("button", { type: "button", class: "btn", onclick: () => phoneUnlock(form) }, icon("phone"), "Unlock with my phone"));
     form.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -287,6 +289,14 @@
       h("p", { class: "lock-foot" }, h("span", {}, "Encrypted, and stored only on this computer"))));
     app.removeAttribute("aria-busy");
     setTimeout(() => (name || pw1).focus(), 30);
+  }
+
+  async function addCopy() {
+    const r = await call("vault_add_copy");
+    if (!r.ok) return r.error && renderLock(r.error);
+    S.vaults = r.vaults;
+    S.vault = r.vault;
+    renderLock();
   }
 
   // The phone scans this code and sends the vault's password over the code's
@@ -1560,6 +1570,47 @@
     return panel;
   }
 
+  // A "!" that shows (or hides) what a choice means, just below it.
+  function infoTip(text) {
+    const about = h("p", { class: "hint tip", hidden: true }, text);
+    const mark = h("button", { type: "button", class: "info", "aria-label": "What does this mean?", "aria-expanded": "false",
+      onclick: () => { about.hidden = !about.hidden; mark.setAttribute("aria-expanded", String(!about.hidden)); } }, "!");
+    return [mark, about];
+  }
+
+  // A copy to keep somewhere safe or move to another device: encrypted, or
+  // readable by anyone (behind a warning and the master password).
+  function copyPanel() {
+    const out = h("div", { "aria-live": "polite" });
+    const done = (r) => r.ok ? out.replaceChildren(h("div", { class: "result" }, h("b", {}, "Saved: "), raw(r.path)))
+      : r.error && out.replaceChildren(h("p", { class: "err" }, r.error));
+    const [encInfo, encAbout] = infoTip("Encrypted: the copy is locked with this vault's master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it's safe to keep on a USB stick or in cloud storage. Add it back with “Add a vault from a copy…” on the lock screen, on this PC, another PC or your phone.");
+    const [rdInfo, rdAbout] = infoTip("Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents' photos and PDFs. Use it to move to another app or to print, then delete it.");
+    const askReadable = () => {
+      const pw = h("input", { class: "inp", type: "password", "aria-label": "Master password", placeholder: "This vault's master password", style: "max-width:260px" });
+      const err = h("p", { class: "err", role: "alert" });
+      out.replaceChildren(h("div", { class: "result bad", style: "display:grid;gap:10px" },
+        h("span", {}, h("b", {}, "A readable copy isn't encrypted. "),
+          "Anyone who gets the file can read every password, key and document in it. Keep it off email and cloud storage, and delete it (and empty the Recycle Bin) when you're done."),
+        pw, err,
+        h("div", { class: "inp-row" }, btn("Save readable copy", async () => {
+          const r = await call("vault_copy", true, pw.value);
+          if (!r.ok && r.error) return (err.textContent = t(r.error));
+          done(r);
+        }, "danger solid sm", "file"), btn("Cancel", () => out.replaceChildren(), "sm"))));
+      pw.focus();
+    };
+    return h("div", { class: "panel" }, h("h3", {}, "A copy of this vault"),
+      h("p", { class: "prose", style: "margin:0" }, "Uninstalling MyVault doesn't delete your vaults: they stay on this PC, encrypted (see Folders below). A copy is for keeping somewhere else, or for moving to another device."),
+      h("div", { class: "inp-row", style: "flex-wrap:wrap;align-items:center" },
+        btn("Save encrypted copy", async () => done(await call("vault_copy", false)), "sm", "file"), encInfo),
+      encAbout,
+      h("div", { class: "inp-row", style: "flex-wrap:wrap;align-items:center" },
+        btn("Save readable copy…", askReadable, "sm", "file"), rdInfo),
+      rdAbout, out);
+    return panel;
+  }
+
   function importPanel() {
     const out = h("div", { "aria-live": "polite" });
     const start = async () => {
@@ -1710,6 +1761,7 @@
       toolHead("gear", "Settings", `MyVault ${S.version}`),
       languagePanel(),
       vaultsPanel(),
+      copyPanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Change master password"),
         h("div", { style: "max-width:340px" }, cur),
@@ -1731,7 +1783,7 @@
       updatesPanel(),
       h("div", { class: "panel" },
         h("h3", {}, "Folders"),
-        folderRow("Your vault", "The one encrypted file with everything in it. Copy it to a USB stick now and then; it's useless without your master password.", "data", dirs.data),
+        folderRow("This vault", "Its encrypted file and documents. Uninstalling MyVault leaves them here: keep this path somewhere safe, and reinstalling opens the vault again. Useless without its master password.", "data", dirs.data),
         folderRow("MyVault program", "Where the app itself is installed. Updating or uninstalling only touches this folder, never your vault.", "app", dirs.app),
         folderRow("Browser extension", "Pick this folder in your browser's “Load unpacked”.", "extension", dirs.extension)),
       h("div", { class: "panel" },
