@@ -62,6 +62,7 @@ class Entry:
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
     deleted: bool = False      # tombstone for sync; hidden from the list
+    local_only: bool = False   # kept on this device: never synced, never replaced by a sync
 
     def touch(self) -> None:
         self.updated_at = _now()

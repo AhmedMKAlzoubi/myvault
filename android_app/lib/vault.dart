@@ -33,6 +33,9 @@ class Entry {
   double createdAt, updatedAt;
   bool deleted;
 
+  /// Kept on this device: never synced, never replaced by a sync.
+  bool localOnly;
+
   Entry({
     String? id,
     this.kind = 'login',
@@ -53,6 +56,7 @@ class Entry {
     double? createdAt,
     double? updatedAt,
     this.deleted = false,
+    this.localOnly = false,
   }) : id = id ?? _uuid(),
        custom = custom ?? {},
        fields = fields ?? {},
@@ -84,6 +88,7 @@ class Entry {
     fields = o.fields;
     passwordPolicy = o.passwordPolicy;
     deleted = o.deleted;
+    localOnly = o.localOnly;
   }
 
   String displayName() {
@@ -138,6 +143,7 @@ class Entry {
     'created_at': createdAt,
     'updated_at': updatedAt,
     'deleted': deleted,
+    'local_only': localOnly,
   };
 
   factory Entry.fromJson(Map<String, dynamic> j) =>
@@ -180,6 +186,7 @@ class Entry {
     createdAt: (j['created_at'] as num?)?.toDouble(),
     updatedAt: (j['updated_at'] as num?)?.toDouble(),
     deleted: (j['deleted'] ?? false) as bool,
+    localOnly: (j['local_only'] ?? false) as bool,
   );
 }
 
@@ -310,13 +317,15 @@ class Vault {
     return changed;
   }
 
-  /// Merge entries from sync: newest updated_at per id wins.
+  /// Merge entries from sync: newest updated_at per id wins. Entries [held]
+  /// says to keep (kept on this phone, or left out of this sync) stay as they are.
   /// Returns how many entries were added or changed here.
-  int mergeIn(List<Entry> incoming) {
+  int mergeIn(List<Entry> incoming, {bool Function(Entry e)? held}) {
     final byId = {for (final e in entries) e.id: e};
     var changed = 0;
     for (final e in incoming) {
       final cur = byId[e.id];
+      if (cur != null && (held?.call(cur) ?? false)) continue;
       if (cur == null || e.updatedAt > cur.updatedAt) {
         byId[e.id] = e;
         changed++;

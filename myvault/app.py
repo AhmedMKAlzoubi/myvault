@@ -24,6 +24,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 import webbrowser
 from pathlib import Path
 
@@ -74,7 +75,8 @@ def _summary(e: Entry) -> dict:
         sub = ""      # a secure note's text is secret: never show it in the list
     return {"id": e.id, "kind": e.kind, "title": e.display_name(), "subtitle": sub,
             "website": e.website, "updated_at": e.updated_at,
-            "expires": e.fields.get("expires", "") if e.kind == "document" else ""}
+            "expires": e.fields.get("expires", "") if e.kind == "document" else "",
+            "local_only": e.local_only}
 
 
 class Api:
@@ -286,6 +288,8 @@ class Api:
                             else str(data[key] or "").strip())
             e.custom = _str_map(data.get("custom"))
             e.fields = _str_map(data.get("fields"))
+            if "local_only" in data:
+                e.local_only = bool(data["local_only"])
             keep_old_password(e, old_password)
             if isinstance(data.get("password_policy"), dict):
                 e.password_policy = PasswordPolicy.from_dict(data["password_policy"]).to_dict()
@@ -318,6 +322,17 @@ class Api:
             for e in found:
                 e.wipe()
                 e.touch()
+            v.save()
+        return {"ok": True, "count": len(found)}
+
+    def set_local_only(self, ids, on: bool) -> dict:
+        """Keep entries on this PC only (never synced), or let them sync again."""
+        v = self._need()
+        with self._lock:
+            found = [e for e in (v.get(str(i)) for i in (ids or [])) if e and not e.deleted]
+            for e in found:
+                e.local_only = bool(on)
+                e.touch()          # so a "sync again" goes out at the next sync
             v.save()
         return {"ok": True, "count": len(found)}
 
@@ -595,11 +610,12 @@ class Api:
         return {"ok": clipboard.copy_secret(str(text), clear_after=0)}
 
     # ---- QR sync -----------------------------------------------------------
-    def sync_start(self) -> dict:
+    def sync_start(self, only=None) -> dict:
+        """Show a sync code. With [only] (entry ids), just those take part."""
         self._need()
         self.sync_cancel()
         try:
-            self._pairing = sync.PairingSession(_SyncProvider(self))
+            self._pairing = sync.PairingSession(_SyncProvider(self, only if isinstance(only, list) else None))
         except OSError as exc:
             return {"ok": False, "error": f"Couldn't open the sync port: {exc}"}
         qr = segno.make(self._pairing.uri, error="m")
@@ -892,10 +908,30 @@ class Api:
 
 
 class _SyncProvider:
-    """What sync.py needs (runs on the pairing thread)."""
+    """What sync.py needs (runs on the pairing thread). With [only], just those
+    of this PC's entries take part; new entries from the phone still arrive.
+    Entries kept on this PC (local_only) never take part."""
 
-    def __init__(self, api: Api):
+    def __init__(self, api: Api, only=None):
         self.api = api
+        self.only = None if only is None else {str(i) for i in only}
+
+    def _held(self, e: Entry) -> bool:
+        return e.local_only or (self.only is not None and e.id not in self.only)
+
+    def vault_identity(self) -> tuple[str, str]:
+        v = self.api._need()
+        if not v.vault_id:                       # its first sync: the phone will adopt this
+            with self.api._lock:
+                v.vault_id = uuid.uuid4().hex
+                v.save()
+        name = next((x["name"] for x in paths.vaults() if x["id"] == paths.current()), "My vault")
+        return v.vault_id, name
+
+    def adopt_vault_id(self, vid: str) -> None:
+        v = self.api._need()
+        with self.api._lock:
+            v.vault_id = vid
 
     # -- version + update hand-over --
     def app_version(self) -> str:
@@ -922,7 +958,7 @@ class _SyncProvider:
 
     def get_entries(self) -> list[dict]:
         with self.api._lock:
-            return [e.to_dict() for e in self.api._need().entries]
+            return [e.to_dict() for e in self.api._need().entries if not self._held(e)]
 
     # -- document files --
     def file_sync(self) -> bool:
@@ -944,11 +980,17 @@ class _SyncProvider:
     def apply_merged(self, merged: list[dict]) -> int:
         with self.api._lock:
             v = self.api._need()
-            before = {e.id: e.updated_at for e in v.entries}
-            v.entries = [Entry.from_dict(d) for d in merged]
+            by_id = {e.id: e for e in v.entries}
+            changed = 0
+            for d in merged:
+                cur = by_id.get(d["id"])
+                if cur is not None and self._held(cur):
+                    continue                     # kept as it is on this PC
+                if cur is None or float(d.get("updated_at", 0)) > cur.updated_at:
+                    by_id[d["id"]] = Entry.from_dict(d)
+                    changed += 1
+            v.entries = list(by_id.values())
             v.save()
-            changed = sum(1 for e in v.entries
-                          if before.get(e.id) is None or e.updated_at > before[e.id])
         self.api._js("MV.refresh()")
         return changed
 

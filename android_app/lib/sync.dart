@@ -36,6 +36,10 @@ class SyncResult {
   String updateError = '';
   int filesReceived = 0; // document files (photos/PDFs)
   String filesError = '';
+
+  /// The PC had a different vault open (the code stays valid: Sync anyway).
+  bool vaultMismatch = false;
+  String pcVault = '';
   SyncResult.success(this.changed) : ok = true, error = '';
   SyncResult.failure(this.error) : ok = false, changed = 0;
 }
@@ -307,7 +311,17 @@ Future<void> _exchangeFiles(_Chan ch, Vault vault, SyncResult r) async {
 }
 
 /// Connect with a scanned code and sync [vault]. The phone is always the client.
-Future<SyncResult> syncWithCode(String raw, Vault vault) async {
+/// With [only] (entry ids), just those of this phone's entries take part; new
+/// entries from the PC still arrive. Entries kept on this phone never take
+/// part. [mergeAnyway] syncs even when the PC has a different vault open.
+Future<SyncResult> syncWithCode(
+  String raw,
+  Vault vault, {
+  Set<String>? only,
+  bool mergeAnyway = false,
+  String vaultName = '',
+}) async {
+  bool held(Entry e) => e.localOnly || (only != null && !only.contains(e.id));
   final SyncCode code;
   try {
     code = SyncCode.parse(raw);
@@ -333,20 +347,40 @@ Future<SyncResult> syncWithCode(String raw, Vault vault) async {
         'app_version': appVersion,
         'platform': upd.platformName,
         'offers': await upd.offers(),
+        'vault_id': vault.vaultId,
+        'vault_name': vaultName,
+        'merge_anyway': mergeAnyway,
       });
       final hello = await ch.recv();
       if (hello['protocol'] != protocol) {
         return SyncResult.failure('Update MyVault on the PC, then try again.');
       }
+      // Which vault this is: the PC gives one an id at its first sync and the
+      // phone adopts it, so later a sync never mixes two different vaults.
+      final pcId = '${hello['vault_id'] ?? ''}';
+      final pcName = '${hello['vault_name'] ?? ''}';
+      final differ =
+          vault.vaultId.isNotEmpty && pcId.isNotEmpty && vault.vaultId != pcId;
+      if (differ && !mergeAnyway && hello['merge_anyway'] != true) {
+        return SyncResult.failure(
+            "The PC has “$pcName” open, which isn't the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.",
+          )
+          ..vaultMismatch = true
+          ..pcVault = pcName;
+      }
+      if (pcId.isNotEmpty) vault.vaultId = pcId; // saved with the merge below
       ch.send({
         'type': 'entries',
-        'entries': vault.entries.map((e) => e.toJson()).toList(),
+        'entries': [
+          for (final e in vault.entries)
+            if (!held(e)) e.toJson(),
+        ],
       });
       final msg = await ch.recv();
       final remote = ((msg['entries'] ?? []) as List)
           .map((e) => Entry.fromJson((e as Map).cast<String, dynamic>()))
           .toList();
-      final r = SyncResult.success(vault.mergeIn(remote));
+      final r = SyncResult.success(vault.mergeIn(remote, held: held));
       r.peerVersion = '${hello['app_version'] ?? ''}';
 
       // Update hand-over (both sides 0.5+). A failure here never undoes the sync.

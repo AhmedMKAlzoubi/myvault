@@ -121,6 +121,11 @@ def restore_entries(local: list[dict], backup: list[dict], now: float) -> tuple[
     return list(by_id.values()), counts
 
 
+def mismatch_error(mine: str, theirs: str) -> str:
+    return (f"The vault open on the phone isn't this PC's “{mine}” ({theirs or 'another vault'}). "
+            "Open the same vault on both, or choose Sync anyway on the phone to merge them.")
+
+
 @dataclass
 class SyncResult:
     ok: bool
@@ -129,6 +134,8 @@ class SyncResult:
     added_or_updated: int = 0
     peer_version: str = ""      # "" = a MyVault from before 0.5 (doesn't say)
     peer_platform: str = ""
+    vault_mismatch: bool = False   # the two devices had different vaults open
+    peer_vault: str = ""
     received: str = ""          # version of an update package we received
     sent: str = ""              # version of an update package we handed over
     update_error: str = ""
@@ -304,9 +311,14 @@ def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> Syn
     ch = _Chan(sock, key, is_server)
     my_ver = getattr(provider, "app_version", lambda: "")()
     my_plat = getattr(provider, "platform", lambda: "")()
+    # Which vault this is: the PC gives one an id at its first sync and the phone
+    # adopts it, so later a sync never mixes two different vaults by mistake.
+    vid, vname = getattr(provider, "vault_identity", lambda: ("", ""))()
     hello = {"type": "hello", "protocol": PROTOCOL, "device_id": provider.device_id(),
              "app_version": my_ver, "platform": my_plat,
-             "offers": getattr(provider, "offers", dict)()}
+             "offers": getattr(provider, "offers", dict)(),
+             "vault_id": vid, "vault_name": vname,
+             "merge_anyway": bool(getattr(provider, "merge_anyway", False))}
     if is_server:
         peer_hello = ch.recv()
         ch.send(hello)
@@ -315,6 +327,14 @@ def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> Syn
         peer_hello = ch.recv()
     if peer_hello.get("protocol") != PROTOCOL:
         return SyncResult(False, error="The other device runs an incompatible MyVault version.")
+    their_id, their_name = str(peer_hello.get("vault_id") or ""), str(peer_hello.get("vault_name") or "")
+    differ = bool(vid and their_id and vid != their_id)
+    if differ and not hello["merge_anyway"] and not peer_hello.get("merge_anyway"):
+        r = SyncResult(False, error=mismatch_error(vname, their_name) if is_server else mismatch_error(their_name, vname))
+        r.vault_mismatch, r.peer_vault = True, their_name
+        return r
+    if their_id and (not vid or (differ and not is_server)) and hasattr(provider, "adopt_vault_id"):
+        provider.adopt_vault_id(their_id)          # the phone takes the PC's
 
     local = provider.get_entries()
     if is_server:

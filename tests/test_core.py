@@ -200,6 +200,57 @@ def test_qr_sync_convergence():
         assert not sync.connect_and_sync(uri, _Provider(vb), timeout=1).ok
 
 
+class _PhoneLike(_Provider):
+    """A phone that knows which vault it has open (0.8+)."""
+    merge_anyway = False
+    def vault_identity(self):
+        return self.vault.vault_id, "Phone vault"
+    def adopt_vault_id(self, vid):
+        self.vault.vault_id = vid
+
+
+def test_sync_choices_kept_entries_and_vault_check():
+    from myvault import app
+    local = lambda uri: uri.replace(uri.split("h=")[1].split("&")[0], "127.0.0.1")
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["LOCALAPPDATA"] = d
+        api = app.Api()
+        assert api.unlock("pc-pass-123")["ok"]
+        pc = api._vault
+        pc.entries = [Entry(id="a", title="Shared", updated_at=100),
+                      Entry(id="b", title="Kept on the PC", local_only=True, updated_at=100),
+                      Entry(id="c", title="Not this time", updated_at=100)]
+        pc.save()
+        assert {e["id"] for e in app._SyncProvider(api, only=["a", "b"]).get_entries()} == {"a"}
+        phone = Vault.create(Path(d) / "ph.dat", "ph-pass-123")
+        phone.entries = [Entry(id="a", title="Shared v2", updated_at=200),
+                         Entry(id="b", title="Phone's copy", updated_at=300),
+                         Entry(id="c", title="Newer on the phone", updated_at=300),
+                         Entry(id="n", title="New on the phone", updated_at=100)]
+        s = sync.PairingSession(app._SyncProvider(api, only=["a", "b"]), port=0, ttl=10)
+        r = sync.connect_and_sync(local(s.uri), _PhoneLike(phone))
+        _wait_done(s)
+        assert r.ok, r.error
+        got = {e.id: e.title for e in pc.entries}
+        assert got == {"a": "Shared v2",              # chosen: updated
+                       "b": "Kept on the PC",          # kept on this PC: never replaced
+                       "c": "Not this time",           # left out this time: as it was
+                       "n": "New on the phone"}        # new entries still arrive
+        assert pc.vault_id and phone.vault_id == pc.vault_id    # the phone adopted the PC's vault
+
+        # Another vault on the phone is refused (the code stays valid), unless Sync anyway.
+        other = Vault.create(Path(d) / "other.dat", "other-pass-1")
+        other.vault_id, other.entries = "f" * 32, [Entry(id="q", title="From another vault")]
+        po = _PhoneLike(other)
+        s2 = sync.PairingSession(app._SyncProvider(api), port=0, ttl=10)
+        r2 = sync.connect_and_sync(local(s2.uri), po)
+        assert not r2.ok and r2.vault_mismatch and "q" not in {e.id for e in pc.entries}
+        po.merge_anyway = True
+        r3 = sync.connect_and_sync(local(s2.uri), po)
+        _wait_done(s2)
+        assert r3.ok and "q" in {e.id for e in pc.entries} and other.vault_id == pc.vault_id
+
+
 def test_qr_sync_rejects_wrong_key():
     with tempfile.TemporaryDirectory() as d:
         va = Vault.create(Path(d) / "a.dat", "pw-aaaaaaaa")

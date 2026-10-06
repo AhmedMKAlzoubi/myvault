@@ -93,6 +93,30 @@ void main() {
     expect(v.getById(ids[0])!.updatedAt, greaterThanOrEqualTo(at));
   });
 
+  test('a sync leaves kept and left-out entries as they are', () {
+    final dir = Directory.systemTemp.createTempSync('mv_held');
+    final v = Vault.create('${dir.path}/v.dat', 'pw-12345678');
+    v.entries = [
+      Entry(id: 'a', title: 'Shared', updatedAt: 100),
+      Entry(id: 'b', title: 'Kept', updatedAt: 100, localOnly: true),
+      Entry(id: 'c', title: 'Left out', updatedAt: 100),
+    ];
+    final only = {'a', 'b'};
+    final changed = v.mergeIn([
+      Entry(id: 'a', title: 'Shared v2', updatedAt: 200),
+      Entry(id: 'b', title: "PC's copy", updatedAt: 300),
+      Entry(id: 'c', title: 'Newer on the PC', updatedAt: 300),
+      Entry(id: 'n', title: 'New on the PC', updatedAt: 100),
+    ], held: (e) => e.localOnly || !only.contains(e.id));
+    expect(changed, 2);
+    expect(
+      {for (final e in v.entries) e.id: e.title},
+      {'a': 'Shared v2', 'b': 'Kept', 'c': 'Left out', 'n': 'New on the PC'},
+    );
+    final back = Vault.open('${dir.path}/v.dat', 'pw-12345678');
+    expect(back.getById('b')!.localOnly, isTrue); // the flag is kept
+  });
+
   test('old passwords are kept, newest first, at most 10', () {
     final e = Entry(password: 'first');
     for (final pw in ['second', 'second', 'third']) {

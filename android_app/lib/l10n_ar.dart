@@ -658,6 +658,24 @@ const arabic = <String, String>{
   'Each vault is a separate encrypted file with its own master password (it can be the same as another one), its own files and reminders.':
       'كل خزنة ملف مشفّر منفصل بكلمة مرور رئيسية خاصة به (يمكن أن تكون مثل كلمة مرور خزنة أخرى)، وملفاته وتذكيراته الخاصة.',
   'Open now': 'مفتوحة الآن',
+  // ---- choosing what to sync ----
+  'Sync everything': 'مزامنة كل شيء',
+  'Choose what to sync…': 'اختيار ما يُزامَن…',
+  '{0} of {1} chosen': 'اختير {0} من {1}',
+  'Don\'t sync': 'عدم المزامنة',
+  'Sync again': 'المزامنة من جديد',
+  '1 entry will sync again.': 'سيُزامَن عنصر واحد من جديد.',
+  '{0} entries will sync again.': 'ستُزامَن {0} من العناصر من جديد.',
+  'Sync anyway': 'المزامنة على أي حال',
+  'Sync anyway merges the two vaults\' entries into both. Usually it\'s better to open the same vault on both devices.': '«المزامنة على أي حال» تدمج عناصر الخزنتين في كلتيهما. والأفضل عادةً فتح الخزنة نفسها على الجهازين.',
+  'Untick what shouldn\'t sync this time. It stays as it is on this phone; new entries from your PC still arrive.': 'أزل التحديد عمّا لا يجب مزامنته هذه المرة. يبقى كما هو على هذا الهاتف، وتصل العناصر الجديدة من الكمبيوتر كالمعتاد.',
+  'Kept on this phone, so they never sync: {0}.': 'محفوظة على هذا الهاتف فقط، فلا تُزامَن أبدًا: {0}.',
+  'Keep on this phone only': 'الإبقاء على هذا الهاتف فقط',
+  'It never goes to your PC when you sync, and a copy from the PC never replaces it.': 'لا يذهب إلى الكمبيوتر أبدًا عند المزامنة، ولا تحلّ محله نسخة من الكمبيوتر أبدًا.',
+  'Kept on this phone: not synced': 'محفوظ على هذا الهاتف فقط: لا يُزامَن',
+  '1 entry is kept on this phone: it won\'t sync.': 'عنصر واحد محفوظ على هذا الهاتف فقط: لن يُزامَن.',
+  '{0} entries are kept on this phone: they won\'t sync.': '{0} من العناصر محفوظة على هذا الهاتف فقط: لن تُزامَن.',
+  'The PC has “{0}” open, which isn\'t the vault open on this phone. Open the same vault on both, or choose Sync anyway to merge them.': 'الكمبيوتر يفتح «{0}»، وهي ليست الخزنة المفتوحة على هذا الهاتف. افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» لدمجهما.',
 };
 
 const arabicMonths = [

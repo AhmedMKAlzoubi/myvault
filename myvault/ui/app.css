@@ -431,3 +431,9 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vault-switch:hover { color: var(--tint); text-decoration: underline; }
 .vault-switch:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; border-radius: 3px; }
+/* entries kept on this PC (not synced), and choosing what to sync */
+.item .local { color: var(--ink-3); font-weight: 400; }
+.picklist { display: grid; gap: 2px; max-height: 320px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r); padding: 6px; }
+.pickrow { display: flex; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.pickrow:hover { background: var(--tint-wash); }
+.pickrow input { accent-color: var(--tint); width: 16px; height: 16px; margin: 0; }

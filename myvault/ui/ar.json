@@ -601,5 +601,21 @@
 "Renamed.": "أُعيدت التسمية.",
 "Delete “{0}” from this PC?": "حذف «{0}» من هذا الكمبيوتر؟",
 "Its entries, files, backups and reminders are removed from this PC for good. It isn't deleted from your phone: a copy there stays.": "تُزال عناصرها وملفاتها ونسخها الاحتياطية وتذكيراتها من هذا الكمبيوتر نهائيًا. ولا تُحذف من هاتفك: تبقى نسخة هناك.",
-"Type the vault's name": "اكتب اسم الخزنة"
+"Type the vault's name": "اكتب اسم الخزنة",
+"Sync everything": "مزامنة كل شيء",
+"Choose what to sync…": "اختيار ما يُزامَن…",
+"{0} of {1} chosen": "اختير {0} من {1}",
+"Don't sync": "عدم المزامنة",
+"Sync again": "المزامنة من جديد",
+"1 entry will sync again.": "سيُزامَن عنصر واحد من جديد.",
+"{0} entries will sync again.": "ستُزامَن {0} من العناصر من جديد.",
+"Untick what shouldn't sync this time. It stays as it is on this PC; new entries from your phone still arrive.": "أزل التحديد عمّا لا يجب مزامنته هذه المرة. يبقى كما هو على هذا الكمبيوتر، وتصل العناصر الجديدة من هاتفك كالمعتاد.",
+"Kept on this PC, so they never sync: {0}.": "محفوظة على هذا الكمبيوتر فقط، فلا تُزامَن أبدًا: {0}.",
+"Kept on this PC: not synced": "محفوظ على هذا الكمبيوتر فقط: لا يُزامَن",
+"Keep them on this PC only": "إبقاؤها على هذا الكمبيوتر فقط",
+"1 entry is kept on this PC: it won't sync.": "عنصر واحد محفوظ على هذا الكمبيوتر فقط: لن يُزامَن.",
+"{0} entries are kept on this PC: they won't sync.": "{0} من العناصر محفوظة على هذا الكمبيوتر فقط: لن تُزامَن.",
+"Keep on this PC only": "الإبقاء على هذا الكمبيوتر فقط",
+"It never goes to your phone when you sync, and a copy from the phone never replaces it.": "لا يذهب إلى هاتفك أبدًا عند المزامنة، ولا تحلّ محله نسخة من الهاتف أبدًا.",
+"The vault open on the phone isn't this PC's “{0}” ({1}). Open the same vault on both, or choose Sync anyway on the phone to merge them.": "الخزنة المفتوحة على الهاتف ليست «{0}» المفتوحة على هذا الكمبيوتر ({1}). افتح الخزنة نفسها على الجهازين، أو اختر «المزامنة على أي حال» على الهاتف لدمجهما."
 }

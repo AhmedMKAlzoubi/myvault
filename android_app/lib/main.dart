@@ -838,6 +838,31 @@ class _HomePageState extends State<HomePage> {
     p.contains(id) ? p.remove(id) : p.add(id);
   });
 
+  /// Keep the chosen entries on this phone only, or let them sync again.
+  void _setLocal(bool on) {
+    final n = _picked!.length;
+    for (final id in _picked!) {
+      final x = v.getById(id);
+      if (x == null || x.deleted) continue;
+      x.localOnly = on;
+      x.touch(); // so a "sync again" goes out at the next sync
+    }
+    v.save();
+    setState(() => _picked = null);
+    _snack(
+      context,
+      tr(
+        on
+            ? (n == 1
+                  ? "1 entry is kept on this phone: it won't sync."
+                  : "$n entries are kept on this phone: they won't sync.")
+            : (n == 1
+                  ? '1 entry will sync again.'
+                  : '$n entries will sync again.'),
+      ),
+    );
+  }
+
   Future<void> _deletePicked() async {
     final ids = _picked!.toList();
     if (ids.isEmpty) return;
@@ -1087,6 +1112,16 @@ class _HomePageState extends State<HomePage> {
                     }),
                   ),
                   IconButton(
+                    tooltip: tr("Don't sync"),
+                    icon: const Icon(Icons.cloud_off_outlined),
+                    onPressed: picked.isEmpty ? null : () => _setLocal(true),
+                  ),
+                  IconButton(
+                    tooltip: tr('Sync again'),
+                    icon: const Icon(Icons.cloud_sync_outlined),
+                    onPressed: picked.isEmpty ? null : () => _setLocal(false),
+                  ),
+                  IconButton(
                     tooltip: tr('Delete'),
                     icon: const Icon(Icons.delete_outline),
                     onPressed: picked.isEmpty ? null : _deletePicked,
@@ -1261,6 +1296,16 @@ class _HomePageState extends State<HomePage> {
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(color: e.ink3),
                                 ),
+                          trailing: x.localOnly
+                              ? Tooltip(
+                                  message: tr('Kept on this phone: not synced'),
+                                  child: Icon(
+                                    Icons.cloud_off_outlined,
+                                    size: 18,
+                                    color: e.ink3,
+                                  ),
+                                )
+                              : null,
                           onTap: () => picked != null ? _pick(x.id) : _open(x),
                           onLongPress: () => _pick(x.id),
                         );
@@ -1872,6 +1917,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
 
   final _doc = DocumentDraft();
   final _docKey = GlobalKey();
+  late bool _local = _e.localOnly; // kept on this phone only
   final _auto = <String>{}; // boxes filled in from a scan, until changed
 
   void _save() {
@@ -1896,6 +1942,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
       docs.setFileRefs(n, _doc.files); // FilesEditor's
     }
     if (n.kind != 'note') n.notes = _notes.text;
+    n.localOnly = _local;
     n.custom = {
       for (final r in _custom)
         if (r[0].text.trim().isNotEmpty) r[0].text.trim(): r[1].text,
@@ -2321,6 +2368,17 @@ class _EntryEditPageState extends State<EntryEditPage> {
               decoration: InputDecoration(labelText: tr('Notes')),
             ),
           ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _local,
+            onChanged: (v) => setState(() => _local = v),
+            title: Text(tr('Keep on this phone only')),
+            subtitle: Text(
+              tr(
+                'It never goes to your PC when you sync, and a copy from the PC never replaces it.',
+              ),
+            ),
+          ),
           const SizedBox(height: 18),
           Row(
             children: [
@@ -2696,12 +2754,34 @@ class SyncPage extends StatefulWidget {
 class _SyncPageState extends State<SyncPage> {
   String _state = 'intro'; // intro | scan | busy | done | error
   String _msg = '';
+  Set<String>? _only; // just these of this phone's entries (null: everything)
+  String _code = ''; // the last code scanned (still valid for a retry)
+  bool _mismatch = false; // the PC had another vault open
 
-  Future<void> _run(String raw) async {
+  Future<void> _choose() async {
+    final picked = await Navigator.of(context).push<Set<String>>(
+      MaterialPageRoute(builder: (_) => const ChooseSyncPage()),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _only = picked;
+      _state = 'scan';
+    });
+  }
+
+  Future<void> _run(String raw, {bool anyway = false}) async {
+    _code = raw;
     setState(() => _state = 'busy');
-    final r = await qrsync.syncWithCode(raw, Session.vault!);
+    final r = await qrsync.syncWithCode(
+      raw,
+      Session.vault!,
+      only: _only,
+      mergeAnyway: anyway,
+      vaultName: Session.vaultName,
+    );
     if (!mounted) return;
     setState(() {
+      _mismatch = r.vaultMismatch;
       _state = r.ok ? 'done' : 'error';
       _msg = r.ok
           ? tr(
@@ -2840,14 +2920,40 @@ class _SyncPageState extends State<SyncPage> {
               ),
               child: Text(tr(_msg)),
             ),
-          if (_state != 'busy')
+          if (_state == 'error' && _mismatch) ...[
             FilledButton.icon(
-              onPressed: () => setState(() => _state = 'scan'),
-              icon: const Icon(Icons.qr_code_scanner),
-              label: Text(
-                tr(_state == 'intro' ? 'Scan sync code' : 'Scan again'),
+              onPressed: () => _run(_code, anyway: true),
+              icon: const Icon(Icons.merge_type),
+              label: Text(tr('Sync anyway')),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 14),
+              child: Text(
+                tr(
+                  "Sync anyway merges the two vaults' entries into both. Usually it's better to open the same vault on both devices.",
+                ),
+                style: TextStyle(color: e.ink3, fontSize: 12.5),
               ),
             ),
+          ],
+          if (_state != 'busy') ...[
+            FilledButton.icon(
+              onPressed: () => setState(() {
+                _only = null;
+                _state = 'scan';
+              }),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(
+                tr(_state == 'intro' ? 'Sync everything' : 'Scan again'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _choose,
+              icon: const Icon(Icons.checklist),
+              label: Text(tr('Choose what to sync…')),
+            ),
+          ],
           const SizedBox(height: 24),
           fact(
             Icons.verified_user_outlined,
@@ -2862,6 +2968,82 @@ class _SyncPageState extends State<SyncPage> {
             tr('The PC stops listening after one sync, or after 2 minutes.'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Pick which of this phone's entries take part in the next sync (all ticked
+/// to start). Pops the chosen ids.
+class ChooseSyncPage extends StatefulWidget {
+  const ChooseSyncPage({super.key});
+  @override
+  State<ChooseSyncPage> createState() => _ChooseSyncPageState();
+}
+
+class _ChooseSyncPageState extends State<ChooseSyncPage> {
+  late final List<Entry> _shared = [
+    for (final e in Session.vault!.search(''))
+      if (!e.localOnly) e,
+  ];
+  late final List<Entry> _kept = [
+    for (final e in Session.vault!.search(''))
+      if (e.localOnly) e,
+  ];
+  late final Set<String> _on = {for (final e in _shared) e.id};
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    final all = _on.length == _shared.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tr('${_on.length} of ${_shared.length} chosen')),
+        actions: [
+          TextButton(
+            onPressed: () => setState(
+              () => all ? _on.clear() : _on.addAll(_shared.map((x) => x.id)),
+            ),
+            child: Text(tr(all ? 'Select none' : 'Select all')),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 90),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 6),
+            child: Text(
+              tr(
+                'Untick what shouldn\'t sync this time. It stays as it is on this phone; new entries from your PC still arrive.',
+              ),
+              style: TextStyle(color: e.ink2),
+            ),
+          ),
+          for (final x in _shared)
+            CheckboxListTile(
+              value: _on.contains(x.id),
+              onChanged: (v) =>
+                  setState(() => v == true ? _on.add(x.id) : _on.remove(x.id)),
+              secondary: Glyph(kindOf(x).icon),
+              title: Text(x.displayName()),
+            ),
+          if (_kept.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              child: Text(
+                tr(
+                  'Kept on this phone, so they never sync: ${_kept.map((x) => x.displayName()).join(', ')}.',
+                ),
+                style: TextStyle(color: e.ink3, fontSize: 12.5),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.of(context).pop(_on),
+        icon: const Icon(Icons.qr_code_scanner),
+        label: Text(tr('Scan sync code')),
       ),
     );
   }

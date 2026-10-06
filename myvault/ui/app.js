@@ -422,7 +422,8 @@
     S.picking && h("input", { type: "checkbox", class: "pick", checked: S.picked.has(e.id), tabindex: "-1",
       "aria-label": `Select ${e.title}` }),
     h("span", { class: "glyph" }, icon(e.kind)),
-    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)),
+    h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title),
+      e.local_only && h("span", { class: "local", title: "Kept on this PC: not synced", "aria-label": "Kept on this PC: not synced" }, " ⦸")),
       e.kind === "document" && e.expires ? expiryLine(e.expires)
         : e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
   }
@@ -445,9 +446,19 @@
       h("button", { type: "button", class: "linkbtn", onclick: () => {
         shown.forEach((id) => (all ? S.picked.delete(id) : S.picked.add(id))); renderList();
       } }, all ? "Select none" : "Select all"),
+      btn("Don't sync", () => setLocal(true), "sm", "", { disabled: !S.picked.size || null, title: "Keep them on this PC only" }),
+      btn("Sync again", () => setLocal(false), "sm", "", { disabled: !S.picked.size || null }),
       btn("Delete…", () => S.picked.size && askDeleteMany(), "danger sm", "trash", { disabled: !S.picked.size || null }),
       btn("Done", () => { S.picking = false; S.picked.clear(); renderList(); }, "sm"));
   }
+  async function setLocal(on) {
+    const r = await call("set_local_only", [...S.picked], on);
+    S.picking = false; S.picked.clear();
+    await refresh();
+    toast(on ? (r.count === 1 ? "1 entry is kept on this PC: it won't sync." : `${r.count} entries are kept on this PC: they won't sync.`)
+      : (r.count === 1 ? "1 entry will sync again." : `${r.count} entries will sync again.`));
+  }
+
   function askDeleteMany() {
     const ids = [...S.picked];
     const names = ids.map((id) => (S.list.find((e) => e.id === id) || {}).title || "(untitled)");
@@ -1057,6 +1068,7 @@
     Object.entries(e.custom || {}).forEach(([k, v]) => addExtra(k, v));
 
     const notes = e.kind !== "note" && h("textarea", { class: "inp", rows: 3, oninput: dirty, "aria-label": "Notes" });
+    const localSw = h("input", { type: "checkbox", role: "switch", checked: !!e.local_only, onchange: dirty });
     if (notes) notes.value = e.notes || "";
     const moreFilled = (K.more || []).some((f) => getVal(e, f));
     const err = h("p", { class: "err", role: "alert" });
@@ -1064,7 +1076,8 @@
 
     // Everything on the form, as an entry (saving it, or redrawing the form).
     function draft() {
-      const out = { ...e, id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy };
+      const out = { ...e, id: e.id || "", kind: e.kind, title: title.value, custom: {}, fields: { ...(e.fields || {}) }, password_policy: policy,
+        local_only: localSw.checked };
       for (const [f, el] of inputs) {
         if (f.top) out[f.key] = el.value; else out.fields[f.key] = el.value;
       }
@@ -1122,6 +1135,9 @@
           h("summary", {}, icon("chev"), "Profile details (app, phone, region, age, gender)"),
           h("div", { class: "form two" }, K.more.map(control))),
         notes && h("div", { class: "field" }, h("label", {}, "Notes"), notes),
+        h("label", { class: "switch" }, localSw, h("span", { class: "sw-text" },
+          h("span", {}, "Keep on this PC only"),
+          h("span", { class: "sw-sub" }, "It never goes to your phone when you sync, and a copy from the phone never replaces it."))),
         h("div", { class: "field" }, h("span", { class: "lbl" }, "Extra fields"),
           h("p", { class: "hint" }, "Security questions, PINs, membership numbers, anything else."),
           extraBox, h("div", {}, btn("Add field", () => { addExtra(); dirty(); }, "sm", "plus")))),
@@ -1274,10 +1290,32 @@
     function idle(msg, bad = false) {
       area.replaceChildren(h("div", { style: "display:grid;gap:12px" },      // h() drops an empty msg; replaceChildren would print "undefined"
         msg && h("div", { class: "result" + (bad ? " bad" : "") }, msg),
-        h("div", {}, btn(msg ? "Show a new code" : "Show sync code", start, "primary", "phone"))));
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn(msg ? "Show a new code" : "Sync everything", () => start(null), "primary", "phone"),
+          btn("Choose what to sync…", choose, "", "sliders"))));
     }
-    async function start() {
-      const r = await call("sync_start");
+    // Pick which of this PC's entries take part this time (all ticked to start).
+    function choose() {
+      const shared = S.list.filter((e) => !e.local_only), kept = S.list.filter((e) => e.local_only);
+      const ticks = new Map(shared.map((e) => [e.id, h("input", { type: "checkbox", checked: true })]));
+      const n = h("b", {});
+      const count = () => (n.textContent = t(`${[...ticks.values()].filter((c) => c.checked).length} of ${shared.length} chosen`));
+      ticks.forEach((c) => c.addEventListener("change", count));
+      count();
+      area.replaceChildren(h("div", { style: "display:grid;gap:10px" },
+        h("p", { class: "prose", style: "margin:0" }, "Untick what shouldn't sync this time. It stays as it is on this PC; new entries from your phone still arrive."),
+        h("div", { class: "inp-row" }, n, h("span", { class: "spacer" }),
+          h("button", { type: "button", class: "linkbtn", onclick: () => { ticks.forEach((c) => (c.checked = true)); count(); } }, "Select all"),
+          h("button", { type: "button", class: "linkbtn", onclick: () => { ticks.forEach((c) => (c.checked = false)); count(); } }, "Select none")),
+        h("div", { class: "picklist" }, shared.sort((a, b) => a.title.localeCompare(b.title)).map((e) =>
+          h("label", { class: "pickrow" }, ticks.get(e.id), h("span", { class: "glyph" }, icon(e.kind)), raw(e.title)))),
+        kept.length > 0 && h("p", { class: "hint", style: "margin:0" },
+          `Kept on this PC, so they never sync: ${kept.map((e) => e.title).join(", ")}.`),
+        h("div", { class: "inp-row" }, btn("Show sync code", () => start([...ticks].filter(([, c]) => c.checked).map(([id]) => id)), "primary", "phone"),
+          btn("Cancel", () => idle(), ""))));
+    }
+    async function start(only) {
+      const r = await call("sync_start", only);
       if (!r.ok) return idle(r.error, true);
       const qr = h("div", { class: "qr", role: "img", "aria-label": "Sync code" });
       qr.innerHTML = r.svg;          // generated by segno in Python from our own URI
@@ -1298,6 +1336,7 @@
         const s = await call("sync_status");
         if (s.state === "waiting") {
           left.textContent = t(`Code expires in ${Math.floor(s.seconds_left / 60)}:${String(s.seconds_left % 60).padStart(2, "0")}`);
+          if (s.error && !left.nextSibling?.classList?.contains("err")) left.after(h("p", { class: "err", role: "alert" }, s.error));
           bar.style.transform = `scaleX(${s.seconds_left / r.ttl})`;
           return;
         }
