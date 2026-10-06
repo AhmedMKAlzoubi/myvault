@@ -74,6 +74,25 @@ void main() {
     expect((old.notes, old.updatedAt, old.deleted), ('', 5.0, true));
   });
 
+  test('delete several, then undo brings them back newer', () {
+    final dir = Directory.systemTemp.createTempSync('mv_many');
+    final v = Vault.create('${dir.path}/v.dat', 'pw-12345678');
+    final es = [
+      for (var i = 0; i < 3; i++)
+        Entry(kind: 'note', title: 'N$i', notes: 'secret $i'),
+    ];
+    es.forEach(v.add);
+    final ids = [for (final e in es) e.id];
+    final gone = v.deleteMany(ids.take(2));
+    expect(gone.length, 2);
+    expect(v.activeEntries().map((e) => e.title), ['N2']);
+    final at = v.getById(ids[0])!.updatedAt;
+    v.undoDelete(gone);
+    expect(v.activeEntries().map((e) => e.title).toSet(), {'N0', 'N1', 'N2'});
+    expect(v.getById(ids[0])!.notes, 'secret 0');
+    expect(v.getById(ids[0])!.updatedAt, greaterThanOrEqualTo(at));
+  });
+
   test('old passwords are kept, newest first, at most 10', () {
     final e = Entry(password: 'first');
     for (final pw in ['second', 'second', 'third']) {

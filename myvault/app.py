@@ -97,6 +97,7 @@ class Api:
         threading.Thread(target=self._reminder_loop, daemon=True).start()
         self._autotype_hwnd = 0      # the window "Type into app" will type into
         self._import_path: Path | None = None   # the CSV being imported
+        self._undo: list[dict] = []  # entries the last bulk delete removed (for Undo)
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
     # ---- plumbing ----------------------------------------------------------
@@ -176,6 +177,7 @@ class Api:
     def lock(self) -> dict:
         with self._lock:
             self._vault = None
+            self._undo = []
         self.sync_cancel()
         self._stop_connector()
         clipboard.wipe_now()
@@ -236,6 +238,37 @@ class Api:
         with self._lock:
             v.delete(entry_id)
         return {"ok": True}
+
+    def delete_entries(self, ids) -> dict:
+        """Delete several at once. What was in them is kept in memory, for Undo,
+        until it's used or MyVault locks."""
+        v = self._need()
+        with self._lock:
+            found = [e for e in (v.get(str(i)) for i in (ids or [])) if e and not e.deleted]
+            self._undo = [e.to_dict() for e in found]
+            for e in found:
+                e.wipe()
+                e.touch()
+            v.save()
+        return {"ok": True, "count": len(found)}
+
+    def undo_delete(self) -> dict:
+        """Bring back what the last delete_entries() removed. A restored entry is
+        newer than its deletion, so the next sync brings it back elsewhere too."""
+        v = self._need()
+        with self._lock:
+            back, self._undo = self._undo, []
+            for d in back:
+                restored = Entry.from_dict({**d, "deleted": False})
+                restored.touch()
+                cur = v.get(restored.id)
+                if cur:
+                    cur.__dict__.update(restored.__dict__)
+                else:
+                    v.entries.append(restored)
+            if back:
+                v.save()
+        return {"ok": bool(back), "count": len(back)}
 
     def read_text_file(self) -> dict:
         """Pick a key file (e.g. ~/.ssh/id_ed25519) and return its text."""

@@ -727,6 +727,86 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _search = TextEditingController();
   String _filter = 'all';
+  Set<String>? _picked; // choosing several entries (long-press starts it)
+
+  void _pick(String id) => setState(() {
+    final p = _picked ??= {};
+    p.contains(id) ? p.remove(id) : p.add(id);
+  });
+
+  Future<void> _deletePicked() async {
+    final ids = _picked!.toList();
+    if (ids.isEmpty) return;
+    final names = [for (final id in ids) v.getById(id)?.displayName() ?? ''];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(
+          tr(
+            ids.length == 1
+                ? 'Delete 1 entry?'
+                : 'Delete ${ids.length} entries?',
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final n in names.take(6))
+              Text('• $n', maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (names.length > 6) Text(tr('and ${names.length - 6} more')),
+            const SizedBox(height: 10),
+            Text(
+              tr(
+                "They're removed from this phone now, and from your PC at the next sync. You can undo this straight after.",
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(tr('Keep them')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(
+              tr('Delete'),
+              style: TextStyle(color: Envelope.of(c).red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final gone = v.deleteMany(ids);
+    setState(() => _picked = null);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text(
+            tr(
+              gone.length == 1
+                  ? 'Deleted 1 entry.'
+                  : 'Deleted ${gone.length} entries.',
+            ),
+          ),
+          action: SnackBarAction(
+            label: tr('Undo'),
+            onPressed: () {
+              final vault = Session.vault;
+              // locked meanwhile: nothing to bring back
+              if (vault == null) return;
+              vault.undoDelete(gone);
+              if (mounted) setState(() {});
+            },
+          ),
+        ),
+      );
+  }
+
   Vault get v => Session.vault!;
 
   @override
@@ -867,151 +947,213 @@ class _HomePageState extends State<HomePage> {
       for (final k in kindDefs.keys)
         k: v.activeEntries().where((x) => x.kind == k).length,
     };
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            EnvelopeMark(width: 24),
-            SizedBox(width: 10),
-            Text(tr('MyVault')),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: _sync,
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: tr('Sync with PC'),
-          ),
-          IconButton(
-            onPressed: Session.lock,
-            icon: const Icon(Icons.lock_outline),
-            tooltip: tr('Lock'),
-          ),
-          PopupMenuButton<String>(
-            onSelected: _menu,
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'gen',
-                child: Text(tr('Password generator')),
-              ),
-              PopupMenuItem(
-                value: 'health',
-                child: Text(tr('Password health')),
-              ),
-              PopupMenuItem(
-                value: 'paper',
-                child: Text(tr('Restore from paper')),
-              ),
-              PopupMenuItem(
-                value: 'master',
-                child: Text(tr('Change master password')),
-              ),
-              PopupMenuItem(value: 'autolock', child: Text(tr('Auto-lock'))),
-              PopupMenuItem(
-                value: 'autofill',
-                child: Text(tr('Autofill in other apps')),
-              ),
-              if (!upd.storeBuild)
-                PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
-              PopupMenuItem(value: 'documents', child: Text(tr('Documents'))),
-              PopupMenuItem(value: 'language', child: Text(tr('Language'))),
-              PopupMenuItem(value: 'about', child: Text(tr('About & privacy'))),
-              PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            color: e.panel,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _search,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    prefixIcon: Icon(Icons.search, size: 20),
-                    hintText: tr('Search'),
-                  ),
+    final picked = _picked;
+    return PopScope(
+      canPop: picked == null,
+      onPopInvokedWithResult: (_, _) {
+        if (picked != null) setState(() => _picked = null);
+      },
+      child: Scaffold(
+        appBar: picked != null
+            ? AppBar(
+                leading: IconButton(
+                  tooltip: tr('Done'),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _picked = null),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 34,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (final f in [
-                        ('all', tr('All')),
-                        for (final k in kindDefs.entries)
-                          (k.key, tr(k.value.plural)),
-                      ])
-                        if (f.$1 == 'all' || counts[f.$1]! > 0)
-                          Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 6),
-                            child: ChoiceChip(
-                              label: Text(
-                                '${f.$2}  ${f.$1 == 'all' ? v.activeEntries().length : counts[f.$1]}',
-                              ),
-                              selected: _filter == f.$1,
-                              onSelected: (_) => setState(() => _filter = f.$1),
-                            ),
-                          ),
+                title: Text(tr('${picked.length} selected')),
+                actions: [
+                  IconButton(
+                    tooltip: tr(
+                      items.every((x) => picked.contains(x.id))
+                          ? 'Select none'
+                          : 'Select all',
+                    ),
+                    icon: const Icon(Icons.select_all),
+                    onPressed: () => setState(() {
+                      final all = items.every((x) => picked.contains(x.id));
+                      for (final x in items) {
+                        all ? picked.remove(x.id) : picked.add(x.id);
+                      }
+                    }),
+                  ),
+                  IconButton(
+                    tooltip: tr('Delete'),
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: picked.isEmpty ? null : _deletePicked,
+                  ),
+                ],
+              )
+            : AppBar(
+                title: Row(
+                  children: [
+                    EnvelopeMark(width: 24),
+                    SizedBox(width: 10),
+                    Text(tr('MyVault')),
+                  ],
+                ),
+                actions: [
+                  IconButton(
+                    onPressed: _sync,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    tooltip: tr('Sync with PC'),
+                  ),
+                  IconButton(
+                    onPressed: Session.lock,
+                    icon: const Icon(Icons.lock_outline),
+                    tooltip: tr('Lock'),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: _menu,
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'gen',
+                        child: Text(tr('Password generator')),
+                      ),
+                      PopupMenuItem(
+                        value: 'health',
+                        child: Text(tr('Password health')),
+                      ),
+                      PopupMenuItem(
+                        value: 'paper',
+                        child: Text(tr('Restore from paper')),
+                      ),
+                      PopupMenuItem(
+                        value: 'master',
+                        child: Text(tr('Change master password')),
+                      ),
+                      PopupMenuItem(
+                        value: 'autolock',
+                        child: Text(tr('Auto-lock')),
+                      ),
+                      PopupMenuItem(
+                        value: 'autofill',
+                        child: Text(tr('Autofill in other apps')),
+                      ),
+                      if (!upd.storeBuild)
+                        PopupMenuItem(
+                          value: 'updates',
+                          child: Text(tr('Updates')),
+                        ),
+                      PopupMenuItem(
+                        value: 'documents',
+                        child: Text(tr('Documents')),
+                      ),
+                      PopupMenuItem(
+                        value: 'language',
+                        child: Text(tr('Language')),
+                      ),
+                      PopupMenuItem(
+                        value: 'about',
+                        child: Text(tr('About & privacy')),
+                      ),
+                      PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
-          if (_search.text.isEmpty && _filter == 'all')
-            ExpiringSoon(docs: v.activeEntries(), onOpen: _open),
-          Expanded(
-            child: items.isEmpty
-                ? _Empty(
-                    empty: v.activeEntries().isEmpty,
-                    query: _search.text,
-                    onAdd: _new,
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 90),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const Divider(indent: 64),
-                    itemBuilder: (_, i) {
-                      final x = items[i];
-                      final sub = subtitleOf(x);
-                      return ListTile(
-                        leading: Glyph(kindOf(x).icon),
-                        title: Text(
-                          x.displayName(),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: x.kind == 'document'
-                            ? (docs.parseDay(x.fields['expires']) == null
-                                  ? null
-                                  : expiryText(context, x.fields['expires']!))
-                            : sub.isEmpty
-                            ? null
-                            : Text(
-                                sub,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: e.ink3),
-                              ),
-                        onTap: () => _open(x),
-                      );
-                    },
+                ],
+              ),
+        body: Column(
+          children: [
+            Container(
+              color: e.panel,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _search,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      hintText: tr('Search'),
+                    ),
                   ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _new,
-        icon: const Icon(Icons.add),
-        label: Text(tr('New')),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 34,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final f in [
+                          ('all', tr('All')),
+                          for (final k in kindDefs.entries)
+                            (k.key, tr(k.value.plural)),
+                        ])
+                          if (f.$1 == 'all' || counts[f.$1]! > 0)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 6),
+                              child: ChoiceChip(
+                                label: Text(
+                                  '${f.$2}  ${f.$1 == 'all' ? v.activeEntries().length : counts[f.$1]}',
+                                ),
+                                selected: _filter == f.$1,
+                                onSelected: (_) =>
+                                    setState(() => _filter = f.$1),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            if (_search.text.isEmpty && _filter == 'all')
+              ExpiringSoon(docs: v.activeEntries(), onOpen: _open),
+            Expanded(
+              child: items.isEmpty
+                  ? _Empty(
+                      empty: v.activeEntries().isEmpty,
+                      query: _search.text,
+                      onAdd: _new,
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.only(bottom: 90),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const Divider(indent: 64),
+                      itemBuilder: (_, i) {
+                        final x = items[i];
+                        final sub = subtitleOf(x);
+                        return ListTile(
+                          selected: picked?.contains(x.id) ?? false,
+                          leading: picked != null
+                              ? Checkbox(
+                                  value: picked.contains(x.id),
+                                  onChanged: (_) => _pick(x.id),
+                                )
+                              : Glyph(kindOf(x).icon),
+                          title: Text(
+                            x.displayName(),
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: x.kind == 'document'
+                              ? (docs.parseDay(x.fields['expires']) == null
+                                    ? null
+                                    : expiryText(context, x.fields['expires']!))
+                              : sub.isEmpty
+                              ? null
+                              : Text(
+                                  sub,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: e.ink3),
+                                ),
+                          onTap: () => picked != null ? _pick(x.id) : _open(x),
+                          onLongPress: () => _pick(x.id),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+        floatingActionButton: picked != null
+            ? null
+            : FloatingActionButton.extended(
+                onPressed: _new,
+                icon: const Icon(Icons.add),
+                label: Text(tr('New')),
+              ),
       ),
     );
   }

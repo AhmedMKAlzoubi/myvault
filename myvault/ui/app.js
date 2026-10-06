@@ -209,7 +209,8 @@
 
   // ---- state ----------------------------------------------------------------
   const S = { list: [], filter: "all", query: "", selected: null, view: "home", dirty: false,
-    pending: null, exists: true, syncTimer: null, version: "" };
+    pending: null, exists: true, syncTimer: null, version: "",
+    picking: false, picked: new Set() };       // choosing several entries (to delete them)
 
   // ---- lock screen ---------------------------------------------------------
   function renderLock(exists, msg = "") {
@@ -288,6 +289,7 @@
           iconBtn("lock", "Lock now (Ctrl+L)", () => onLocked())),
         h("div", { class: "search" }, icon("search"), search, h("kbd", {}, "Ctrl F")),
         h("div", { class: "filters", role: "tablist", "aria-label": "Filter by type", id: "filters" }),
+        h("div", { class: "pickbar", id: "pickbar" }),
         h("ul", { class: "list", id: "list", role: "listbox", "aria-label": "Entries", tabindex: "0",
           onkeydown: (e) => {
             if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveSel(e.key === "ArrowDown" ? 1 : -1); }
@@ -377,13 +379,73 @@
         ? `Nothing matches “${S.query}”.` : "No entries yet. Add your first one below."));
       return;
     }
-    ul.replaceChildren(...items.map((e) => h("li", { class: "item", role: "option", "data-id": e.id,
-      "aria-selected": String(S.selected === e.id), onclick: () => guard(() => openEntry(e.id)) },
+    renderPickbar();
+    ul.replaceChildren(...items.map((e) => h("li", { class: "item" + (S.picking && S.picked.has(e.id) ? " picked" : ""),
+      role: "option", "data-id": e.id,
+      "aria-selected": String(S.picking ? S.picked.has(e.id) : S.selected === e.id),
+      onclick: () => S.picking ? pick(e.id) : guard(() => openEntry(e.id)) },
+    S.picking && h("input", { type: "checkbox", class: "pick", checked: S.picked.has(e.id), tabindex: "-1",
+      "aria-label": `Select ${e.title}` }),
     h("span", { class: "glyph" }, icon(e.kind)),
     h("span", { style: "min-width:0" }, h("div", { class: "t" }, raw(e.title)),
       e.kind === "document" && e.expires ? expiryLine(e.expires)
         : e.subtitle && h("div", { class: "sub" }, raw(e.subtitle))))));
   }
+  // ---- choosing several entries -------------------------------------------------
+  function pick(id) {
+    S.picked.has(id) ? S.picked.delete(id) : S.picked.add(id);
+    renderList();
+  }
+  function renderPickbar() {
+    const bar = $("#pickbar");
+    if (!bar) return;
+    if (!S.picking) {
+      return bar.replaceChildren(S.list.length > 1 && h("button", { type: "button", class: "linkbtn", onclick: () => guard(() => {
+        S.picking = true; S.picked.clear(); renderList();
+      }) }, "Select"));
+    }
+    const shown = visible().map((e) => e.id);
+    const all = shown.length > 0 && shown.every((id) => S.picked.has(id));
+    bar.replaceChildren(h("b", {}, `${S.picked.size} selected`), h("span", { class: "spacer" }),
+      h("button", { type: "button", class: "linkbtn", onclick: () => {
+        shown.forEach((id) => (all ? S.picked.delete(id) : S.picked.add(id))); renderList();
+      } }, all ? "Select none" : "Select all"),
+      btn("Delete…", () => S.picked.size && askDeleteMany(), "danger sm", "trash", { disabled: !S.picked.size || null }),
+      btn("Done", () => { S.picking = false; S.picked.clear(); renderList(); }, "sm"));
+  }
+  function askDeleteMany() {
+    const ids = [...S.picked];
+    const names = ids.map((id) => (S.list.find((e) => e.id === id) || {}).title || "(untitled)");
+    const shown = names.slice(0, 8);
+    sheet(h("section", { class: "page" },
+      toolHead("trash", ids.length === 1 ? "Delete 1 entry?" : `Delete ${ids.length} entries?`,
+        "They're removed from this PC now, and from your phone at the next sync."),
+      h("div", { class: "panel" },
+        h("ul", { class: "facts" }, shown.map((n) => h("li", {}, icon("x"), h("span", {}, raw(n))))),
+        names.length > shown.length && h("p", { class: "hint" }, `and ${names.length - shown.length} more`),
+        h("p", { class: "hint" }, "You can undo this straight after. Your daily backups also keep them for 14 days."),
+        h("div", { class: "inp-row", style: "flex-wrap:wrap" },
+          btn(ids.length === 1 ? "Delete 1 entry" : `Delete ${ids.length} entries`, async () => {
+            const r = await call("delete_entries", ids);
+            S.picking = false; S.picked.clear();
+            await refresh();
+            showHome();
+            undoBar(r.count);
+          }, "danger solid", "trash"),
+          btn("Keep them", () => showHome(), "")))));
+  }
+  function undoBar(n) {
+    const bar = h("div", { class: "result", role: "status", style: "display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px" },
+      h("span", {}, n === 1 ? "Deleted 1 entry." : `Deleted ${n} entries.`),
+      btn("Undo", async () => {
+        const r = await call("undo_delete");
+        bar.remove();
+        await refresh();
+        if (r.ok) toast(r.count === 1 ? "1 entry is back." : `${r.count} entries are back.`);
+      }, "sm", "refresh"));
+    $("#sheet")?.firstElementChild?.prepend(bar);
+  }
+
   function expiryLine(iso) {
     const n = daysLeft(iso);
     return h("div", { class: "sub" + (n < 0 ? " bad" : n <= 30 ? " warn" : "") },

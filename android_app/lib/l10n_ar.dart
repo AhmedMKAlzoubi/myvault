@@ -598,8 +598,10 @@ const arabic = <String, String>{
   // ---- scanned look, downloads ----
   'As it is': 'كما هو',
   'Word': 'Word',
-  'PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size.': 'يضع PDF وWord الصفحة على ورق A4 كالنسخة المصوّرة، وتخرج بطاقة الهوية بحجمها الحقيقي.',
-  'PDF and Word put all the pages together on A4 like a photocopy; an ID card\'s front and back come out at real size, on one page.': 'يضع PDF وWord الصفحات كلها معًا على ورق A4 كالنسخة المصوّرة، ويخرج وجها بطاقة الهوية بحجمهما الحقيقي في صفحة واحدة.',
+  'PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size.':
+      'يضع PDF وWord الصفحة على ورق A4 كالنسخة المصوّرة، وتخرج بطاقة الهوية بحجمها الحقيقي.',
+  'PDF and Word put all the pages together on A4 like a photocopy; an ID card\'s front and back come out at real size, on one page.':
+      'يضع PDF وWord الصفحات كلها معًا على ورق A4 كالنسخة المصوّرة، ويخرج وجها بطاقة الهوية بحجمهما الحقيقي في صفحة واحدة.',
   'Download': 'تنزيل',
   'Download all': 'تنزيل الكل',
   'That file couldn\'t be saved.': 'تعذّر حفظ هذا الملف.',
@@ -607,8 +609,21 @@ const arabic = <String, String>{
   'Scanned': 'ممسوحة',
   'Black & white': 'أبيض وأسود',
   'Original': 'الأصلية',
-  'Scanned: white paper and crisp text, like a scanner. Black & white suits letters and contracts.': 'ممسوحة: ورق أبيض ونص واضح كالماسح الضوئي. والأبيض والأسود يناسب الرسائل والعقود.',
+  'Scanned: white paper and crisp text, like a scanner. Black & white suits letters and contracts.':
+      'ممسوحة: ورق أبيض ونص واضح كالماسح الضوئي. والأبيض والأسود يناسب الرسائل والعقود.',
   'Back': 'رجوع',
+  // ---- selecting and deleting several ----
+  '{0} selected': 'المحدد: {0}',
+  'Select all': 'تحديد الكل',
+  'Select none': 'إلغاء التحديد',
+  'Delete 1 entry?': 'حذف عنصر واحد؟',
+  'Delete {0} entries?': 'حذف {0} من العناصر؟',
+  'and {0} more': 'و{0} غيرها',
+  'Keep them': 'إبقاؤها',
+  'Deleted 1 entry.': 'حُذف عنصر واحد.',
+  'Deleted {0} entries.': 'حُذف {0} من العناصر.',
+  'Undo': 'تراجع',
+  'They\'re removed from this phone now, and from your PC at the next sync. You can undo this straight after.': 'تُزال من هذا الهاتف الآن، ومن الكمبيوتر عند المزامنة التالية. يمكنك التراجع عن هذا فورًا بعده.',
 };
 
 const arabicMonths = [

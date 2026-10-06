@@ -355,6 +355,32 @@ class Vault {
     save();
   }
 
+  /// Delete several at once; returns what was in them, for Undo.
+  List<Map<String, dynamic>> deleteMany(Iterable<String> ids) {
+    final gone = <Map<String, dynamic>>[];
+    for (final id in ids) {
+      final e = getById(id);
+      if (e == null || e.deleted) continue;
+      gone.add(e.copy().toJson());
+      e.wipe();
+      e.touch();
+    }
+    if (gone.isNotEmpty) save();
+    return gone;
+  }
+
+  /// Bring back what deleteMany() returned. A restored entry is newer than its
+  /// deletion, so the next sync brings it back on the PC too.
+  void undoDelete(List<Map<String, dynamic>> gone) {
+    for (final j in gone) {
+      final back = Entry.fromJson({...j, 'deleted': false})..touch();
+      final cur = getById(back.id);
+      cur == null ? entries.add(back) : cur.copyFrom(back);
+      cur?.updatedAt = back.updatedAt;
+    }
+    if (gone.isNotEmpty) save();
+  }
+
   void deleteById(String id) {
     final e = getById(id);
     if (e != null) {

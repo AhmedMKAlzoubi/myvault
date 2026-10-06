@@ -417,3 +417,12 @@ kbd.k { font: 11px/18px var(--font); border: 1px solid var(--rule-2); border-bot
 .totp { font-size: 18px; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
 .totp-left { color: var(--ink-3); font-size: 12px; font-variant-numeric: tabular-nums; }
 .totp-left.soon { color: var(--red); }
+/* choosing several entries */
+.pickbar { display: flex; gap: 8px; align-items: center; padding: 0 12px 8px; font-size: 12.5px; min-height: 0; }
+.pickbar:empty { display: none; }
+.pickbar .btn { height: 28px; }
+.linkbtn { all: unset; cursor: pointer; color: var(--tint); font-size: 12.5px; font-weight: 500; padding: 2px 0; }
+.linkbtn:hover { text-decoration: underline; }
+.linkbtn:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; border-radius: 3px; }
+.item .pick { width: 16px; height: 16px; margin: 0; flex: none; accent-color: var(--tint); pointer-events: none; }
+.item.picked { background: var(--tint-wash); }

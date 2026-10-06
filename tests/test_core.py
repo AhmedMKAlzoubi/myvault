@@ -672,6 +672,24 @@ def test_export_pdf_word_and_pictures():
     assert "word/document.xml" in z.namelist() and z.read("word/document.xml").count(b"<w:drawing>") == 2
 
 
+def test_delete_several_then_undo():
+    from myvault import app
+    with tempfile.TemporaryDirectory() as d:
+        api = app.Api()
+        api._vault = Vault.create(Path(d) / "v.dat", "pw-12345678")
+        ids = [api.save_entry({"kind": "note", "title": f"N{i}", "notes": f"secret {i}"})["id"] for i in range(3)]
+        assert api.delete_entries(ids[:2]) == {"ok": True, "count": 2}
+        assert [e["title"] for e in api.entries()] == ["N2"]
+        before = max(e.updated_at for e in api._vault.entries)
+        r = api.undo_delete()
+        assert r == {"ok": True, "count": 2} and sorted(e["title"] for e in api.entries()) == ["N0", "N1", "N2"]
+        assert api.entry(ids[0])["notes"] == "secret 0" and api._vault.get(ids[0]).updated_at >= before
+        assert api.undo_delete()["ok"] is False                         # only once
+        api.delete_entries([ids[2]])
+        api.lock()                                                      # locking forgets what Undo would bring back
+        assert api._undo == []
+
+
 def test_deleted_entries_keep_nothing_but_the_marker():
     with tempfile.TemporaryDirectory() as d:
         v = Vault.create(Path(d) / "v.dat", "pw-12345678")
