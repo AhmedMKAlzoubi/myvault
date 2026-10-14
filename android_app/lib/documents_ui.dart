@@ -14,6 +14,7 @@ import 'l10n_ar.dart' show arabicMonths;
 import 'theme.dart';
 import 'update.dart' as upd;
 import 'vault.dart';
+import 'vaults.dart';
 
 const _ch = MethodChannel('myvault/docs');
 
@@ -63,7 +64,19 @@ Widget expiryText(BuildContext context, String iso) {
 /// Hand the reminder schedule to Android (ReminderJob). Called after every save.
 Future<void> pushReminders(Vault v) async {
   try {
-    await _ch.invokeMethod('setReminders', jsonEncode(schedule(v.entries)));
+    await _ch.invokeMethod('setReminders', {
+      'vault': currentVault, // each vault keeps its own reminders
+      'json': jsonEncode(schedule(v.entries)),
+    });
+  } on MissingPluginException {
+    // tests: no Android side
+  }
+}
+
+/// A deleted vault's reminders stop.
+Future<void> clearReminders(String vault) async {
+  try {
+    await _ch.invokeMethod('setReminders', {'vault': vault, 'json': '[]'});
   } on MissingPluginException {
     // tests: no Android side
   }
@@ -71,7 +84,7 @@ Future<void> pushReminders(Vault v) async {
 
 /// Photos the phone took or files you picked, as (name, bytes).
 Future<List<(String, Uint8List)>> _getFiles(String how) async {
-  final got = await _ch.invokeListMethod<dynamic>(how) ?? [];
+  final got = await forResult(_ch.invokeListMethod<dynamic>(how)) ?? [];
   return [
     for (final m in got.cast<Map>()) ('${m['name']}', m['bytes'] as Uint8List),
   ];
@@ -143,6 +156,9 @@ class _CropPageState extends State<CropPage> {
   ]; // top-left, top-right, bottom-right, bottom-left
   Size? _size; // the photo, in pixels
   bool _busy = false;
+  Uint8List? _cut; // the cut-out page, once the corners are set
+  String _look = 'scan'; // scan, bw or original
+  final _looks = <String, Uint8List>{}; // each look, made once
 
   @override
   void initState() {
@@ -177,15 +193,38 @@ class _CropPageState extends State<CropPage> {
     if (mounted) setState(() => _busy = false);
   }
 
-  Future<void> _use({required bool more}) async {
+  /// Cut the page out along the corners, then show it with the "scanned" look.
+  Future<void> _crop() async {
     setState(() => _busy = true);
     try {
-      final out = await _ch.invokeMethod<Uint8List>('warp', {
+      _cut = await _ch.invokeMethod<Uint8List>('warp', {
         'bytes': _photo,
         'points': [
           for (final p in _pts) ...[p.dx, p.dy],
         ],
       });
+      _looks.clear();
+      await _setLook(_look);
+    } on PlatformException catch (e) {
+      if (mounted) _snack(context, e.message ?? "That photo couldn't be used.");
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _setLook(String look) async {
+    setState(() => _look = look);
+    if (_looks[look] != null || _cut == null) return;
+    final made = await _ch.invokeMethod<Uint8List>('enhance', {
+      'bytes': _cut,
+      'mode': look,
+    });
+    if (made != null && mounted) setState(() => _looks[look] = made);
+  }
+
+  Future<void> _use({required bool more}) async {
+    setState(() => _busy = true);
+    try {
+      final out = _looks[_look] ?? _cut;
       if (mounted && out != null) {
         Navigator.of(context).pop<CropResult>((photo: out, more: more));
       }
@@ -209,136 +248,220 @@ class _CropPageState extends State<CropPage> {
               : tr('Crop page ${widget.page}'),
         ),
         actions: [
-          IconButton(
-            tooltip: tr('Turn'),
-            icon: const Icon(Icons.rotate_right),
-            onPressed: _busy || _size == null ? null : _rotate,
-          ),
+          if (_cut == null)
+            IconButton(
+              tooltip: tr('Turn'),
+              icon: const Icon(Icons.rotate_right),
+              onPressed: _busy || _size == null ? null : _rotate,
+            ),
         ],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: _size == null
-                ? const Center(child: CircularProgressIndicator())
-                : LayoutBuilder(
-                    builder: (_, box) {
-                      final scale = [
-                        box.maxWidth / _size!.width,
-                        box.maxHeight / _size!.height,
-                      ].reduce((a, b) => a < b ? a : b);
-                      final w = _size!.width * scale, h = _size!.height * scale;
-                      final o = Offset(
-                        (box.maxWidth - w) / 2,
-                        (box.maxHeight - h) / 2,
-                      );
-                      Offset at(Offset p) => o + Offset(p.dx * w, p.dy * h);
-                      return Stack(
-                        children: [
-                          Positioned(
-                            left: o.dx,
-                            top: o.dy,
-                            width: w,
-                            height: h,
-                            child: Image.memory(_photo, gaplessPlayback: true),
-                          ),
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: _BoxPainter([
-                                for (final p in _pts) at(p),
-                              ]),
-                            ),
-                          ),
-                          for (var i = 0; i < 4; i++)
-                            Positioned(
-                              left: at(_pts[i]).dx - 24,
-                              top: at(_pts[i]).dy - 24,
-                              child: GestureDetector(
-                                onPanUpdate: (d) => setState(() {
-                                  final p =
-                                      _pts[i] +
-                                      Offset(d.delta.dx / w, d.delta.dy / h);
-                                  _pts[i] = Offset(
-                                    p.dx.clamp(0.0, 1.0),
-                                    p.dy.clamp(0.0, 1.0),
-                                  );
-                                }),
-                                child: Container(
-                                  width: 48,
-                                  height: 48,
-                                  alignment: Alignment.center,
-                                  child: Container(
-                                    width: 22,
-                                    height: 22,
-                                    decoration: BoxDecoration(
-                                      shape: BoxShape.circle,
-                                      color: e.tint.withValues(alpha: .35),
-                                      border: Border.all(
-                                        color: Colors.white,
-                                        width: 2,
+      body: _cut != null
+          ? _review(e)
+          : Column(
+              children: [
+                Expanded(
+                  child: _size == null
+                      ? const Center(child: CircularProgressIndicator())
+                      : LayoutBuilder(
+                          builder: (_, box) {
+                            final scale = [
+                              box.maxWidth / _size!.width,
+                              box.maxHeight / _size!.height,
+                            ].reduce((a, b) => a < b ? a : b);
+                            final w = _size!.width * scale,
+                                h = _size!.height * scale;
+                            final o = Offset(
+                              (box.maxWidth - w) / 2,
+                              (box.maxHeight - h) / 2,
+                            );
+                            Offset at(Offset p) =>
+                                o + Offset(p.dx * w, p.dy * h);
+                            return Stack(
+                              children: [
+                                Positioned(
+                                  left: o.dx,
+                                  top: o.dy,
+                                  width: w,
+                                  height: h,
+                                  child: Image.memory(
+                                    _photo,
+                                    gaplessPlayback: true,
+                                  ),
+                                ),
+                                Positioned.fill(
+                                  child: CustomPaint(
+                                    painter: _BoxPainter([
+                                      for (final p in _pts) at(p),
+                                    ]),
+                                  ),
+                                ),
+                                for (var i = 0; i < 4; i++)
+                                  Positioned(
+                                    left: at(_pts[i]).dx - 24,
+                                    top: at(_pts[i]).dy - 24,
+                                    child: GestureDetector(
+                                      onPanUpdate: (d) => setState(() {
+                                        final p =
+                                            _pts[i] +
+                                            Offset(
+                                              d.delta.dx / w,
+                                              d.delta.dy / h,
+                                            );
+                                        _pts[i] = Offset(
+                                          p.dx.clamp(0.0, 1.0),
+                                          p.dy.clamp(0.0, 1.0),
+                                        );
+                                      }),
+                                      child: Container(
+                                        width: 48,
+                                        height: 48,
+                                        alignment: Alignment.center,
+                                        child: Container(
+                                          width: 22,
+                                          height: 22,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: e.tint.withValues(
+                                              alpha: .35,
+                                            ),
+                                            border: Border.all(
+                                              color: Colors.white,
+                                              width: 2,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              ),
+                              ],
+                            );
+                          },
+                        ),
+                ),
+                Container(
+                  color: e.sheet,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          tr(
+                            "Drag the corners onto the document's corners. MyVault cuts it out and straightens it, which also helps it read the details.",
+                          ),
+                          style: TextStyle(color: e.ink2, fontSize: 13),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          alignment: WrapAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: _busy
+                                  ? null
+                                  : () => Navigator.of(context).pop<CropResult>(
+                                      (photo: Uint8List(0), more: false),
+                                    ),
+                              child: Text(tr('Retake')),
                             ),
-                        ],
-                      );
-                    },
-                  ),
-          ),
-          Container(
-            color: e.sheet,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-            child: SafeArea(
-              top: false,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    tr(
-                      "Drag the corners onto the document's corners. MyVault cuts it out and straightens it, which also helps it read the details.",
+                            FilledButton.icon(
+                              onPressed: _busy || _size == null ? null : _crop,
+                              icon: const Icon(Icons.crop, size: 18),
+                              label: Text(tr('Cut it out')),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
-                    style: TextStyle(color: e.ink2, fontSize: 13),
                   ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 4,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: _busy
-                            ? null
-                            : () => Navigator.of(context).pop<CropResult>((
-                                photo: Uint8List(0),
-                                more: false,
-                              )),
-                        child: Text(tr('Retake')),
-                      ),
-                      OutlinedButton.icon(
-                        onPressed: _busy || _size == null
-                            ? null
-                            : () => _use(more: true),
-                        icon: const Icon(Icons.add_a_photo_outlined, size: 18),
-                        label: Text(tr('Add another page')),
-                      ),
-                      FilledButton.icon(
-                        onPressed: _busy || _size == null
-                            ? null
-                            : () => _use(more: false),
-                        icon: const Icon(Icons.check, size: 18),
-                        label: Text(tr('Done')),
-                      ),
-                    ],
+                ),
+              ],
+            ),
+    );
+  }
+
+  /// The cut-out page, with its look: scanned (the default), black and white,
+  /// or the photo as it was.
+  Widget _review(Envelope e) {
+    final shown = _looks[_look];
+    return Column(
+      children: [
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: shown == null
+                ? const Center(child: CircularProgressIndicator())
+                : Center(child: Image.memory(shown, gaplessPlayback: true)),
+          ),
+        ),
+        Container(
+          color: e.sheet,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(value: 'scan', label: Text(tr('Scanned'))),
+                    ButtonSegment(
+                      value: 'bw',
+                      label: Text(tr('Black & white')),
+                    ),
+                    ButtonSegment(
+                      value: 'original',
+                      label: Text(tr('Original')),
+                    ),
+                  ],
+                  selected: {_look},
+                  onSelectionChanged: _busy ? null : (v) => _setLook(v.first),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  tr(
+                    'Scanned: white paper and crisp text, like a scanner. Black & white suits letters and contracts.',
                   ),
-                ],
-              ),
+                  style: TextStyle(color: e.ink2, fontSize: 12.5),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() => _cut = null),
+                      child: Text(tr('Back')),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _busy || shown == null
+                          ? null
+                          : () => _use(more: true),
+                      icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                      label: Text(tr('Add another page')),
+                    ),
+                    FilledButton.icon(
+                      onPressed: _busy || shown == null
+                          ? null
+                          : () => _use(more: false),
+                      icon: const Icon(Icons.check, size: 18),
+                      label: Text(tr('Done')),
+                    ),
+                  ],
+                ),
+              ],
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -525,45 +648,129 @@ class FileThumb extends StatelessWidget {
   }
 }
 
+/// Save decrypted copies: as they are, as PDF / Word (all the files, laid out
+/// on A4 like a photocopy, an ID card at its real size) or as PNG / JPEG.
+/// It always says first that the copy isn't encrypted.
+Future<void> downloadFiles(
+  BuildContext context,
+  Vault vault,
+  List<FileRef> files, {
+  String name = '',
+}) async {
+  final one = files.length == 1;
+  final e = Envelope.of(context);
+  final fmt = await showModalBottomSheet<String>(
+    context: context,
+    builder: (c) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 4, 18, 16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              tr('Save an unprotected copy?'),
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(
+                "The copy isn't encrypted: any app or person that can open where you save it can see it.",
+              ),
+              style: TextStyle(color: e.red),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              tr(
+                one
+                    ? 'PDF and Word put the page on A4 like a photocopy; an ID card comes out at its real size.'
+                    : 'PDF and Word put all the pages together on A4 like a photocopy; an ID card\'s front and back come out at real size, on one page.',
+              ),
+              style: TextStyle(color: e.ink3, fontSize: 12.5),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (one)
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(c, 'original'),
+                    child: Text(tr('As it is')),
+                  ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(c, 'pdf'),
+                  child: const Text('PDF'),
+                ),
+                OutlinedButton(
+                  onPressed: () => Navigator.pop(c, 'docx'),
+                  child: Text(tr('Word')),
+                ),
+                if (one)
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(c, 'png'),
+                    child: const Text('PNG'),
+                  ),
+                if (one)
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(c, 'jpeg'),
+                    child: const Text('JPEG'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  if (fmt == null || !context.mounted) return;
+  try {
+    final base = (name.trim().isNotEmpty ? name.trim() : files.first.name)
+        .replaceFirst(RegExp(r'\.[A-Za-z0-9]{1,5}$'), '');
+    const kinds = {
+      'pdf': ('pdf', 'application/pdf'),
+      'docx': (
+        'docx',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ),
+      'png': ('png', 'image/png'),
+      'jpeg': ('jpg', 'image/jpeg'),
+    };
+    final Uint8List bytes;
+    final String fileName, mime;
+    if (fmt == 'original') {
+      bytes = await openFile(vault, files.first);
+      fileName = files.first.name;
+      mime = files.first.mime;
+    } else {
+      bytes = (await _ch.invokeMethod<Uint8List>('export', {
+        'files': [for (final f in files) await openFile(vault, f)],
+        'format': fmt,
+      }))!;
+      fileName = '$base.${kinds[fmt]!.$1}';
+      mime = kinds[fmt]!.$2;
+    }
+    final done = await forResult(
+      _ch.invokeMethod<bool>('saveCopy', {
+        'bytes': bytes,
+        'name': fileName,
+        'mime': mime,
+      }),
+    );
+    if (done == true && context.mounted) _snack(context, 'Saved.');
+  } on FormatException catch (e) {
+    if (context.mounted) _snack(context, e.message);
+  } on PlatformException catch (e) {
+    if (context.mounted) {
+      _snack(context, e.message ?? "That file couldn't be saved.");
+    }
+  }
+}
+
 class FileViewerPage extends StatelessWidget {
   final Vault vault;
   final FileRef file;
   const FileViewerPage({super.key, required this.vault, required this.file});
-
-  Future<void> _save(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (c) => AlertDialog(
-        title: Text(tr('Save an unprotected copy?')),
-        content: Text(
-          tr(
-            "The copy isn't encrypted: any app or person that can open where you save it can see it.",
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(c),
-            child: Text(tr('Cancel')),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(c, true),
-            child: Text(tr('Save a copy')),
-          ),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      final done = await _ch.invokeMethod<bool>('saveCopy', {
-        'bytes': await openFile(vault, file),
-        'name': file.name,
-        'mime': file.mime,
-      });
-      if (done == true && context.mounted) _snack(context, 'Saved.');
-    } on FormatException catch (e) {
-      if (context.mounted) _snack(context, e.message);
-    }
-  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -571,9 +778,9 @@ class FileViewerPage extends StatelessWidget {
       title: Text(file.name, overflow: TextOverflow.ellipsis),
       actions: [
         IconButton(
-          tooltip: tr('Save a copy'),
+          tooltip: tr('Download'),
           icon: const Icon(Icons.download_outlined),
-          onPressed: () => _save(context),
+          onPressed: () => downloadFiles(context, vault, [file]),
         ),
       ],
     ),
@@ -654,16 +861,32 @@ class FilesView extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 22),
-        Text(
-          tr('Files'),
-          style: TextStyle(
-            fontWeight: FontWeight.w600,
-            color: e.ink2,
-            fontSize: 13,
-          ),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Text(
+              tr('Files'),
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                color: e.ink2,
+                fontSize: 13,
+              ),
+            ),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: () => downloadFiles(
+                context,
+                vault,
+                fileRefs(entry),
+                name: entry.displayName(),
+              ),
+              icon: const Icon(Icons.download_outlined, size: 18),
+              label: Text(
+                tr(fileRefs(entry).length > 1 ? 'Download all' : 'Download'),
+              ),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
         Wrap(
           spacing: 10,
           runSpacing: 10,
@@ -703,12 +926,6 @@ class FilesEditor extends StatefulWidget {
 
 class _FilesEditorState extends State<FilesEditor> {
   DocumentDraft get d => widget.draft;
-
-  @override
-  void initState() {
-    super.initState();
-    d.files = fileRefs(widget.entry);
-  }
 
   Future<void> _add(String how) async {
     try {
@@ -812,10 +1029,18 @@ class DocumentEditor extends StatefulWidget {
 }
 
 /// What the editor has collected; the page writes it into the entry on save.
+/// What the edit page is changing in an entry's files and reminders. It's
+/// filled once when the page opens: the page's list builds (and disposes) its
+/// parts as they scroll in and out of view, so they mustn't fill it.
 class DocumentDraft {
-  List<FileRef> files = [];
-  Set<int> days = {};
+  List<FileRef> files;
+  Set<int> days;
   final name = TextEditingController();
+  DocumentDraft.of(Entry e, {bool isNew = false})
+    : files = fileRefs(e),
+      days = isNew ? {30, 7} : remindDays(e).toSet() {
+    name.text = e.fields['remind_name'] ?? '';
+  }
   void writeTo(Entry e) {
     setFileRefs(e, files);
     e.fields['remind'] = (days.toList()..sort((a, b) => b - a)).join(',');
@@ -831,14 +1056,6 @@ class _DocumentEditorState extends State<DocumentEditor> {
   bool _busy = false;
   bool _check = false; // the note asks to check what was filled in
   DocumentDraft get d => widget.draft;
-
-  @override
-  void initState() {
-    super.initState();
-    d.files = fileRefs(widget.entry);
-    d.days = widget.isNew ? {30, 7} : remindDays(widget.entry).toSet();
-    d.name.text = widget.entry.fields['remind_name'] ?? '';
-  }
 
   Future<void> _add(String how) async {
     try {

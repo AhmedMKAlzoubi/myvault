@@ -74,6 +74,49 @@ void main() {
     expect((old.notes, old.updatedAt, old.deleted), ('', 5.0, true));
   });
 
+  test('delete several, then undo brings them back newer', () {
+    final dir = Directory.systemTemp.createTempSync('mv_many');
+    final v = Vault.create('${dir.path}/v.dat', 'pw-12345678');
+    final es = [
+      for (var i = 0; i < 3; i++)
+        Entry(kind: 'note', title: 'N$i', notes: 'secret $i'),
+    ];
+    es.forEach(v.add);
+    final ids = [for (final e in es) e.id];
+    final gone = v.deleteMany(ids.take(2));
+    expect(gone.length, 2);
+    expect(v.activeEntries().map((e) => e.title), ['N2']);
+    final at = v.getById(ids[0])!.updatedAt;
+    v.undoDelete(gone);
+    expect(v.activeEntries().map((e) => e.title).toSet(), {'N0', 'N1', 'N2'});
+    expect(v.getById(ids[0])!.notes, 'secret 0');
+    expect(v.getById(ids[0])!.updatedAt, greaterThanOrEqualTo(at));
+  });
+
+  test('a sync leaves kept and left-out entries as they are', () {
+    final dir = Directory.systemTemp.createTempSync('mv_held');
+    final v = Vault.create('${dir.path}/v.dat', 'pw-12345678');
+    v.entries = [
+      Entry(id: 'a', title: 'Shared', updatedAt: 100),
+      Entry(id: 'b', title: 'Kept', updatedAt: 100, localOnly: true),
+      Entry(id: 'c', title: 'Left out', updatedAt: 100),
+    ];
+    final only = {'a', 'b'};
+    final changed = v.mergeIn([
+      Entry(id: 'a', title: 'Shared v2', updatedAt: 200),
+      Entry(id: 'b', title: "PC's copy", updatedAt: 300),
+      Entry(id: 'c', title: 'Newer on the PC', updatedAt: 300),
+      Entry(id: 'n', title: 'New on the PC', updatedAt: 100),
+    ], held: (e) => e.localOnly || !only.contains(e.id));
+    expect(changed, 2);
+    expect(
+      {for (final e in v.entries) e.id: e.title},
+      {'a': 'Shared v2', 'b': 'Kept', 'c': 'Left out', 'n': 'New on the PC'},
+    );
+    final back = Vault.open('${dir.path}/v.dat', 'pw-12345678');
+    expect(back.getById('b')!.localOnly, isTrue); // the flag is kept
+  });
+
   test('old passwords are kept, newest first, at most 10', () {
     final e = Entry(password: 'first');
     for (final pw in ['second', 'second', 'third']) {

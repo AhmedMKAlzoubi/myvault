@@ -185,6 +185,21 @@ int daysLeft(String iso, [DateTime? today]) {
   return parseDay(iso)!.difference(DateTime(t.year, t.month, t.day)).inDays;
 }
 
+/// How many other apps MyVault has open for a result right now (the camera,
+/// a file picker, a save dialog). Time spent in them doesn't count toward the
+/// background auto-lock, or coming back from a slow photo would lock the vault
+/// and lose the unsaved scan. The idle auto-lock still applies.
+int awayForResult = 0;
+
+Future<T> forResult<T>(Future<T> call) async {
+  awayForResult++;
+  try {
+    return await call;
+  } finally {
+    awayForResult--;
+  }
+}
+
 // ---- encrypted files --------------------------------------------------------------
 Directory filesDir(Vault v) {
   final d = Directory('${File(v.path).parent.path}/files');

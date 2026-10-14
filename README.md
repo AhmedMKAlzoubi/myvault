@@ -44,10 +44,13 @@ uninstaller under *Settings → Apps*. No admin rights needed: it goes into
 all users". Because the installer isn't code-signed yet, Windows SmartScreen may
 say it "protected your PC": choose **More info → Run anyway**.
 
-Your vault is stored separately in `%LOCALAPPDATA%\MyVault\vault.dat`, so
-updating or uninstalling the app never touches it. **Settings → Folders** opens
-the vault folder, the program folder and the browser-extension folder in
-Explorer.
+Your vaults are stored separately in `%LOCALAPPDATA%\MyVault\` (the first one
+as `vault.dat`, others in `vaults\<id>\`), so updating never touches them.
+Uninstalling asks first: keep them (it shows the path; reinstalling opens them
+again), save a copy, or delete them too. **Settings → Folders** opens the open
+vault's folder, the program folder and the browser-extension folder in
+Explorer, and **Settings → A copy of this vault** saves an encrypted or a
+readable copy.
 
 **Run from source** (for development): double-click `run_myvault.bat`. Set it up
 once on a new machine:
@@ -138,6 +141,13 @@ travels through the camera, so nobody else on the WiFi can read or tamper with
 the exchange. The PC listens only while the code is on screen, for at most two
 minutes, and stops after one sync. The first time, Windows may ask whether
 MyVault may use the network: allow it on **private** networks.
+
+**Unlock the PC from the phone:** on the PC's lock screen choose **Unlock with
+my phone**, then scan the code from the phone's **Sync with PC**. The phone
+shows which PC and vault it is and sends the master password only for the same
+vault it has open. If the PC's vault doesn't open with it (or is another
+vault), it offers to create the phone's vault on the PC instead. Afterwards it
+offers to sync if the two differ.
 
 ## Updates
 

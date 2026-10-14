@@ -35,7 +35,7 @@ def release(folder: Path, key, platform: str, name: str, data: bytes) -> None:
     (folder / f"manifest-{platform}.sig").write_text(base64.b64encode(key.sign(raw)).decode())
 
 
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
     d = Path(d)
     os.environ["LOCALAPPDATA"] = str(d / "pc")              # PC data dir (and its package cache)
     from myvault import docs, sync, update                # noqa: E402
@@ -100,3 +100,23 @@ with tempfile.TemporaryDirectory() as d:
     assert docs.open_sealed(phone_ref)[:12] == b"\xff\xd8\xff phone ID" and s.result.files_received == 1, s.result
     print("INTEROP OK: entries converged; APK went PC -> phone and the installer phone -> PC, both verified;")
     print("            document files went both ways and open with their keys")
+
+    # The PC's lock screen: the Dart phone opens it, then they sync on the same link.
+    from myvault import app, paths                       # noqa: E402
+    api = app.Api()
+    assert api.unlock("pc-pass-123")["ok"]
+    api._vault.entries = [Entry(id="pc-only", title="On the PC", updated_at=100)]
+    vid = app._SyncProvider(api).vault_identity()[0]
+    api.lock()
+    u = sync.PairingSession(None, port=0, ttl=120, unlocker=app._Unlocker(api, paths.DEFAULT))
+    env = {k: v for k, v in env.items() if k != "MYVAULT_SYNC_URI"}
+    env.update(MYVAULT_UNLOCK_URI=u.uri.replace(u.uri.split("h=")[1].split("&")[0], "127.0.0.1"), MYVAULT_VAULT_ID=vid)
+    rc = subprocess.call([flutter, "test", "test/interop_sync_test.dart", "--plain-name", "unlock a live Python PC"],
+                         cwd=ROOT / "android_app", env=env)
+    end = time.time() + 10
+    while u.state == "waiting" and time.time() < end:
+        time.sleep(0.1)
+    assert rc == 0, "Dart unlock side failed"
+    assert u.state == "done" and api._vault is not None, u.last_error
+    assert {e.id for e in api._vault.entries} == {"pc-only", "phone-only"}
+    print("INTEROP OK: the phone unlocked the PC's vault and synced it on the same link")

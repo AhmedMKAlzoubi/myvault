@@ -25,10 +25,14 @@ import javax.crypto.spec.GCMParameterSpec
  * Android 10+ only, where the system draws the prompt itself.
  */
 class BiometricBridge(private val activity: FragmentActivity) {
-    private val file get() = File(activity.noBackupFilesDir, "unlock.bin")   // iv (12) + encrypted password
-    private val alias = "myvault_unlock"
+    // Each vault has its own Keystore key and stored password ("default" keeps
+    // the original names), so turning it on for one never touches another.
+    private var vault = "default"
+    private val file get() = File(activity.noBackupFilesDir, if (vault == "default") "unlock.bin" else "unlock-$vault.bin")
+    private val alias get() = if (vault == "default") "myvault_unlock" else "myvault_unlock_$vault"
 
     fun handle(call: MethodCall, result: MethodChannel.Result) {
+        vault = call.argument<String>("vault")?.takeIf { Regex("^(default|[0-9a-f]{32})$").matches(it) } ?: "default"
         when (call.method) {
             "status" -> result.success(mapOf("available" to available(), "enabled" to (available() && file.exists())))
             "enable" -> enable(call.argument<String>("password") ?: "", call, result)

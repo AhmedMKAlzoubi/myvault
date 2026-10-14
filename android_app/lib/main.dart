@@ -6,9 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_zxing/flutter_zxing.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pointycastle/export.dart' show InvalidCipherTextException;
 
+import 'copies.dart' as copies;
 import 'crypto.dart';
 import 'docs.dart' as docs;
 import 'documents_ui.dart';
@@ -26,6 +26,7 @@ import 'theme.dart';
 import 'update.dart' as upd;
 import 'update_ui.dart';
 import 'vault.dart';
+import 'vaults.dart';
 import 'version.dart';
 
 Future<void> main() async {
@@ -48,11 +49,9 @@ const _clipboardClear = Duration(seconds: 30);
 @visibleForTesting
 String? vaultPathOverride;
 
-Future<String> vaultFilePath() async {
-  if (vaultPathOverride != null) return vaultPathOverride!;
-  final dir = await getApplicationDocumentsDirectory();
-  return '${dir.path}/vault.dat';
-}
+/// The current vault's file (see vaults.dart).
+Future<String> vaultFilePath() async =>
+    vaultPathOverride ?? await vaultPathOf(currentVault);
 
 final _nav = GlobalKey<NavigatorState>();
 
@@ -64,6 +63,7 @@ Future<Vault> _openVault(String path, String pw, bool exists) =>
 /// Holds the open vault and locks it when the app is backgrounded or idle.
 class Session {
   static Vault? vault;
+  static String vaultName = 'My vault'; // shown on the home page
   static DateTime? _pausedAt;
   static Timer? _idle;
 
@@ -116,17 +116,21 @@ class Session {
     }
   }
 
-  static void lock([String msg = '']) {
+  static void lock([String msg = '', bool create = false]) {
     vault = null;
     _idle?.cancel();
     _Clip.wipe();
     _nav.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => UnlockPage(message: msg)),
+      MaterialPageRoute(
+        builder: (_) => UnlockPage(message: msg, create: create),
+      ),
       (_) => false,
     );
   }
 
-  static void paused() => _pausedAt = DateTime.now();
+  // (not while MyVault itself opened another app for a result: see docs.forResult)
+  static void paused() =>
+      _pausedAt = docs.awayForResult > 0 ? null : DateTime.now();
   static void resumed() {
     final p = _pausedAt;
     _pausedAt = null;
@@ -453,7 +457,8 @@ Widget pwText(BuildContext c, String pw, {double size = 18}) {
 // =====================================================================
 class UnlockPage extends StatefulWidget {
   final String message;
-  const UnlockPage({super.key, this.message = ''});
+  final bool create; // straight to "New vault"
+  const UnlockPage({super.key, this.message = '', this.create = false});
   @override
   State<UnlockPage> createState() => _UnlockPageState();
 }
@@ -465,19 +470,52 @@ class _UnlockPageState extends State<UnlockPage> {
   bool _bio = false; // fingerprint unlock is on
   late String _error = widget.message;
   String _path = '';
+  List<VaultInfo> _vaults = const [];
+  late bool _creating = widget.create; // making a new vault
+  final _name = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     () async {
-      _path = await vaultFilePath();
-      _exists = File(_path).existsSync();
-      if (_exists) _bio = (await bioStatus()).$2;
+      _vaults = await vaultList();
+      final last = (await upd.loadPrefs())['last_vault'];
+      await _pickVault(
+        _vaults.any((v) => v.id == last) ? last as String : defaultVault,
+      );
       if (mounted) setState(() => _loading = false);
       // Straight to the fingerprint, unless it locked itself while in use.
-      if (_bio && widget.message.isEmpty) _withFingerprint();
+      if (_bio && !_creating && widget.message.isEmpty) _withFingerprint();
     }();
   }
+
+  Future<void> _addCopy() async {
+    try {
+      final files = await copies.pickCopy();
+      if (files == null) return;
+      final id = await copies.addCopy(files);
+      _vaults = await vaultList();
+      _error = '';
+      await _pickVault(id);
+    } on FormatException catch (x) {
+      if (mounted) setState(() => _error = tr(x.message));
+    }
+  }
+
+  Future<void> _pickVault(String id) async {
+    currentVault = id;
+    _path = await vaultFilePath();
+    _exists = File(_path).existsSync();
+    _bio = _exists && (await bioStatus()).$2;
+    if (mounted) setState(() {});
+  }
+
+  String get _vaultName => _vaults
+      .firstWhere(
+        (v) => v.id == currentVault,
+        orElse: () => const VaultInfo(defaultVault, 'My vault'),
+      )
+      .name;
 
   Future<void> _withFingerprint() async {
     try {
@@ -497,8 +535,11 @@ class _UnlockPageState extends State<UnlockPage> {
   Future<void> _offerFingerprint(String pw) async {
     final (can, on) = await bioStatus();
     final prefs = await upd.loadPrefs();
-    if (!can || on || prefs['bio_offered'] == true || !mounted) return;
-    prefs['bio_offered'] = true;
+    final asked = currentVault == defaultVault
+        ? 'bio_offered'
+        : 'bio_offered_$currentVault';
+    if (!can || on || prefs[asked] == true || !mounted) return;
+    prefs[asked] = true;
     await upd.savePrefs(prefs);
     if (!mounted) return;
     final yes = await showDialog<bool>(
@@ -527,10 +568,22 @@ class _UnlockPageState extends State<UnlockPage> {
 
   Future<void> _submit() async {
     final pw = _pw1.text;
+    final name = _name.text.trim();
+    if (_creating && name.isEmpty) {
+      return setState(
+        () => _error = tr('Give the vault a name, such as Work or Home.'),
+      );
+    }
+    if (_creating &&
+        _vaults.any((v) => v.name.toLowerCase() == name.toLowerCase())) {
+      return setState(
+        () => _error = tr('You already have a vault called $name.'),
+      );
+    }
     if (pw.isEmpty) {
       return setState(() => _error = tr('Enter your master password.'));
     }
-    if (!_exists) {
+    if (!_exists || _creating) {
       if (pw.length < 8) {
         return setState(
           () => _error = tr(
@@ -542,6 +595,10 @@ class _UnlockPageState extends State<UnlockPage> {
         return setState(() => _error = tr("The two passwords don't match."));
       }
     }
+    if (_creating) {
+      await _pickVault(await newVault(name));
+      _vaults = await vaultList();
+    }
     await _open(pw);
   }
 
@@ -552,9 +609,13 @@ class _UnlockPageState extends State<UnlockPage> {
     });
     try {
       final vault = await _openVault(_path, pw, _exists);
+      final prefs = await upd.loadPrefs();
+      prefs['last_vault'] = currentVault; // offered first next time
+      await upd.savePrefs(prefs);
       if (!fingerprint && _exists && autofillRequest == null) {
         await _offerFingerprint(pw);
       }
+      Session.vaultName = _vaultName;
       Session.open(vault);
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
@@ -628,7 +689,15 @@ class _UnlockPageState extends State<UnlockPage> {
                     ),
                     const SizedBox(height: 10),
                     Text(
-                      _exists
+                      _creating
+                          ? tr(
+                              "A new, empty vault with its own master password. It can be the same as another vault's, or different so each vault stays separate.",
+                            )
+                          : _exists && _vaults.length > 1
+                          ? tr(
+                              'Choose a vault, then enter its master password.',
+                            )
+                          : _exists
                           ? tr(
                               'Your vault is sealed. Enter your master password to open it.',
                             )
@@ -638,6 +707,38 @@ class _UnlockPageState extends State<UnlockPage> {
                       style: TextStyle(color: e.ink2, height: 1.4),
                     ),
                     const SizedBox(height: 18),
+                    if (_creating) ...[
+                      TextField(
+                        controller: _name,
+                        autofocus: true,
+                        maxLength: 40,
+                        decoration: InputDecoration(
+                          labelText: tr('Vault name, such as Work or Home'),
+                          counterText: '',
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                    ] else if (_vaults.length > 1) ...[
+                      DropdownButtonFormField<String>(
+                        key: ValueKey(currentVault),
+                        initialValue: currentVault,
+                        isExpanded: true,
+                        decoration: InputDecoration(labelText: tr('Vault')),
+                        items: [
+                          for (final v in _vaults)
+                            DropdownMenuItem(
+                              value: v.id,
+                              child: Text(vaultLabel(v.name)),
+                            ),
+                        ],
+                        onChanged: _busy
+                            ? null
+                            : (id) {
+                                if (id != null) _pickVault(id);
+                              },
+                      ),
+                      const SizedBox(height: 10),
+                    ],
                     TextField(
                       controller: _pw1,
                       obscureText: true,
@@ -649,10 +750,13 @@ class _UnlockPageState extends State<UnlockPage> {
                               : 'Choose a master password',
                         ),
                       ),
-                      onChanged: _exists ? null : (_) => setState(() {}),
-                      onSubmitted: (_) => _exists ? _submit() : null,
+                      onChanged: _exists && !_creating
+                          ? null
+                          : (_) => setState(() {}),
+                      onSubmitted: (_) =>
+                          _exists && !_creating ? _submit() : null,
                     ),
-                    if (!_exists) ...[
+                    if (!_exists || _creating) ...[
                       const SizedBox(height: 10),
                       TextField(
                         controller: _pw2,
@@ -692,11 +796,15 @@ class _UnlockPageState extends State<UnlockPage> {
                       onPressed: _busy ? null : _submit,
                       child: Text(
                         _busy
-                            ? (_exists ? tr('Opening…') : tr('Creating…'))
+                            ? (_exists && !_creating
+                                  ? tr('Opening…')
+                                  : tr('Creating…'))
+                            : _creating
+                            ? tr('Create vault')
                             : (_exists ? tr('Unlock') : tr('Create my vault')),
                       ),
                     ),
-                    if (_bio) ...[
+                    if (_bio && !_creating) ...[
                       const SizedBox(height: 8),
                       OutlinedButton.icon(
                         onPressed: _busy ? null : _withFingerprint,
@@ -704,6 +812,23 @@ class _UnlockPageState extends State<UnlockPage> {
                         label: Text(tr('Use fingerprint')),
                       ),
                     ],
+                    if (_creating ||
+                        _vaults.any((v) => v.id == currentVault) && _exists)
+                      TextButton(
+                        onPressed: _busy
+                            ? null
+                            : () => setState(() {
+                                _creating = !_creating;
+                                _error = '';
+                                if (!_creating) _pickVault(currentVault);
+                              }),
+                        child: Text(tr(_creating ? 'Back' : 'New vault…')),
+                      ),
+                    if (!_creating)
+                      TextButton(
+                        onPressed: _busy ? null : _addCopy,
+                        child: Text(tr('Add a vault from a copy…')),
+                      ),
                   ],
                 ),
               ),
@@ -727,6 +852,111 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   final _search = TextEditingController();
   String _filter = 'all';
+  Set<String>? _picked; // choosing several entries (long-press starts it)
+
+  void _pick(String id) => setState(() {
+    final p = _picked ??= {};
+    p.contains(id) ? p.remove(id) : p.add(id);
+  });
+
+  /// Keep the chosen entries on this phone only, or let them sync again.
+  void _setLocal(bool on) {
+    final n = _picked!.length;
+    for (final id in _picked!) {
+      final x = v.getById(id);
+      if (x == null || x.deleted) continue;
+      x.localOnly = on;
+      x.touch(); // so a "sync again" goes out at the next sync
+    }
+    v.save();
+    setState(() => _picked = null);
+    _snack(
+      context,
+      tr(
+        on
+            ? (n == 1
+                  ? "1 entry is kept on this phone: it won't sync."
+                  : "$n entries are kept on this phone: they won't sync.")
+            : (n == 1
+                  ? '1 entry will sync again.'
+                  : '$n entries will sync again.'),
+      ),
+    );
+  }
+
+  Future<void> _deletePicked() async {
+    final ids = _picked!.toList();
+    if (ids.isEmpty) return;
+    final names = [for (final id in ids) v.getById(id)?.displayName() ?? ''];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text(
+          tr(
+            ids.length == 1
+                ? 'Delete 1 entry?'
+                : 'Delete ${ids.length} entries?',
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final n in names.take(6))
+              Text('• $n', maxLines: 1, overflow: TextOverflow.ellipsis),
+            if (names.length > 6) Text(tr('and ${names.length - 6} more')),
+            const SizedBox(height: 10),
+            Text(
+              tr(
+                "They're removed from this phone now, and from your PC at the next sync. You can undo this straight after.",
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: Text(tr('Keep them')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: Text(
+              tr('Delete'),
+              style: TextStyle(color: Envelope.of(c).red),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final gone = v.deleteMany(ids);
+    setState(() => _picked = null);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 10),
+          content: Text(
+            tr(
+              gone.length == 1
+                  ? 'Deleted 1 entry.'
+                  : 'Deleted ${gone.length} entries.',
+            ),
+          ),
+          action: SnackBarAction(
+            label: tr('Undo'),
+            onPressed: () {
+              final vault = Session.vault;
+              // locked meanwhile: nothing to bring back
+              if (vault == null) return;
+              vault.undoDelete(gone);
+              if (mounted) setState(() {});
+            },
+          ),
+        ),
+      );
+  }
+
   Vault get v => Session.vault!;
 
   @override
@@ -816,6 +1046,11 @@ class _HomePageState extends State<HomePage> {
         Navigator.of(
           context,
         ).push(MaterialPageRoute(builder: (_) => const GeneratorPage()));
+      case 'vaults':
+        await Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => const VaultsPage()));
+        if (mounted) setState(() {});
       case 'health':
         await Navigator.of(
           context,
@@ -867,151 +1102,246 @@ class _HomePageState extends State<HomePage> {
       for (final k in kindDefs.keys)
         k: v.activeEntries().where((x) => x.kind == k).length,
     };
-    return Scaffold(
-      appBar: AppBar(
-        title: Row(
-          children: [
-            EnvelopeMark(width: 24),
-            SizedBox(width: 10),
-            Text(tr('MyVault')),
-          ],
-        ),
-        actions: [
-          IconButton(
-            onPressed: _sync,
-            icon: const Icon(Icons.qr_code_scanner),
-            tooltip: tr('Sync with PC'),
-          ),
-          IconButton(
-            onPressed: Session.lock,
-            icon: const Icon(Icons.lock_outline),
-            tooltip: tr('Lock'),
-          ),
-          PopupMenuButton<String>(
-            onSelected: _menu,
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: 'gen',
-                child: Text(tr('Password generator')),
-              ),
-              PopupMenuItem(
-                value: 'health',
-                child: Text(tr('Password health')),
-              ),
-              PopupMenuItem(
-                value: 'paper',
-                child: Text(tr('Restore from paper')),
-              ),
-              PopupMenuItem(
-                value: 'master',
-                child: Text(tr('Change master password')),
-              ),
-              PopupMenuItem(value: 'autolock', child: Text(tr('Auto-lock'))),
-              PopupMenuItem(
-                value: 'autofill',
-                child: Text(tr('Autofill in other apps')),
-              ),
-              if (!upd.storeBuild)
-                PopupMenuItem(value: 'updates', child: Text(tr('Updates'))),
-              PopupMenuItem(value: 'documents', child: Text(tr('Documents'))),
-              PopupMenuItem(value: 'language', child: Text(tr('Language'))),
-              PopupMenuItem(value: 'about', child: Text(tr('About & privacy'))),
-              PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
-            ],
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Container(
-            color: e.panel,
-            padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-            child: Column(
-              children: [
-                TextField(
-                  controller: _search,
-                  onChanged: (_) => setState(() {}),
-                  decoration: InputDecoration(
-                    prefixIcon: Icon(Icons.search, size: 20),
-                    hintText: tr('Search'),
-                  ),
+    final picked = _picked;
+    return PopScope(
+      canPop: picked == null,
+      onPopInvokedWithResult: (_, _) {
+        if (picked != null) setState(() => _picked = null);
+      },
+      child: Scaffold(
+        appBar: picked != null
+            ? AppBar(
+                leading: IconButton(
+                  tooltip: tr('Done'),
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _picked = null),
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  height: 34,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    children: [
-                      for (final f in [
-                        ('all', tr('All')),
-                        for (final k in kindDefs.entries)
-                          (k.key, tr(k.value.plural)),
-                      ])
-                        if (f.$1 == 'all' || counts[f.$1]! > 0)
-                          Padding(
-                            padding: const EdgeInsetsDirectional.only(end: 6),
-                            child: ChoiceChip(
-                              label: Text(
-                                '${f.$2}  ${f.$1 == 'all' ? v.activeEntries().length : counts[f.$1]}',
-                              ),
-                              selected: _filter == f.$1,
-                              onSelected: (_) => setState(() => _filter = f.$1),
-                            ),
+                title: Text(tr('${picked.length} selected')),
+                actions: [
+                  IconButton(
+                    tooltip: tr(
+                      items.every((x) => picked.contains(x.id))
+                          ? 'Select none'
+                          : 'Select all',
+                    ),
+                    icon: const Icon(Icons.select_all),
+                    onPressed: () => setState(() {
+                      final all = items.every((x) => picked.contains(x.id));
+                      for (final x in items) {
+                        all ? picked.remove(x.id) : picked.add(x.id);
+                      }
+                    }),
+                  ),
+                  IconButton(
+                    tooltip: tr("Don't sync"),
+                    icon: const Icon(Icons.cloud_off_outlined),
+                    onPressed: picked.isEmpty ? null : () => _setLocal(true),
+                  ),
+                  IconButton(
+                    tooltip: tr('Sync again'),
+                    icon: const Icon(Icons.cloud_sync_outlined),
+                    onPressed: picked.isEmpty ? null : () => _setLocal(false),
+                  ),
+                  IconButton(
+                    tooltip: tr('Delete'),
+                    icon: const Icon(Icons.delete_outline),
+                    onPressed: picked.isEmpty ? null : _deletePicked,
+                  ),
+                ],
+              )
+            : AppBar(
+                title: Row(
+                  children: [
+                    const EnvelopeMark(width: 24),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tr('MyVault')),
+                          Text(
+                            vaultLabel(Session.vaultName),
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 12, color: e.ink3),
                           ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  IconButton(
+                    onPressed: _sync,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    tooltip: tr('Sync with PC'),
+                  ),
+                  IconButton(
+                    onPressed: Session.lock,
+                    icon: const Icon(Icons.lock_outline),
+                    tooltip: tr('Lock'),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: _menu,
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'gen',
+                        child: Text(tr('Password generator')),
+                      ),
+                      PopupMenuItem(value: 'vaults', child: Text(tr('Vaults'))),
+                      PopupMenuItem(
+                        value: 'health',
+                        child: Text(tr('Password health')),
+                      ),
+                      PopupMenuItem(
+                        value: 'paper',
+                        child: Text(tr('Restore from paper')),
+                      ),
+                      PopupMenuItem(
+                        value: 'master',
+                        child: Text(tr('Change master password')),
+                      ),
+                      PopupMenuItem(
+                        value: 'autolock',
+                        child: Text(tr('Auto-lock')),
+                      ),
+                      PopupMenuItem(
+                        value: 'autofill',
+                        child: Text(tr('Autofill in other apps')),
+                      ),
+                      if (!upd.storeBuild)
+                        PopupMenuItem(
+                          value: 'updates',
+                          child: Text(tr('Updates')),
+                        ),
+                      PopupMenuItem(
+                        value: 'documents',
+                        child: Text(tr('Documents')),
+                      ),
+                      PopupMenuItem(
+                        value: 'language',
+                        child: Text(tr('Language')),
+                      ),
+                      PopupMenuItem(
+                        value: 'about',
+                        child: Text(tr('About & privacy')),
+                      ),
+                      PopupMenuItem(value: 'lock', child: Text(tr('Lock now'))),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
-          if (_search.text.isEmpty && _filter == 'all')
-            ExpiringSoon(docs: v.activeEntries(), onOpen: _open),
-          Expanded(
-            child: items.isEmpty
-                ? _Empty(
-                    empty: v.activeEntries().isEmpty,
-                    query: _search.text,
-                    onAdd: _new,
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 90),
-                    itemCount: items.length,
-                    separatorBuilder: (_, _) => const Divider(indent: 64),
-                    itemBuilder: (_, i) {
-                      final x = items[i];
-                      final sub = subtitleOf(x);
-                      return ListTile(
-                        leading: Glyph(kindOf(x).icon),
-                        title: Text(
-                          x.displayName(),
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: x.kind == 'document'
-                            ? (docs.parseDay(x.fields['expires']) == null
-                                  ? null
-                                  : expiryText(context, x.fields['expires']!))
-                            : sub.isEmpty
-                            ? null
-                            : Text(
-                                sub,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(color: e.ink3),
-                              ),
-                        onTap: () => _open(x),
-                      );
-                    },
+                ],
+              ),
+        body: Column(
+          children: [
+            Container(
+              color: e.panel,
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+              child: Column(
+                children: [
+                  TextField(
+                    controller: _search,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      prefixIcon: Icon(Icons.search, size: 20),
+                      hintText: tr('Search'),
+                    ),
                   ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _new,
-        icon: const Icon(Icons.add),
-        label: Text(tr('New')),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 34,
+                    child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      children: [
+                        for (final f in [
+                          ('all', tr('All')),
+                          for (final k in kindDefs.entries)
+                            (k.key, tr(k.value.plural)),
+                        ])
+                          if (f.$1 == 'all' || counts[f.$1]! > 0)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 6),
+                              child: ChoiceChip(
+                                label: Text(
+                                  '${f.$2}  ${f.$1 == 'all' ? v.activeEntries().length : counts[f.$1]}',
+                                ),
+                                selected: _filter == f.$1,
+                                onSelected: (_) =>
+                                    setState(() => _filter = f.$1),
+                              ),
+                            ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(),
+            if (_search.text.isEmpty && _filter == 'all')
+              ExpiringSoon(docs: v.activeEntries(), onOpen: _open),
+            Expanded(
+              child: items.isEmpty
+                  ? _Empty(
+                      empty: v.activeEntries().isEmpty,
+                      query: _search.text,
+                      onAdd: _new,
+                    )
+                  : ListView.separated(
+                      padding: const EdgeInsets.only(bottom: 90),
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const Divider(indent: 64),
+                      itemBuilder: (_, i) {
+                        final x = items[i];
+                        final sub = subtitleOf(x);
+                        return ListTile(
+                          selected: picked?.contains(x.id) ?? false,
+                          leading: picked != null
+                              ? Checkbox(
+                                  value: picked.contains(x.id),
+                                  onChanged: (_) => _pick(x.id),
+                                )
+                              : Glyph(kindOf(x).icon),
+                          title: Text(
+                            x.displayName(),
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: x.kind == 'document'
+                              ? (docs.parseDay(x.fields['expires']) == null
+                                    ? null
+                                    : expiryText(context, x.fields['expires']!))
+                              : sub.isEmpty
+                              ? null
+                              : Text(
+                                  sub,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: e.ink3),
+                                ),
+                          trailing: x.localOnly
+                              ? Tooltip(
+                                  message: tr('Kept on this phone: not synced'),
+                                  child: Icon(
+                                    Icons.cloud_off_outlined,
+                                    size: 18,
+                                    color: e.ink3,
+                                  ),
+                                )
+                              : null,
+                          onTap: () => picked != null ? _pick(x.id) : _open(x),
+                          onLongPress: () => _pick(x.id),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+        floatingActionButton: picked != null
+            ? null
+            : FloatingActionButton.extended(
+                onPressed: _new,
+                icon: const Icon(Icons.add),
+                label: Text(tr('New')),
+              ),
       ),
     );
   }
@@ -1606,8 +1936,9 @@ class _EntryEditPageState extends State<EntryEditPage> {
       ],
   ];
 
-  final _doc = DocumentDraft();
+  late final _doc = DocumentDraft.of(_e, isNew: widget.isNew);
   final _docKey = GlobalKey();
+  late bool _local = _e.localOnly; // kept on this phone only
   final _auto = <String>{}; // boxes filled in from a scan, until changed
 
   void _save() {
@@ -1632,6 +1963,7 @@ class _EntryEditPageState extends State<EntryEditPage> {
       docs.setFileRefs(n, _doc.files); // FilesEditor's
     }
     if (n.kind != 'note') n.notes = _notes.text;
+    n.localOnly = _local;
     n.custom = {
       for (final r in _custom)
         if (r[0].text.trim().isNotEmpty) r[0].text.trim(): r[1].text,
@@ -2057,6 +2389,17 @@ class _EntryEditPageState extends State<EntryEditPage> {
               decoration: InputDecoration(labelText: tr('Notes')),
             ),
           ],
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _local,
+            onChanged: (v) => setState(() => _local = v),
+            title: Text(tr('Keep on this phone only')),
+            subtitle: Text(
+              tr(
+                'It never goes to your PC when you sync, and a copy from the PC never replaces it.',
+              ),
+            ),
+          ),
           const SizedBox(height: 18),
           Row(
             children: [
@@ -2432,12 +2775,34 @@ class SyncPage extends StatefulWidget {
 class _SyncPageState extends State<SyncPage> {
   String _state = 'intro'; // intro | scan | busy | done | error
   String _msg = '';
+  Set<String>? _only; // just these of this phone's entries (null: everything)
+  String _code = ''; // the last code scanned (still valid for a retry)
+  bool _mismatch = false; // the PC had another vault open
 
-  Future<void> _run(String raw) async {
+  Future<void> _choose() async {
+    final picked = await Navigator.of(context).push<Set<String>>(
+      MaterialPageRoute(builder: (_) => const ChooseSyncPage()),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _only = picked;
+      _state = 'scan';
+    });
+  }
+
+  Future<void> _run(String raw, {bool anyway = false}) async {
+    _code = raw;
     setState(() => _state = 'busy');
-    final r = await qrsync.syncWithCode(raw, Session.vault!);
+    final r = await qrsync.syncWithCode(
+      raw,
+      Session.vault!,
+      only: _only,
+      mergeAnyway: anyway,
+      vaultName: Session.vaultName,
+    );
     if (!mounted) return;
     setState(() {
+      _mismatch = r.vaultMismatch;
       _state = r.ok ? 'done' : 'error';
       _msg = r.ok
           ? tr(
@@ -2455,6 +2820,110 @@ class _SyncPageState extends State<SyncPage> {
         ),
       );
     }
+  }
+
+  Future<bool> _ask(
+    String title,
+    String body,
+    String yes, {
+    String no = 'Cancel',
+  }) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text(tr(no)),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(tr(yes)),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  /// The PC's lock screen code: open the PC's vault from this phone.
+  Future<void> _unlock(String raw) async {
+    setState(() => _state = 'busy');
+    final mine = vaultLabel(Session.vaultName);
+    final r = await qrsync.unlockWithCode(
+      raw,
+      Session.vault!,
+      vaultName: Session.vaultName,
+      decide: (pc, v, why) async {
+        final theirs = vaultLabel(v);
+        final String title, body, yes;
+        switch (why) {
+          case 'same':
+          case 'unknown':
+            title = tr('Open “$theirs” on $pc?');
+            body = why == 'same'
+                ? tr(
+                    "This phone sends the vault's master password to that PC over the code's one-time encrypted link.",
+                  )
+                : tr(
+                    "This phone and that PC haven't synced this vault yet, so MyVault can't check it's the same vault. "
+                    "Only go on if it's your PC and “$theirs” has the same master password as “$mine” on this phone.",
+                  );
+            yes = 'Open it';
+          case 'other':
+            title = tr('A different vault');
+            body = tr(
+              "The PC is showing “$theirs”, not “$mine” that's open on this phone, so MyVault won't send this phone's password. "
+              "Choose the same vault on the PC, or create one there from this phone's: the same name, master password and entries. The PC's own vault stays as it is.",
+            );
+            yes = 'Create on PC';
+          default: // 'wrong'
+            title = tr('The master passwords differ');
+            body = tr(
+              "“$theirs” on the PC doesn't open with this phone's master password. "
+              "Going on creates a new vault on the PC with this phone's name and master password, and syncs this phone's entries into it. "
+              "The PC's own vault stays as it is.",
+            );
+            yes = 'Create on PC';
+        }
+        if (!mounted) return '';
+        return await _ask(title, body, yes)
+            ? (yes == 'Open it' ? 'unlock' : 'create')
+            : '';
+      },
+      askSync: () async =>
+          mounted &&
+          await _ask(
+            tr('Sync now?'),
+            tr(
+              "The PC is open. Its copy of the vault and this phone's aren't the same.",
+            ),
+            'Sync',
+            no: 'Not now',
+          ),
+    );
+    if (!mounted) return;
+    if (!r.ok && r.error.isEmpty) {
+      return setState(() => _state = 'intro'); // stopped
+    }
+    setState(() {
+      _mismatch = false;
+      _state = r.ok ? 'done' : 'error';
+      _msg = !r.ok
+          ? r.error
+          : r.createdOnPc
+          ? tr(
+              'Made “$mine” on the PC and synced this phone\'s entries into it.',
+            )
+          : !r.synced
+          ? tr('The PC is open. Not synced: sync any time from here.')
+          : r.changed > 0 || r.peerVersion.isNotEmpty
+          ? tr(
+              'The PC is open and synced. ${r.changed} ${r.changed == 1 ? 'entry' : 'entries'} updated on this phone.${_filesNote(r)}',
+            )
+          : tr('The PC is open. Everything was already in sync.');
+    });
   }
 
   String _filesNote(qrsync.SyncResult r) => [
@@ -2503,12 +2972,14 @@ class _SyncPageState extends State<SyncPage> {
             'On your PC, open MyVault → Sync with phone → Show sync code. '
             'Hold the phone 15–30 cm from the screen.',
           ),
-          recognizes: (raw) => raw.startsWith('myvault://sync'),
+          recognizes: (raw) =>
+              raw.startsWith('myvault://sync') ||
+              raw.startsWith('myvault://unlock'),
           wrongCode: tr(
             "That QR code isn't a MyVault sync code. Point at the code in MyVault's Sync with phone screen.",
           ),
           onCode: (raw) {
-            _run(raw);
+            raw.startsWith('myvault://unlock') ? _unlock(raw) : _run(raw);
             return true;
           },
         ),
@@ -2576,14 +3047,40 @@ class _SyncPageState extends State<SyncPage> {
               ),
               child: Text(tr(_msg)),
             ),
-          if (_state != 'busy')
+          if (_state == 'error' && _mismatch) ...[
             FilledButton.icon(
-              onPressed: () => setState(() => _state = 'scan'),
-              icon: const Icon(Icons.qr_code_scanner),
-              label: Text(
-                tr(_state == 'intro' ? 'Scan sync code' : 'Scan again'),
+              onPressed: () => _run(_code, anyway: true),
+              icon: const Icon(Icons.merge_type),
+              label: Text(tr('Sync anyway')),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 14),
+              child: Text(
+                tr(
+                  "Sync anyway merges the two vaults' entries into both. Usually it's better to open the same vault on both devices.",
+                ),
+                style: TextStyle(color: e.ink3, fontSize: 12.5),
               ),
             ),
+          ],
+          if (_state != 'busy') ...[
+            FilledButton.icon(
+              onPressed: () => setState(() {
+                _only = null;
+                _state = 'scan';
+              }),
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(
+                tr(_state == 'intro' ? 'Sync everything' : 'Scan again'),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: _choose,
+              icon: const Icon(Icons.checklist),
+              label: Text(tr('Choose what to sync…')),
+            ),
+          ],
           const SizedBox(height: 24),
           fact(
             Icons.verified_user_outlined,
@@ -2598,6 +3095,82 @@ class _SyncPageState extends State<SyncPage> {
             tr('The PC stops listening after one sync, or after 2 minutes.'),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Pick which of this phone's entries take part in the next sync (all ticked
+/// to start). Pops the chosen ids.
+class ChooseSyncPage extends StatefulWidget {
+  const ChooseSyncPage({super.key});
+  @override
+  State<ChooseSyncPage> createState() => _ChooseSyncPageState();
+}
+
+class _ChooseSyncPageState extends State<ChooseSyncPage> {
+  late final List<Entry> _shared = [
+    for (final e in Session.vault!.search(''))
+      if (!e.localOnly) e,
+  ];
+  late final List<Entry> _kept = [
+    for (final e in Session.vault!.search(''))
+      if (e.localOnly) e,
+  ];
+  late final Set<String> _on = {for (final e in _shared) e.id};
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    final all = _on.length == _shared.length;
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(tr('${_on.length} of ${_shared.length} chosen')),
+        actions: [
+          TextButton(
+            onPressed: () => setState(
+              () => all ? _on.clear() : _on.addAll(_shared.map((x) => x.id)),
+            ),
+            child: Text(tr(all ? 'Select none' : 'Select all')),
+          ),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.only(bottom: 90),
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 10, 18, 6),
+            child: Text(
+              tr(
+                'Untick what shouldn\'t sync this time. It stays as it is on this phone; new entries from your PC still arrive.',
+              ),
+              style: TextStyle(color: e.ink2),
+            ),
+          ),
+          for (final x in _shared)
+            CheckboxListTile(
+              value: _on.contains(x.id),
+              onChanged: (v) =>
+                  setState(() => v == true ? _on.add(x.id) : _on.remove(x.id)),
+              secondary: Glyph(kindOf(x).icon),
+              title: Text(x.displayName()),
+            ),
+          if (_kept.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+              child: Text(
+                tr(
+                  'Kept on this phone, so they never sync: ${_kept.map((x) => x.displayName()).join(', ')}.',
+                ),
+                style: TextStyle(color: e.ink3, fontSize: 12.5),
+              ),
+            ),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.of(context).pop(_on),
+        icon: const Icon(Icons.qr_code_scanner),
+        label: Text(tr('Scan sync code')),
       ),
     );
   }
@@ -2941,6 +3514,339 @@ class _AutoLockPageState extends State<AutoLockPage> {
               'Shorter is safer. "Immediately" also locks when you briefly switch apps to copy something.',
             ),
             style: TextStyle(color: e.ink3, fontSize: 12.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =====================================================================
+//  Vaults: several, each with its own master password
+// =====================================================================
+class VaultsPage extends StatefulWidget {
+  const VaultsPage({super.key});
+  @override
+  State<VaultsPage> createState() => _VaultsPageState();
+}
+
+class _VaultsPageState extends State<VaultsPage> {
+  List<VaultInfo> _vaults = const [];
+  String _about = ''; // which "!" is open: 'enc' or 'read'
+
+  String get _fileName {
+    final d = DateTime.now();
+    String two(int n) => '$n'.padLeft(2, '0');
+    return '${vaultLabel(Session.vaultName)} ${d.year}-${two(d.month)}-${two(d.day)}';
+  }
+
+  Future<void> _saveCopy(bool readable) async {
+    final v = Session.vault!;
+    if (readable) {
+      final pw = TextEditingController();
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          title: Text(tr("A readable copy isn't encrypted")),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                tr(
+                  'Anyone who gets the file can read every password, key and document in it. Keep it out of email and cloud storage, and delete it when you\'re done.',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: pw,
+                obscureText: true,
+                decoration: InputDecoration(
+                  labelText: tr("This vault's master password"),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: Text(tr('Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(d, true),
+              child: Text(tr('Save readable copy')),
+            ),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      if (pw.text != v.password) {
+        return _say(tr("That isn't this vault's master password."));
+      }
+    }
+    try {
+      final files = readable
+          ? await copies.readableCopy(v, vaultLabel(Session.vaultName))
+          : copies.encryptedCopy(v, Session.vaultName);
+      final saved = await copies.saveCopy(
+        files,
+        'MyVault $_fileName${readable ? ' READABLE' : ''}.zip',
+      );
+      if (saved) _say(tr('Copy saved.'));
+    } catch (_) {
+      _say(tr("Couldn't save the copy."));
+    }
+  }
+
+  void _say(String msg) {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    }
+  }
+
+  Widget _copyRow(String label, String key, String about, VoidCallback go) {
+    final e = Envelope.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            OutlinedButton.icon(
+              onPressed: go,
+              icon: const Icon(Icons.download_outlined, size: 18),
+              label: Text(tr(label)),
+            ),
+            IconButton(
+              tooltip: tr('What does this mean?'),
+              onPressed: () =>
+                  setState(() => _about = _about == key ? '' : key),
+              icon: Icon(Icons.error_outline, color: e.tint),
+            ),
+          ],
+        ),
+        if (_about == key)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              tr(about),
+              style: TextStyle(color: e.ink2, fontSize: 13),
+            ),
+          ),
+      ],
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    vaultList().then((v) {
+      if (mounted) setState(() => _vaults = v);
+    });
+  }
+
+  Future<void> _rename() async {
+    final c = TextEditingController(text: Session.vaultName);
+    final name = await showDialog<String>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: Text(tr('Rename this vault')),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          maxLength: 40,
+          decoration: InputDecoration(labelText: tr('Vault name')),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(d),
+            child: Text(tr('Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(d, c.text.trim()),
+            child: Text(tr('Rename')),
+          ),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    if (_vaults.any(
+      (v) => v.id != currentVault && v.name.toLowerCase() == name.toLowerCase(),
+    )) {
+      return _snack(context, tr('You already have a vault called $name.'));
+    }
+    await saveVaults([
+      for (final v in _vaults) v.id == currentVault ? VaultInfo(v.id, name) : v,
+    ]);
+    Session.vaultName = name;
+    _vaults = await vaultList();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _delete() async {
+    final typed = TextEditingController(), pw = TextEditingController();
+    String error = '';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => StatefulBuilder(
+        builder: (d, set) => AlertDialog(
+          title: Text(tr('Delete “${Session.vaultName}” from this phone?')),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  tr(
+                    "Its entries, files and reminders are removed from this phone for good. It isn't deleted from your PC: a copy there stays.",
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  tr('To be sure, type its name and its master password.'),
+                  style: TextStyle(color: Envelope.of(d).ink3, fontSize: 12.5),
+                ),
+                TextField(
+                  controller: typed,
+                  decoration: InputDecoration(labelText: Session.vaultName),
+                ),
+                TextField(
+                  controller: pw,
+                  obscureText: true,
+                  decoration: InputDecoration(
+                    labelText: tr('Its master password'),
+                  ),
+                ),
+                if (error.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      error,
+                      style: TextStyle(color: Envelope.of(d).red),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(d),
+              child: Text(tr('Keep it')),
+            ),
+            TextButton(
+              onPressed: () {
+                final t = typed.text.trim();
+                if (t != Session.vaultName &&
+                    t != vaultLabel(Session.vaultName)) {
+                  return set(
+                    () => error = tr(
+                      "Type the vault's name exactly as it is to delete it.",
+                    ),
+                  );
+                }
+                if (pw.text != Session.vault?.password) {
+                  return set(
+                    () =>
+                        error = tr("That isn't this vault's master password."),
+                  );
+                }
+                Navigator.pop(d, true);
+              },
+              child: Text(
+                tr('Delete for good'),
+                style: TextStyle(color: Envelope.of(d).red),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final gone = currentVault;
+    Session.lock();
+    await clearReminders(gone); // its reminders stop too
+    await bioDisable(); // and its fingerprint key
+    await deleteVault(gone);
+    currentVault = defaultVault;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final e = Envelope.of(context);
+    return Scaffold(
+      appBar: AppBar(title: Text(tr('Vaults'))),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(18, 6, 18, 30),
+        children: [
+          Text(
+            tr(
+              'Each vault is a separate encrypted file with its own master password (it can be the same as another one), its own files and reminders.',
+            ),
+            style: TextStyle(color: e.ink2),
+          ),
+          const SizedBox(height: 10),
+          for (final v in _vaults)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(
+                v.id == currentVault ? Icons.lock_open : Icons.lock_outline,
+              ),
+              title: Text(vaultLabel(v.name)),
+              subtitle: v.id == currentVault ? Text(tr('Open now')) : null,
+            ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: _rename,
+                icon: const Icon(Icons.edit_outlined, size: 18),
+                label: Text(tr('Rename')),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Session.lock('', true),
+                icon: const Icon(Icons.add, size: 18),
+                label: Text(tr('New vault…')),
+              ),
+              if (_vaults.length > 1)
+                OutlinedButton.icon(
+                  onPressed: () => Session.lock(),
+                  icon: const Icon(Icons.swap_horiz, size: 18),
+                  label: Text(tr('Switch vault')),
+                ),
+              OutlinedButton.icon(
+                onPressed: _delete,
+                icon: Icon(Icons.delete_outline, size: 18, color: e.red),
+                label: Text(
+                  tr('Delete this vault…'),
+                  style: TextStyle(color: e.red),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+          Text(
+            tr('A copy of this vault'),
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            tr(
+              'Uninstalling MyVault deletes its vaults from this phone (Android may offer to keep the app\'s data). Save a copy first to keep somewhere else, or to move to another device.',
+            ),
+            style: TextStyle(color: e.ink2),
+          ),
+          const SizedBox(height: 8),
+          _copyRow(
+            'Save encrypted copy',
+            'enc',
+            'Encrypted: the copy is locked with this vault\'s master password, exactly as MyVault keeps it. Nobody can read it without that password, not even you, so it\'s safe to keep in cloud storage. Add it back with “Add a vault from a copy…” on the unlock screen, on this phone, another phone or your PC.',
+            () => _saveCopy(false),
+          ),
+          _copyRow(
+            'Save readable copy…',
+            'read',
+            'Readable (decrypted): everything is saved as plain files anyone can open: entries.json, logins.csv (other password managers can import it) and your documents\' photos and PDFs. Use it to move to another app or to print, then delete it.',
+            () => _saveCopy(true),
           ),
         ],
       ),

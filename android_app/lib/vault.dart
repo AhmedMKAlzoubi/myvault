@@ -33,6 +33,9 @@ class Entry {
   double createdAt, updatedAt;
   bool deleted;
 
+  /// Kept on this device: never synced, never replaced by a sync.
+  bool localOnly;
+
   Entry({
     String? id,
     this.kind = 'login',
@@ -53,6 +56,7 @@ class Entry {
     double? createdAt,
     double? updatedAt,
     this.deleted = false,
+    this.localOnly = false,
   }) : id = id ?? _uuid(),
        custom = custom ?? {},
        fields = fields ?? {},
@@ -84,6 +88,7 @@ class Entry {
     fields = o.fields;
     passwordPolicy = o.passwordPolicy;
     deleted = o.deleted;
+    localOnly = o.localOnly;
   }
 
   String displayName() {
@@ -138,6 +143,7 @@ class Entry {
     'created_at': createdAt,
     'updated_at': updatedAt,
     'deleted': deleted,
+    'local_only': localOnly,
   };
 
   factory Entry.fromJson(Map<String, dynamic> j) =>
@@ -180,6 +186,7 @@ class Entry {
     createdAt: (j['created_at'] as num?)?.toDouble(),
     updatedAt: (j['updated_at'] as num?)?.toDouble(),
     deleted: (j['deleted'] ?? false) as bool,
+    localOnly: (j['local_only'] ?? false) as bool,
   );
 }
 
@@ -233,6 +240,10 @@ class Vault {
   double updatedAt;
   List<Entry> entries;
 
+  /// The same vault on your PC and phone shares this id (set at their first
+  /// sync), so a sync never mixes two different vaults.
+  String vaultId = '';
+
   Vault(this.path, this.password)
     : deviceId = _uuid(),
       updatedAt = _now(),
@@ -245,6 +256,7 @@ class Vault {
     final v = Vault(path, password);
     v.deviceId = (data['device_id'] ?? v.deviceId) as String;
     v.updatedAt = (data['updated_at'] as num?)?.toDouble() ?? _now();
+    v.vaultId = '${data['vault_id'] ?? ''}';
     v.entries = ((data['entries'] ?? []) as List)
         .map((e) => Entry.fromJson(e as Map<String, dynamic>))
         .toList();
@@ -263,6 +275,7 @@ class Vault {
       'content_version': 2,
       'device_id': deviceId,
       'updated_at': updatedAt,
+      'vault_id': vaultId,
       'entries': entries.map((e) => e.toJson()).toList(),
     };
     final blob = encryptBytes(
@@ -304,13 +317,15 @@ class Vault {
     return changed;
   }
 
-  /// Merge entries from sync: newest updated_at per id wins.
+  /// Merge entries from sync: newest updated_at per id wins. Entries [held]
+  /// says to keep (kept on this phone, or left out of this sync) stay as they are.
   /// Returns how many entries were added or changed here.
-  int mergeIn(List<Entry> incoming) {
+  int mergeIn(List<Entry> incoming, {bool Function(Entry e)? held}) {
     final byId = {for (final e in entries) e.id: e};
     var changed = 0;
     for (final e in incoming) {
       final cur = byId[e.id];
+      if (cur != null && (held?.call(cur) ?? false)) continue;
       if (cur == null || e.updatedAt > cur.updatedAt) {
         byId[e.id] = e;
         changed++;
@@ -353,6 +368,32 @@ class Vault {
   void update(Entry e) {
     e.touch();
     save();
+  }
+
+  /// Delete several at once; returns what was in them, for Undo.
+  List<Map<String, dynamic>> deleteMany(Iterable<String> ids) {
+    final gone = <Map<String, dynamic>>[];
+    for (final id in ids) {
+      final e = getById(id);
+      if (e == null || e.deleted) continue;
+      gone.add(e.copy().toJson());
+      e.wipe();
+      e.touch();
+    }
+    if (gone.isNotEmpty) save();
+    return gone;
+  }
+
+  /// Bring back what deleteMany() returned. A restored entry is newer than its
+  /// deletion, so the next sync brings it back on the PC too.
+  void undoDelete(List<Map<String, dynamic>> gone) {
+    for (final j in gone) {
+      final back = Entry.fromJson({...j, 'deleted': false})..touch();
+      final cur = getById(back.id);
+      cur == null ? entries.add(back) : cur.copyFrom(back);
+      cur?.updatedAt = back.updatedAt;
+    }
+    if (gone.isNotEmpty) save();
   }
 
   void deleteById(String id) {

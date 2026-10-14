@@ -10,6 +10,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.media.ExifInterface
 import android.net.Uri
@@ -20,8 +22,13 @@ import androidx.core.content.FileProvider
 import com.googlecode.tesseract.android.TessBaseAPI
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.File
+import java.util.zip.ZipEntry
+import java.util.zip.ZipInputStream
+import java.util.zip.ZipOutputStream
 import kotlin.concurrent.thread
 
 /**
@@ -43,6 +50,7 @@ class DocsBridge(private val activity: Activity) {
         const val SAVE = 7103
         const val NOTIFY = 7104
         const val CAMERA_OK = 7106
+        const val PICK_COPY = 7107
         const val MAX_SIDE = 2400        // photos are scaled down to this: sharp enough to read, small to sync
     }
 
@@ -91,6 +99,14 @@ class DocsBridge(private val activity: Activity) {
                     }
                 }
             }
+            // The "scanned" look (or black and white) for a cropped page.
+            "enhance" -> background(result) {
+                enhance(call.argument<ByteArray>("bytes")!!, call.argument<String>("mode") ?: "scan")
+            }
+            // Download as PDF / Word (every page, like a photocopy) or PNG / JPEG.
+            "export" -> background(result) {
+                export(call.argument<List<ByteArray>>("files")!!, call.argument<String>("format")!!)
+            }
             "pdfPreview" -> {
                 val bytes = call.argument<ByteArray>("bytes")!!
                 val width = call.argument<Int>("width") ?: 900
@@ -104,6 +120,14 @@ class DocsBridge(private val activity: Activity) {
                     }
                 }
             }
+            // A copy of a vault (.zip): picked whole, and made or read here.
+            "pickCopy" -> start(result, PICK_COPY, Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_MIME_TYPES, arrayOf("application/zip", "application/x-zip-compressed", "application/octet-stream"))
+            })
+            "zip" -> background(result) { zip(call.argument<Map<String, ByteArray>>("files")!!) }
+            "unzip" -> background(result) { unzip(call.argument<ByteArray>("bytes")!!) }
             "saveCopy" -> {
                 pendingSave = call.argument<ByteArray>("bytes")
                 start(result, SAVE, Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -113,7 +137,7 @@ class DocsBridge(private val activity: Activity) {
                 })
             }
             "setReminders" -> {
-                ReminderJob.save(activity, call.arguments as String)
+                ReminderJob.save(activity, call.argument<String>("vault") ?: "default", call.argument<String>("json") ?: "[]")
                 result.success(true)
             }
             "notifyAllowed" -> result.success(notifyAllowed())
@@ -167,7 +191,7 @@ class DocsBridge(private val activity: Activity) {
     }
 
     fun onActivityResult(code: Int, resultCode: Int, data: Intent?): Boolean {
-        if (code !in listOf(PICK, CAMERA, SAVE)) return false
+        if (code !in listOf(PICK, CAMERA, SAVE, PICK_COPY)) return false
         val result = pending ?: return true
         pending = null
         if (resultCode != Activity.RESULT_OK) {
@@ -182,6 +206,7 @@ class DocsBridge(private val activity: Activity) {
                             ?: listOfNotNull(data?.data)
                         uris.map { mapOf("name" to nameOf(it), "bytes" to shrink(read(it))) }
                     }
+                    PICK_COPY -> data?.data?.let { read(it) }
                     CAMERA -> photo?.let { f ->
                         val bytes = shrink(f.readBytes())
                         f.delete()
@@ -343,6 +368,208 @@ class DocsBridge(private val activity: Activity) {
         val m = Matrix().apply { setPolyToPoly(pts, 0, dst, 0, 4) }
         Canvas(out).drawBitmap(src, m, Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG))
         return jpeg(out)
+    }
+
+    // ---- the "scanned" look ------------------------------------------------------------
+    /** Like a flatbed scanner: the paper's colour becomes clean white (which also
+     *  takes away a colour cast), the darkest ink becomes black, and the text gets a
+     *  little sharper. The brightening is capped, so a photo on the card isn't
+     *  washed out. "bw" also turns it into crisp black and white, for letters. */
+    private fun enhance(bytes: ByteArray, mode: String): ByteArray {
+        val src = decode(bytes, MAX_SIDE)
+        if (mode == "original") return jpeg(src)
+        val w = src.width
+        val h = src.height
+        val px = IntArray(w * h).also { src.getPixels(it, 0, w, 0, 0, w, h) }
+        fun lum(c: Int) = ((c shr 16 and 255) * 299 + (c shr 8 and 255) * 587 + (c and 255) * 114) / 1000
+        val hist = IntArray(256).also { hh -> px.forEach { hh[lum(it)]++ } }
+        fun percentile(p: Double): Int {
+            var n = 0L
+            for (i in 0..255) { n += hist[i]; if (n >= px.size * p) return i }
+            return 255
+        }
+        val paper = percentile(0.96)
+        val ink = percentile(0.01)
+        // the paper's own colour, from its brightest part
+        var sr = 0L; var sg = 0L; var sb = 0L; var n = 0L
+        for (c in px) if (lum(c) >= paper) { sr += c shr 16 and 255; sg += c shr 8 and 255; sb += c and 255; n++ }
+        val gain = DoubleArray(3) { k -> minOf(1.6, 255.0 / maxOf(1L, listOf(sr, sg, sb)[k] / maxOf(1L, n))) }
+        val black = ink * minOf(gain[0], gain[1], gain[2])
+        val span = maxOf(40.0, 255.0 - black)
+        val out = IntArray(w * h)
+        for (i in px.indices) {
+            val c = px[i]
+            val v = IntArray(3) { k -> (((c shr (16 - 8 * k) and 255) * gain[k] - black) * 255.0 / span).toInt().coerceIn(0, 255) }
+            out[i] = if (mode == "bw") {
+                val l = (v[0] * 299 + v[1] * 587 + v[2] * 114) / 1000
+                val g = ((l - 110) * 255 / 100).coerceIn(0, 255)        // a soft threshold
+                Color.rgb(g, g, g)
+            } else Color.rgb(v[0], v[1], v[2])
+        }
+        // a light sharpen: each pixel against its four neighbours
+        val sharp = out.copyOf()
+        for (y in 1 until h - 1) for (x in 1 until w - 1) {
+            val i = y * w + x
+            fun ch(j: Int, k: Int) = out[j] shr (16 - 8 * k) and 255
+            val v = IntArray(3) { k ->
+                val c = ch(i, k)
+                (c + (4 * c - ch(i - 1, k) - ch(i + 1, k) - ch(i - w, k) - ch(i + w, k)) * 0.35).toInt().coerceIn(0, 255)
+            }
+            sharp[i] = Color.rgb(v[0], v[1], v[2])
+        }
+        return jpeg(Bitmap.createBitmap(sharp, w, h, Bitmap.Config.ARGB_8888))
+    }
+
+    // ---- downloading in another format (the same layout as the PC's export.py) ----------
+    private val a4 = 595.28f to 841.89f
+    private val margin = 36f
+    private val card = 242.65f to 153.07f            // an ID card, 85.6 x 54 mm
+
+    private fun isCard(b: Bitmap) = b.width.toFloat() / b.height in 1.45f..1.72f
+
+    private fun pages(bytes: ByteArray): List<Bitmap> = if (!isPdf(bytes)) listOf(decode(bytes, MAX_SIDE)) else {
+        val tmp = File.createTempFile("doc", ".pdf", activity.cacheDir)
+        try {
+            tmp.writeBytes(bytes)
+            ParcelFileDescriptor.open(tmp, ParcelFileDescriptor.MODE_READ_ONLY).use { fd ->
+                PdfRenderer(fd).use { r ->
+                    (0 until r.pageCount).map { i ->
+                        r.openPage(i).use { page ->
+                            val width = 1700
+                            Bitmap.createBitmap(width, width * page.height / page.width, Bitmap.Config.ARGB_8888).also {
+                                it.eraseColor(Color.WHITE)
+                                page.render(it, null, null, PdfRenderer.Page.RENDER_MODE_FOR_PRINT)
+                            }
+                        }
+                    }
+                }
+            }
+        } finally {
+            tmp.delete()             // the plain PDF never stays on disk
+        }
+    }
+
+    /** Sheets of (page, left, top, width, height) in points: card-shaped pages at
+     *  real ID-card size, two to a sheet; anything else fits the sheet. */
+    private fun layout(pages: List<Bitmap>): List<List<Pair<Bitmap, RectF>>> {
+        val sheets = mutableListOf<List<Pair<Bitmap, RectF>>>()
+        var i = 0
+        while (i < pages.size) {
+            val b = pages[i]
+            if (isCard(b)) {
+                val cards = listOfNotNull(b, pages.getOrNull(i + 1)?.takeIf { isCard(it) })
+                val x = (a4.first - card.first) / 2
+                sheets.add(cards.mapIndexed { n, c ->
+                    val y = margin * 2 + n * (card.second + margin)
+                    c to RectF(x, y, x + card.first, y + card.second)
+                })
+                i += cards.size
+                continue
+            }
+            val s = minOf((a4.first - 2 * margin) / b.width, (a4.second - 2 * margin) / b.height)
+            val x = (a4.first - b.width * s) / 2
+            sheets.add(listOf(b to RectF(x, margin, x + b.width * s, margin + b.height * s)))
+            i++
+        }
+        return sheets
+    }
+
+    private fun export(files: List<ByteArray>, format: String): ByteArray {
+        if (format == "png" || format == "jpeg") {
+            val b = pages(files.first()).first()
+            return ByteArrayOutputStream().also {
+                b.compress(if (format == "png") Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, it)
+            }.toByteArray()
+        }
+        val all = files.flatMap { pages(it) }
+        return if (format == "pdf") pdf(all) else docx(all)
+    }
+
+    private fun pdf(pages: List<Bitmap>): ByteArray {
+        val doc = PdfDocument()
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        layout(pages).forEachIndexed { n, sheet ->
+            val page = doc.startPage(PdfDocument.PageInfo.Builder(a4.first.toInt(), a4.second.toInt(), n + 1).create())
+            for ((b, r) in sheet) {
+                // about 200 dpi at its size on paper: sharp, and the PDF stays small
+                val px = (r.width() / 72f * 200f).toInt().coerceAtMost(b.width)
+                val small = if (px < b.width) Bitmap.createScaledBitmap(b, px, px * b.height / b.width, true) else b
+                page.canvas.drawBitmap(small, null, r, paint)
+            }
+            doc.finishPage(page)
+        }
+        return ByteArrayOutputStream().also { doc.writeTo(it); doc.close() }.toByteArray()
+    }
+
+    private fun docx(pages: List<Bitmap>): ByteArray {
+        val emu = 12700f                                  // per point
+        val body = StringBuilder()
+        pages.forEachIndexed { i, b ->
+            val n = i + 1
+            val (w, h) = if (isCard(b)) card else {
+                val s = minOf((a4.first - 144f) / b.width, (a4.second - 144f) / b.height)   // Word's 1-inch margins
+                b.width * s to b.height * s
+            }
+            val cx = (w * emu).toLong()
+            val cy = (h * emu).toLong()
+            body.append("<w:p><w:pPr><w:jc w:val=\"center\"/></w:pPr><w:r><w:drawing><wp:inline><wp:extent cx=\"$cx\" cy=\"$cy\"/>")
+                .append("<wp:docPr id=\"$n\" name=\"Page $n\"/><a:graphic><a:graphicData uri=\"http://schemas.openxmlformats.org/drawingml/2006/picture\">")
+                .append("<pic:pic><pic:nvPicPr><pic:cNvPr id=\"$n\" name=\"page$n.jpg\"/><pic:cNvPicPr/></pic:nvPicPr>")
+                .append("<pic:blipFill><a:blip r:embed=\"rId$n\"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>")
+                .append("<pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"$cx\" cy=\"$cy\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom></pic:spPr>")
+                .append("</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>")
+        }
+        val ns = "xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" " +
+            "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" " +
+            "xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\" " +
+            "xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" " +
+            "xmlns:pic=\"http://schemas.openxmlformats.org/drawingml/2006/picture\""
+        val out = ByteArrayOutputStream()
+        ZipOutputStream(out).use { z ->
+            fun put(name: String, data: ByteArray) { z.putNextEntry(ZipEntry(name)); z.write(data); z.closeEntry() }
+            put("[Content_Types].xml", ("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +
+                "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>" +
+                "<Default Extension=\"xml\" ContentType=\"application/xml\"/><Default Extension=\"jpg\" ContentType=\"image/jpeg\"/>" +
+                "<Override PartName=\"/word/document.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/></Types>").toByteArray())
+            put("_rels/.rels", ("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/></Relationships>").toByteArray())
+            put("word/_rels/document.xml.rels", ("<?xml version=\"1.0\" encoding=\"UTF-8\"?><Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">" +
+                pages.indices.joinToString("") { "<Relationship Id=\"rId${it + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/page${it + 1}.jpg\"/>" } +
+                "</Relationships>").toByteArray())
+            put("word/document.xml", ("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:document $ns><w:body>$body" +
+                "<w:sectPr><w:pgSz w:w=\"11906\" w:h=\"16838\"/><w:pgMar w:top=\"1440\" w:right=\"1440\" w:bottom=\"1440\" w:left=\"1440\"/></w:sectPr>" +
+                "</w:body></w:document>").toByteArray())
+            pages.forEachIndexed { i, b -> put("word/media/page${i + 1}.jpg", jpeg(b)) }
+        }
+        return out.toByteArray()
+    }
+
+    private fun zip(files: Map<String, ByteArray>): ByteArray = ByteArrayOutputStream().also { out ->
+        ZipOutputStream(out).use { z ->
+            for ((name, bytes) in files) {
+                z.putNextEntry(ZipEntry(name))
+                z.write(bytes)
+                z.closeEntry()
+            }
+        }
+    }.toByteArray()
+
+    // Every member by name; the Dart side checks the names before writing anything.
+    // ponytail: whole copy in memory, stream it to disk if vaults outgrow a few hundred MB
+    private fun unzip(bytes: ByteArray): Map<String, ByteArray> {
+        val out = LinkedHashMap<String, ByteArray>()
+        var total = 0L
+        ZipInputStream(ByteArrayInputStream(bytes)).use { z ->
+            while (true) {
+                val e = z.nextEntry ?: break
+                if (e.isDirectory) continue
+                val b = z.readBytes()
+                total += b.size
+                if (total > 1_000_000_000L) throw IOException("That copy is too big.")
+                out[e.name] = b
+            }
+        }
+        return out
     }
 
     private fun read(uri: Uri): ByteArray = activity.contentResolver.openInputStream(uri)!!.use { it.readBytes() }

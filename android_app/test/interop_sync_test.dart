@@ -99,6 +99,41 @@ void main() {
         : false,
   );
 
+  final unlockUri = env['MYVAULT_UNLOCK_URI'];
+  test(
+    'unlock a live Python PC',
+    () async {
+      upd.supportDirOverride = Directory(env['MYVAULT_PHONE_DIR']!);
+      final dir = Directory.systemTemp.createTempSync('myvault_unlock');
+      final v = Vault.create('${dir.path}/phone.dat', 'pc-pass-123')
+        ..vaultId = env['MYVAULT_VAULT_ID']!
+        ..entries = [Entry(id: 'phone-only', title: 'On the phone')];
+      final asked = <String>[];
+      var syncAsked = false;
+      final r = await unlockWithCode(
+        unlockUri!,
+        v,
+        vaultName: 'My vault',
+        decide: (pc, vault, why) async {
+          asked.add(why);
+          return 'unlock';
+        },
+        askSync: () async => syncAsked = true,
+      );
+      expect(r.ok, isTrue, reason: r.error);
+      expect(asked, ['same']);
+      expect(syncAsked, isTrue);
+      expect(r.unlocked && r.synced && !r.createdOnPc, isTrue);
+      expect({for (final e in v.entries) e.id}, {'pc-only', 'phone-only'});
+      // a sync code is refused here, and an unlock code by a plain sync
+      expect((await syncWithCode(unlockUri, v)).ok, isFalse);
+      dir.deleteSync(recursive: true);
+    },
+    skip: unlockUri == null
+        ? 'set MYVAULT_UNLOCK_URI (python tests/interop_sync.py)'
+        : false,
+  );
+
   test(
     'the real signed release manifest verifies; altered copies do not',
     () async {

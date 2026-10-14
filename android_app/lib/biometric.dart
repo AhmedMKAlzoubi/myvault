@@ -5,13 +5,18 @@ library;
 import 'package:flutter/services.dart';
 
 import 'l10n.dart';
+import 'vaults.dart';
 
 const _ch = MethodChannel('myvault/biometric');
 
 /// (the phone can do it, it's turned on).
 Future<(bool, bool)> bioStatus() async {
   try {
-    final m = await _ch.invokeMapMethod<String, dynamic>('status') ?? {};
+    final m =
+        await _ch.invokeMapMethod<String, dynamic>('status', {
+          'vault': currentVault,
+        }) ??
+        {};
     return (m['available'] == true, m['enabled'] == true);
   } on MissingPluginException {
     return (false, false); // tests, or an activity without the bridge
@@ -19,6 +24,7 @@ Future<(bool, bool)> bioStatus() async {
 }
 
 Map<String, String> _texts(String title) => {
+  'vault': currentVault,
   'title': tr(title),
   'cancel': tr('Use the password'),
 };
@@ -49,7 +55,7 @@ Future<String?> bioUnlock() async {
 
 Future<void> bioDisable() async {
   try {
-    await _ch.invokeMethod('disable');
+    await _ch.invokeMethod('disable', {'vault': currentVault});
   } on MissingPluginException {
     // nothing to turn off
   }

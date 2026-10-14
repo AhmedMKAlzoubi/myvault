@@ -264,9 +264,32 @@ class _MarkPainter extends CustomPainter {
     canvas.drawPath(
       Path()
         ..moveTo(1.5 * k, 2 * k)
-        ..lineTo(15 * k, 12 * k)
-        ..lineTo(28.5 * k, 2 * k),
+        ..lineTo(12.5 * k, 10.15 * k)
+        ..moveTo(28.5 * k, 2 * k)
+        ..lineTo(17.5 * k, 10.15 * k),
       p,
+    );
+    // the padlock sealing the flap (as in the app icon)
+    canvas.drawPath(
+      Path()
+        ..moveTo(12.7 * k, 12.3 * k)
+        ..lineTo(12.7 * k, 10.8 * k)
+        ..arcToPoint(
+          Offset(17.3 * k, 10.8 * k),
+          radius: Radius.circular(2.3 * k),
+        )
+        ..lineTo(17.3 * k, 12.3 * k),
+      p..strokeWidth = 1.4 * k,
+    );
+    canvas.drawRRect(
+      RRect.fromLTRBR(
+        11.4 * k,
+        12.1 * k,
+        18.6 * k,
+        17.7 * k,
+        Radius.circular(1.2 * k),
+      ),
+      Paint()..color = c,
     );
   }
 

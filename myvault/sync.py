@@ -121,6 +121,11 @@ def restore_entries(local: list[dict], backup: list[dict], now: float) -> tuple[
     return list(by_id.values()), counts
 
 
+def mismatch_error(mine: str, theirs: str) -> str:
+    return (f"The vault open on the phone isn't this PC's “{mine}” ({theirs or 'another vault'}). "
+            "Open the same vault on both, or choose Sync anyway on the phone to merge them.")
+
+
 @dataclass
 class SyncResult:
     ok: bool
@@ -129,6 +134,8 @@ class SyncResult:
     added_or_updated: int = 0
     peer_version: str = ""      # "" = a MyVault from before 0.5 (doesn't say)
     peer_platform: str = ""
+    vault_mismatch: bool = False   # the two devices had different vaults open
+    peer_vault: str = ""
     received: str = ""          # version of an update package we received
     sent: str = ""              # version of an update package we handed over
     update_error: str = ""
@@ -137,14 +144,15 @@ class SyncResult:
 
 
 # ---- pairing URI (what the QR code holds) ------------------------------------
-def make_uri(hosts: list[str], port: int, key: bytes) -> str:
-    return f"myvault://sync?v=2&h={','.join(hosts)}&p={port}&k={_b64u(key)}"
+def make_uri(hosts: list[str], port: int, key: bytes, action: str = "sync") -> str:
+    """action "sync", or "unlock" (the PC's lock screen: the phone unlocks it)."""
+    return f"myvault://{action}?v=2&h={','.join(hosts)}&p={port}&k={_b64u(key)}"
 
 
 def parse_uri(uri: str) -> tuple[list[str], int, bytes]:
     u = urlparse(uri.strip())
     q = parse_qs(u.query)
-    if u.scheme != "myvault" or u.netloc != "sync" or q.get("v") != ["2"]:
+    if u.scheme != "myvault" or u.netloc not in ("sync", "unlock") or q.get("v") != ["2"]:
         raise ValueError("Not a MyVault sync code.")
     key = _b64u_dec(q["k"][0])
     if len(key) != 32:
@@ -300,13 +308,20 @@ def _exchange_files(ch: _Chan, provider, is_server: bool, r: SyncResult) -> None
                     r.files_received += 1
 
 
-def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> SyncResult:
-    ch = _Chan(sock, key, is_server)
+def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool, ch: _Chan | None = None) -> SyncResult:
+    # (a sync right after an unlock goes on in the same channel: its numbering
+    # continues, so no earlier message can be replayed into the sync)
+    ch = ch or _Chan(sock, key, is_server)
     my_ver = getattr(provider, "app_version", lambda: "")()
     my_plat = getattr(provider, "platform", lambda: "")()
+    # Which vault this is: the PC gives one an id at its first sync and the phone
+    # adopts it, so later a sync never mixes two different vaults by mistake.
+    vid, vname = getattr(provider, "vault_identity", lambda: ("", ""))()
     hello = {"type": "hello", "protocol": PROTOCOL, "device_id": provider.device_id(),
              "app_version": my_ver, "platform": my_plat,
-             "offers": getattr(provider, "offers", dict)()}
+             "offers": getattr(provider, "offers", dict)(),
+             "vault_id": vid, "vault_name": vname,
+             "merge_anyway": bool(getattr(provider, "merge_anyway", False))}
     if is_server:
         peer_hello = ch.recv()
         ch.send(hello)
@@ -315,6 +330,14 @@ def _exchange(sock: socket.socket, key: bytes, provider, is_server: bool) -> Syn
         peer_hello = ch.recv()
     if peer_hello.get("protocol") != PROTOCOL:
         return SyncResult(False, error="The other device runs an incompatible MyVault version.")
+    their_id, their_name = str(peer_hello.get("vault_id") or ""), str(peer_hello.get("vault_name") or "")
+    differ = bool(vid and their_id and vid != their_id)
+    if differ and not hello["merge_anyway"] and not peer_hello.get("merge_anyway"):
+        r = SyncResult(False, error=mismatch_error(vname, their_name) if is_server else mismatch_error(their_name, vname))
+        r.vault_mismatch, r.peer_vault = True, their_name
+        return r
+    if their_id and (not vid or (differ and not is_server)) and hasattr(provider, "adopt_vault_id"):
+        provider.adopt_vault_id(their_id)          # the phone takes the PC's
 
     local = provider.get_entries()
     if is_server:
@@ -378,11 +401,55 @@ def connect_and_sync(uri: str, provider, timeout: float = 8.0) -> SyncResult:
     return SyncResult(False, error=last)
 
 
-class PairingSession:
-    """PC side: listen for ONE phone holding the key from our QR, then close."""
+# ---- unlocking the PC from the phone -------------------------------------------
+UNLOCK_TRIES = 3
 
-    def __init__(self, provider, port: int = SYNC_PORT, ttl: float = PAIRING_TTL):
+
+def _unlock_exchange(sock: socket.socket, key: bytes, unlocker) -> SyncResult:
+    """The PC's lock screen showed an unlock code and the phone scanned it. The
+    phone sees which PC and vault this is, and (if the person agrees) sends that
+    vault's master password, or asks for a new vault with the phone's name and
+    password when the PC's vault doesn't open with it. Then, if they differ,
+    a normal sync can follow in the same channel."""
+    ch = _Chan(sock, key, True)
+    hello = ch.recv()
+    if hello.get("type") != "hello" or hello.get("protocol") != PROTOCOL:
+        return SyncResult(False, error="The phone runs an incompatible MyVault version.")
+    vid, vname = unlocker.identity()
+    ch.send({"type": "hello", "protocol": PROTOCOL, "mode": "unlock", "vault_id": vid, "vault_name": vname,
+             "pc_name": socket.gethostname()[:60], "app_version": getattr(unlocker, "version", "")})
+    for _ in range(UNLOCK_TRIES + 1):
+        msg = ch.recv()
+        if msg.get("type") == "unlock":
+            if unlocker.unlock(str(msg.get("password", ""))):
+                ch.send({"type": "unlocked", "created": False})
+                break
+            ch.send({"type": "denied"})
+        elif msg.get("type") == "create":
+            err = unlocker.create(str(msg.get("name", "")), str(msg.get("password", "")), str(msg.get("vault_id", "")))
+            if not err:
+                ch.send({"type": "unlocked", "created": True})
+                break
+            ch.send({"type": "denied", "error": err})
+            return SyncResult(False, error=err)
+        else:
+            return SyncResult(False, error="The phone stopped.")
+    else:
+        return SyncResult(False, error="Too many wrong passwords. Show a new code to try again.")
+    # In step? The phone compares and says whether to sync now.
+    ch.send({"type": "summary", "entries": unlocker.summary()})
+    if not ch.recv().get("sync"):
+        return SyncResult(True)
+    return _exchange(sock, key, unlocker.provider(), True, ch)
+
+
+class PairingSession:
+    """PC side: listen for ONE phone holding the key from our QR, then close.
+    With [unlocker], the code unlocks the PC instead (see _unlock_exchange)."""
+
+    def __init__(self, provider, port: int = SYNC_PORT, ttl: float = PAIRING_TTL, unlocker=None):
         self.provider = provider
+        self.unlocker = unlocker
         self.key = os.urandom(32)
         self.expires_at = time.time() + ttl
         self.result: SyncResult | None = None
@@ -398,7 +465,7 @@ class PairingSession:
         srv.settimeout(0.5)
         self._srv = srv
         self.port = srv.getsockname()[1]
-        self.uri = make_uri(lan_addresses(), self.port, self.key)
+        self.uri = make_uri(lan_addresses(), self.port, self.key, "unlock" if unlocker else "sync")
         threading.Thread(target=self._loop, daemon=True, name="myvault-pairing").start()
 
     @property
@@ -422,9 +489,11 @@ class PairingSession:
                 except OSError:
                     break
                 with conn:
-                    conn.settimeout(8.0)
+                    # unlocking waits for the person on the phone to confirm
+                    conn.settimeout(90.0 if self.unlocker else 8.0)
                     try:
-                        r = _exchange(conn, self.key, self.provider, is_server=True)
+                        r = (_unlock_exchange(conn, self.key, self.unlocker) if self.unlocker
+                             else _exchange(conn, self.key, self.provider, is_server=True))
                     except InvalidTag:
                         # Someone without the key. Ignore them, keep waiting.
                         self.failed_attempts += 1

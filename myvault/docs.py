@@ -43,8 +43,8 @@ _ID = re.compile(r"^[0-9a-f]{32}$")
 
 # ---- encrypted files ----------------------------------------------------------
 def files_dir() -> Path:
-    d = paths.data_dir() / "files"
-    d.mkdir(exist_ok=True)
+    d = paths.vault_home() / "files"           # the open vault's
+    d.mkdir(parents=True, exist_ok=True)
     return d
 
 
@@ -201,8 +201,8 @@ def reminder_text(r: dict, tr=lambda s: s) -> str:
     return tr(f"{name} expires today.") if r["days"] == 0 else tr(f"{name} expires in {lead_label(r['days'])}.")
 
 
-def schedule_file() -> Path:
-    return paths.data_dir() / "reminders.json"
+def schedule_file(vid: str | None = None) -> Path:
+    return paths.vault_home(vid) / "reminders.json"
 
 
 def save_schedule(entries) -> None:
@@ -213,10 +213,14 @@ def save_schedule(entries) -> None:
 
 
 def load_schedule() -> list[dict]:
-    try:
-        return json.loads(schedule_file().read_text("utf-8"))
-    except (OSError, ValueError):
-        return []
+    """Every vault's reminders: they're shown even while all of them are locked."""
+    out = []
+    for v in paths.vaults():
+        try:
+            out += json.loads(schedule_file(v["id"]).read_text("utf-8"))
+        except (OSError, ValueError):
+            pass
+    return out
 
 
 # ---- reading details from a document's text ---------------------------------------

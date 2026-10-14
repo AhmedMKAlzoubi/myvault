@@ -69,7 +69,28 @@ def envelope(size: int, tile: bool = True, scale: float = 0.64, mono: bool = Fal
     else:
         d.polygon(flap, fill=PAPER)
         d.line([flap[0], apex, flap[1]], fill=edge, width=stroke, joint="curve")
+    # the padlock that seals the flap, outlined in paper so it reads on the tint
+    _lock(d, S / 2, apex[1] - h * 0.05, w * (0.24 if not small else 0.36),
+          (255, 255, 255, 255) if mono else INK, (0, 0, 0, 0) if mono else PAPER, mono)
     return img.resize((size, size), Image.LANCZOS)
+
+
+def _lock(d: ImageDraw.ImageDraw, cx: float, top: float, bw: float, ink, paper, mono: bool) -> None:
+    bh = bw * 0.8                       # the body
+    sw, t = bw * 0.6, bw * 0.16         # the shackle: width, thickness
+    pad = bw * 0.13                     # the paper outline around it all
+    body = (cx - bw / 2, top, cx + bw / 2, top + bh)
+    shackle = (cx - sw / 2, top - sw * 0.72, cx + sw / 2, top + sw * 0.4)
+    for grow, colour in ((pad, paper), (0, ink)):    # (in mono, the outline is cut out)
+        d.rounded_rectangle((shackle[0] - grow, shackle[1] - grow, shackle[2] + grow, shackle[3] + grow),
+                            radius=sw / 2 + grow, outline=colour, width=int(t + 2 * grow))
+        d.rounded_rectangle((body[0] - grow, body[1] - grow, body[2] + grow, body[3] + grow),
+                            radius=bw * 0.16 + grow, fill=colour)
+    # the keyhole
+    hole = (0, 0, 0, 0) if mono else paper
+    kr = bw * 0.1
+    d.ellipse((cx - kr, top + bh * 0.33 - kr, cx + kr, top + bh * 0.33 + kr), fill=hole)
+    d.rectangle((cx - kr * 0.45, top + bh * 0.33, cx + kr * 0.45, top + bh * 0.66), fill=hole)
 
 
 def save(img: Image.Image, path: Path) -> None:

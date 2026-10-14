@@ -18,19 +18,21 @@ import csv
 import ctypes
 import ipaddress
 import json
+import re
 import os
 import shutil
 import subprocess
 import sys
 import threading
 import time
+import uuid
 import webbrowser
 from pathlib import Path
 
 import segno
 import webview
 
-from . import STORE, __version__, autostart, autotype, clipboard, config, crypto, docs, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
+from . import STORE, __version__, autostart, autotype, clipboard, config, copies, crypto, docs, export, health, i18n, importer, otp, paper, paths, server, sync, update, webmatch
 from .generator import PasswordPolicy, generate, strength_label
 from .vault import KINDS, Entry, Vault, email_problem, keep_old_password
 
@@ -74,7 +76,8 @@ def _summary(e: Entry) -> dict:
         sub = ""      # a secure note's text is secret: never show it in the list
     return {"id": e.id, "kind": e.kind, "title": e.display_name(), "subtitle": sub,
             "website": e.website, "updated_at": e.updated_at,
-            "expires": e.fields.get("expires", "") if e.kind == "document" else ""}
+            "expires": e.fields.get("expires", "") if e.kind == "document" else "",
+            "local_only": e.local_only}
 
 
 class Api:
@@ -97,6 +100,7 @@ class Api:
         threading.Thread(target=self._reminder_loop, daemon=True).start()
         self._autotype_hwnd = 0      # the window "Type into app" will type into
         self._import_path: Path | None = None   # the CSV being imported
+        self._undo: list[dict] = []  # entries the last bulk delete removed (for Undo)
         threading.Thread(target=self._autolock_loop, daemon=True).start()
 
     # ---- plumbing ----------------------------------------------------------
@@ -123,8 +127,103 @@ class Api:
 
     # ---- unlock / lock -----------------------------------------------------
     def boot(self) -> dict:
-        return {"exists": paths.vault_path().exists(), "unlocked": self._vault is not None,
-                "version": __version__, "autolock": _autolock_minutes()}
+        vid = paths.current() if self._vault is not None else _last_vault()
+        return {"exists": paths.vault_path(vid).exists(), "unlocked": self._vault is not None,
+                "version": __version__, "autolock": _autolock_minutes(),
+                "vault": vid, "vaults": self.vaults()}
+
+    # ---- several vaults ----------------------------------------------------
+    def vaults(self) -> list[dict]:
+        return [{**v, "exists": paths.vault_path(v["id"]).exists()} for v in paths.vaults()]
+
+    def create_vault(self, name: str, password: str) -> dict:
+        """A new, empty vault with its own master password (it can be the same as
+        another vault's), opened straight away."""
+        name = str(name or "").strip()[:40]
+        if not name:
+            return {"ok": False, "error": "Give the vault a name, such as Work or Home."}
+        if name.casefold() in (v["name"].casefold() for v in paths.vaults()):
+            return {"ok": False, "error": f"You already have a vault called {name}."}
+        if len(password) < 8:
+            return {"ok": False, "error": "Use at least 8 characters."}
+        self.lock()
+        return self.unlock(password, paths.new_vault(name))
+
+    def vault_copy(self, readable: bool = False, password: str = "") -> dict:
+        """Save the open vault as a .zip: encrypted (opens only with its master
+        password, here or on a phone) or readable by anyone (asks for it first)."""
+        v = self._need()
+        name = next(x["name"] for x in paths.vaults() if x["id"] == paths.current())
+        if readable:
+            try:
+                Vault.open(paths.vault_path(), password)
+            except crypto.WrongPasswordError:
+                return {"ok": False, "error": "That isn't this vault's master password."}
+        label = i18n.tr(name)
+        picked = self._window.create_file_dialog(
+            webview.SAVE_DIALOG, file_types=("ZIP (*.zip)",),
+            save_filename=f"MyVault {label}{' READABLE' if readable else ''} {time.strftime('%Y-%m-%d')}.zip")
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        try:
+            with self._lock:
+                if readable:
+                    copies.save_readable(target, label, v.entries)
+                else:
+                    copies.save_encrypted(target, paths.vault_path(), name, v.vault_id, v.entries)
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": f"Couldn't save the copy: {exc}"}
+        return {"ok": True, "path": str(target)}
+
+    def vault_add_copy(self) -> dict:
+        """Add a vault from an encrypted copy (this PC's or a phone's). It keeps
+        its own master password."""
+        picked = self._window.create_file_dialog(webview.OPEN_DIALOG, file_types=("ZIP (*.zip)",))
+        if not picked:
+            return {"ok": False}
+        return _add_copy(Path(picked[0])) | {"vaults": self.vaults()}
+
+    def rename_vault(self, name: str) -> dict:
+        self._need()
+        name = str(name or "").strip()[:40]
+        listed = paths.vaults()
+        if not name:
+            return {"ok": False, "error": "Give the vault a name, such as Work or Home."}
+        if any(v["name"].casefold() == name.casefold() and v["id"] != paths.current() for v in listed):
+            return {"ok": False, "error": f"You already have a vault called {name}."}
+        paths.save_vaults([{**v, "name": name} if v["id"] == paths.current() else v for v in listed])
+        return {"ok": True, "vaults": self.vaults()}
+
+    def delete_vault(self, typed_name: str, password: str) -> dict:
+        """Delete the open vault from this PC: its file, files, backups and
+        reminders. Only with its exact name typed and its master password."""
+        self._need()
+        vid = paths.current()
+        name = next(v["name"] for v in paths.vaults() if v["id"] == vid)
+        if str(typed_name or "").strip() not in (name, i18n.tr(name)):     # as shown, too
+            return {"ok": False, "error": "Type the vault's name exactly as it is to delete it."}
+        try:
+            Vault.open(paths.vault_path(), password)
+        except crypto.WrongPasswordError:
+            return {"ok": False, "error": "That isn't this vault's master password."}
+        except crypto.VaultFormatError as exc:
+            return {"ok": False, "error": str(exc)}
+        self.lock()
+        home = paths.vault_home(vid)
+        if vid == paths.DEFAULT:              # the original vault shares its folder with the settings
+            for f in (home / paths.VAULT_FILE, home / "reminders.json"):
+                f.unlink(missing_ok=True)
+            for d in (home / "files", home / "backups"):
+                shutil.rmtree(d, ignore_errors=True)
+            paths.save_vaults([{**v, "name": "My vault"} if v["id"] == vid else v for v in paths.vaults()])
+        else:
+            shutil.rmtree(home, ignore_errors=True)
+            paths.save_vaults([v for v in paths.vaults() if v["id"] != vid])
+        cfg = config.load()
+        cfg.pop("last_vault", None)
+        config.save(cfg)
+        return {"ok": True}
 
     def language_state(self) -> dict:
         return {"pick": i18n.choice(), "lang": i18n.language()}
@@ -148,7 +247,13 @@ class Api:
             config.save(cfg)
         return self.autolock_state()
 
-    def unlock(self, password: str) -> dict:
+    def unlock(self, password: str, vault: str = "") -> dict:
+        vid = str(vault or _last_vault())
+        if not any(v["id"] == vid for v in paths.vaults()):
+            return {"ok": False, "error": "That vault isn't here any more."}
+        if self._vault is not None and paths.current() != vid:
+            self.lock()
+        paths.select(vid)
         path = paths.vault_path()
         try:
             with self._lock:
@@ -163,6 +268,11 @@ class Api:
         except crypto.VaultFormatError as exc:
             return {"ok": False, "error": str(exc)}
         self._last_activity = time.time()
+        cfg = config.load()
+        cfg["last_vault"] = vid                    # offered first next time
+        config.save(cfg)
+        if self._vault.vault_id:
+            paths.remember_vault_id(self._vault.vault_id)
         self._vault.on_save = self._saved
         self._saved()
         try:
@@ -176,6 +286,7 @@ class Api:
     def lock(self) -> dict:
         with self._lock:
             self._vault = None
+            self._undo = []
         self.sync_cancel()
         self._stop_connector()
         clipboard.wipe_now()
@@ -215,6 +326,8 @@ class Api:
                             else str(data[key] or "").strip())
             e.custom = _str_map(data.get("custom"))
             e.fields = _str_map(data.get("fields"))
+            if "local_only" in data:
+                e.local_only = bool(data["local_only"])
             keep_old_password(e, old_password)
             if isinstance(data.get("password_policy"), dict):
                 e.password_policy = PasswordPolicy.from_dict(data["password_policy"]).to_dict()
@@ -236,6 +349,48 @@ class Api:
         with self._lock:
             v.delete(entry_id)
         return {"ok": True}
+
+    def delete_entries(self, ids) -> dict:
+        """Delete several at once. What was in them is kept in memory, for Undo,
+        until it's used or MyVault locks."""
+        v = self._need()
+        with self._lock:
+            found = [e for e in (v.get(str(i)) for i in (ids or [])) if e and not e.deleted]
+            self._undo = [e.to_dict() for e in found]
+            for e in found:
+                e.wipe()
+                e.touch()
+            v.save()
+        return {"ok": True, "count": len(found)}
+
+    def set_local_only(self, ids, on: bool) -> dict:
+        """Keep entries on this PC only (never synced), or let them sync again."""
+        v = self._need()
+        with self._lock:
+            found = [e for e in (v.get(str(i)) for i in (ids or [])) if e and not e.deleted]
+            for e in found:
+                e.local_only = bool(on)
+                e.touch()          # so a "sync again" goes out at the next sync
+            v.save()
+        return {"ok": True, "count": len(found)}
+
+    def undo_delete(self) -> dict:
+        """Bring back what the last delete_entries() removed. A restored entry is
+        newer than its deletion, so the next sync brings it back elsewhere too."""
+        v = self._need()
+        with self._lock:
+            back, self._undo = self._undo, []
+            for d in back:
+                restored = Entry.from_dict({**d, "deleted": False})
+                restored.touch()
+                cur = v.get(restored.id)
+                if cur:
+                    cur.__dict__.update(restored.__dict__)
+                else:
+                    v.entries.append(restored)
+            if back:
+                v.save()
+        return {"ok": bool(back), "count": len(back)}
 
     def read_text_file(self) -> dict:
         """Pick a key file (e.g. ~/.ssh/id_ed25519) and return its text."""
@@ -309,6 +464,26 @@ class Api:
             return {"ok": False}
         target = Path(picked if isinstance(picked, str) else picked[0])
         target.write_bytes(data)
+        return {"ok": True, "path": str(target)}
+
+    def doc_export(self, refs, fmt: str, name: str = "") -> dict:
+        """Save files, decrypted, as one PDF or Word document (all of them, like a
+        photocopy) or as PNG/JPEG (the first), wherever you choose."""
+        self._need()
+        if fmt not in export.FORMATS:
+            return {"ok": False, "error": "Unknown format."}
+        refs = refs if isinstance(refs, list) else [refs]
+        try:
+            out = export.export([docs.open_sealed(r) for r in refs], fmt)
+        except (ValueError, RuntimeError) as exc:
+            return {"ok": False, "error": str(exc)}
+        ext, _ = export.FORMATS[fmt]
+        base = Path(str(name or (refs[0].get("name") if refs else "") or "document")).stem[:80] or "document"
+        picked = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=f"{base}.{ext}")
+        if not picked:
+            return {"ok": False}
+        target = Path(picked if isinstance(picked, str) else picked[0])
+        target.write_bytes(out)
         return {"ok": True, "path": str(target)}
 
     def doc_settings(self) -> dict:
@@ -443,7 +618,7 @@ class Api:
         return self.autostart_state()
 
     def folders(self) -> dict:
-        return {"data": str(paths.data_dir()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
+        return {"data": str(paths.vault_home()), "app": str(app_dir()), "extension": str(EXTENSION_DIR)}
 
     def open_doc(self, name: str) -> dict:
         """Open one of MyVault's published documents in the browser (fixed list, never a free URL)."""
@@ -455,7 +630,7 @@ class Api:
     def open_folder(self, which: str) -> dict:
         """Open one of MyVault's own folders in Explorer (paths found at runtime,
         so they're right on any machine). Nothing outside these."""
-        target = {"data": paths.data_dir(), "app": app_dir(), "extension": EXTENSION_DIR,
+        target = {"data": paths.vault_home(), "app": app_dir(), "extension": EXTENSION_DIR,
                   "backups": _backups_dir()}.get(which)
         if target is None or not target.is_dir():
             return {"ok": False, "error": "That folder isn't there."}
@@ -473,11 +648,12 @@ class Api:
         return {"ok": clipboard.copy_secret(str(text), clear_after=0)}
 
     # ---- QR sync -----------------------------------------------------------
-    def sync_start(self) -> dict:
+    def sync_start(self, only=None) -> dict:
+        """Show a sync code. With [only] (entry ids), just those take part."""
         self._need()
         self.sync_cancel()
         try:
-            self._pairing = sync.PairingSession(_SyncProvider(self))
+            self._pairing = sync.PairingSession(_SyncProvider(self, only if isinstance(only, list) else None))
         except OSError as exc:
             return {"ok": False, "error": f"Couldn't open the sync port: {exc}"}
         qr = segno.make(self._pairing.uri, error="m")
@@ -487,6 +663,20 @@ class Api:
         return {"ok": True, "svg": svg, "uri": self._pairing.uri, "ttl": sync.PAIRING_TTL,
                 "hosts": hosts, "public": _network_is_public(hosts[0])}
 
+    def phone_unlock_start(self, vault: str) -> dict:
+        """A code on the lock screen: the phone scans it and unlocks this vault."""
+        vid = str(vault or _last_vault())
+        if not any(v["id"] == vid for v in paths.vaults()):
+            return {"ok": False, "error": "That vault isn't here any more."}
+        self.sync_cancel()
+        try:
+            self._pairing = sync.PairingSession(None, unlocker=_Unlocker(self, vid))
+        except OSError as exc:
+            return {"ok": False, "error": f"Couldn't open the sync port: {exc}"}
+        qr = segno.make(self._pairing.uri, error="m")
+        svg = qr.svg_inline(scale=8, border=4, dark="#000000", light="#FFFFFF", omitsize=True)
+        return {"ok": True, "svg": svg, "ttl": sync.PAIRING_TTL, "public": _network_is_public(sync.parse_uri(self._pairing.uri)[0][0])}
+
     def sync_status(self) -> dict:
         s = self._pairing
         if s is None:
@@ -494,7 +684,8 @@ class Api:
         r = s.result
         out = {"state": s.state, "seconds_left": max(0, int(s.expires_at - time.time())),
                "changed": r.added_or_updated if r else 0,
-               "rejected": s.failed_attempts, "error": s.last_error, "version": __version__}
+               "rejected": s.failed_attempts, "error": s.last_error, "version": __version__,
+               "unlocked": self._vault is not None}
         if r:
             out.update(peer_version=r.peer_version, received=r.received, sent=r.sent,
                        update_error=r.update_error, files_received=r.files_received, files_error=r.files_error)
@@ -770,10 +961,32 @@ class Api:
 
 
 class _SyncProvider:
-    """What sync.py needs (runs on the pairing thread)."""
+    """What sync.py needs (runs on the pairing thread). With [only], just those
+    of this PC's entries take part; new entries from the phone still arrive.
+    Entries kept on this PC (local_only) never take part."""
 
-    def __init__(self, api: Api):
+    def __init__(self, api: Api, only=None):
         self.api = api
+        self.only = None if only is None else {str(i) for i in only}
+
+    def _held(self, e: Entry) -> bool:
+        return e.local_only or (self.only is not None and e.id not in self.only)
+
+    def vault_identity(self) -> tuple[str, str]:
+        v = self.api._need()
+        if not v.vault_id:                       # its first sync: the phone will adopt this
+            with self.api._lock:
+                v.vault_id = uuid.uuid4().hex
+                v.save()
+            paths.remember_vault_id(v.vault_id)
+        name = next((x["name"] for x in paths.vaults() if x["id"] == paths.current()), "My vault")
+        return v.vault_id, name
+
+    def adopt_vault_id(self, vid: str) -> None:
+        v = self.api._need()
+        with self.api._lock:
+            v.vault_id = vid
+        paths.remember_vault_id(vid)
 
     # -- version + update hand-over --
     def app_version(self) -> str:
@@ -800,7 +1013,7 @@ class _SyncProvider:
 
     def get_entries(self) -> list[dict]:
         with self.api._lock:
-            return [e.to_dict() for e in self.api._need().entries]
+            return [e.to_dict() for e in self.api._need().entries if not self._held(e)]
 
     # -- document files --
     def file_sync(self) -> bool:
@@ -822,13 +1035,55 @@ class _SyncProvider:
     def apply_merged(self, merged: list[dict]) -> int:
         with self.api._lock:
             v = self.api._need()
-            before = {e.id: e.updated_at for e in v.entries}
-            v.entries = [Entry.from_dict(d) for d in merged]
+            by_id = {e.id: e for e in v.entries}
+            changed = 0
+            for d in merged:
+                cur = by_id.get(d["id"])
+                if cur is not None and self._held(cur):
+                    continue                     # kept as it is on this PC
+                if cur is None or float(d.get("updated_at", 0)) > cur.updated_at:
+                    by_id[d["id"]] = Entry.from_dict(d)
+                    changed += 1
+            v.entries = list(by_id.values())
             v.save()
-            changed = sum(1 for e in v.entries
-                          if before.get(e.id) is None or e.updated_at > before[e.id])
         self.api._js("MV.refresh()")
         return changed
+
+
+class _Unlocker:
+    """What sync.py's unlock code needs: this PC's vault, opened with the
+    password the phone sends, or a new vault made from the phone's."""
+
+    version = __version__
+
+    def __init__(self, api: Api, vid: str):
+        self.api, self.vid = api, vid
+
+    def identity(self) -> tuple[str, str]:
+        v = next(x for x in paths.vaults() if x["id"] == self.vid)
+        return v["vault_id"], v["name"]
+
+    def unlock(self, password: str) -> bool:
+        return bool(password) and self.api.unlock(password, self.vid).get("ok", False)
+
+    def create(self, name: str, password: str, vault_id: str) -> str:
+        """A new vault on this PC with the phone's name and password; the PC's
+        own vault stays as it is."""
+        r = self.api.unlock(password, paths.new_vault(_free_name(name or "Phone vault")))     # (not create_vault: that locks, ending this code)
+        if not r.get("ok"):
+            return r.get("error", "Couldn't make the vault.")
+        with self.api._lock:
+            self.api._vault.vault_id = vault_id if re.fullmatch(r"[0-9a-f]{32}", vault_id or "") else uuid.uuid4().hex
+            self.api._vault.save()
+        paths.remember_vault_id(self.api._vault.vault_id)
+        return ""
+
+    def summary(self) -> dict:
+        with self.api._lock:
+            return {e.id: e.updated_at for e in self.api._need().entries if not e.local_only}
+
+    def provider(self) -> "_SyncProvider":
+        return _SyncProvider(self.api)
 
 
 class _ConnectorProvider:
@@ -915,6 +1170,41 @@ def _daily_backup() -> None:
     shutil.copy2(src, target)
     for old in sorted(d.glob("vault-*.dat"))[:-BACKUP_DAYS]:
         old.unlink()
+
+
+def _free_name(name: str) -> str:
+    """[name], or "name (2)"... when a vault here already has it."""
+    names = {v["name"].casefold() for v in paths.vaults()}
+    base = name.strip()[:30] or "My vault"
+    name, n = base, 2
+    while name.casefold() in names:
+        name, n = f"{base} ({n})", n + 1
+    return name
+
+
+def _add_copy(src: Path) -> dict:
+    try:
+        meta, z = copies.read_encrypted(src)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc)}
+    with z:
+        vid = paths.new_vault(_free_name(str(meta.get("name") or "My vault")))
+        try:
+            copies.unpack(z, paths.vault_home(vid))
+        except OSError as exc:
+            shutil.rmtree(paths.vault_home(vid), ignore_errors=True)
+            paths.save_vaults([v for v in paths.vaults() if v["id"] != vid])
+            return {"ok": False, "error": f"Couldn't add the copy: {exc}"}
+    vault_id = str(meta.get("vault_id") or "")
+    if re.fullmatch(r"[0-9a-f]{32}", vault_id):
+        paths.save_vaults([{**v, "vault_id": vault_id} if v["id"] == vid else v for v in paths.vaults()])
+    return {"ok": True, "vault": vid}
+
+
+def _last_vault() -> str:
+    """The vault opened last (the lock screen offers it first)."""
+    last = config.load().get("last_vault")
+    return last if any(v["id"] == last for v in paths.vaults()) else paths.DEFAULT
 
 
 def _autolock_minutes() -> int:

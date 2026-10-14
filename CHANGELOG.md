@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0 (6 October 2026)
+
+- **Several vaults** (Windows and Android), such as Work, Home and Others, each a separate encrypted file with its own master password (it can be the same as another's), its own files, backups and reminders. Choose one on the lock screen, or **New vault…**; rename or delete them in Settings › Vaults (menu › Vaults on the phone). Deleting one asks for its exact name and its master password.
+- **Unlock the PC with your phone.** The PC's lock screen has **Unlock with my phone**: scan its code from the phone's **Sync with PC** and confirm, and the phone sends that vault's master password over the code's one-time encrypted link. It only does that when it's the same vault as the one open on the phone; otherwise (or when the passwords differ) it offers to create the phone's vault on the PC instead, leaving the PC's own vault as it is. If the two copies differ, it asks whether to sync now.
+- **A sync never mixes two vaults.** Each vault gets an id at its first sync; if the phone and PC have different vaults open, the sync stops, with **Sync anyway** to merge them on purpose.
+- **Choose what to sync.** Sync everything (the default) or **Choose what to sync…** for this time only; and **Keep on this PC/phone only** for entries that should never sync.
+- **Select several entries** (right-click or long-press, then tick) to delete them at once, keep them on this device or let them sync again. Deleting asks first and offers **Undo**.
+- **Download documents** as PDF, Word, PNG or JPEG, and scans get a **scanned look** (clean white paper, sharp text) or black and white; ID cards print at their real size, two to a page.
+- **A copy of a vault** (Settings › A copy of this vault; menu › Vaults on the phone): **encrypted** (opens only with its master password; add it back on either device with **Add a vault from a copy…**) or **readable** (entries, a logins.csv other password managers import, and the files), behind a warning and the master password.
+- **Uninstalling on Windows asks** whether to keep your vaults (they stay encrypted; it shows where), save a copy first, or delete them too. On Android, uninstalling deletes the app's vaults; Android may offer to keep the app's data, and the Vaults page says so and offers a copy.
+- A padlock on the logo.
+
 ## 0.7.0 (6 October 2026)
 
 - **No Google components any more** (phone). Google's ML Kit text reader, its document scanner and the ML Kit QR reader sent Google usage statistics (device and app information, performance data; never images or text). They're replaced by open-source parts that run on the phone and send nothing: Tesseract reads the text (and now Arabic too), zxing-cpp reads QR codes, and **Scan document** is MyVault's own: your camera app takes the photo (with its own flash), then MyVault finds the card's edges, you adjust the corners, and it's straightened. The app is 7 MB smaller.
